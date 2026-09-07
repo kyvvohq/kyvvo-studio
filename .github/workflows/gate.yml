@@ -39,11 +39,19 @@ jobs:
 
       # Dois projetos npm independentes — não há root package.json, `npm ci`
       # na raiz dava EUSAGE.
+      #
+      # É `npm install` e não `npm ci` de propósito: os package-lock.json
+      # versionados foram gerados antes da adoção dos pacotes @kyvvohq/* e não
+      # os contêm (o container em produção sempre rodou `npm install`, que
+      # tolera o lock defasado e o atualiza em disco). `npm ci` exige lock 100%
+      # em sincronia e quebra com "Missing: @kyvvohq/... from lock file".
+      # Voltar para `npm ci` assim que locks frescos forem commitados — rodar
+      # `npm install` em server/ e server/panel/ com NPM_PACKAGES_TOKEN no env.
       - name: Instalar dependências (landing)
-        run: npm ci
+        run: npm install --no-audit --no-fund --no-package-lock
         working-directory: server
       - name: Instalar dependências (painel)
-        run: npm ci
+        run: npm install --no-audit --no-fund --no-package-lock
         working-directory: server/panel
 
       - name: Aplicar migrations do zero, em ordem
@@ -66,3 +74,36 @@ jobs:
           npx playwright install --with-deps chromium
           npx playwright test
         working-directory: server/panel
+
+  # Barra PR que toca infra/CI/migrations/serviços externos sem selo humano.
+  # Dependabot fica de fora (bumps de versão de action são revisados no merge).
+  caminhos-protegidos:
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Exigir label 'revisado:infra' para mexer em caminho protegido
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          case " $LABELS " in
+            *" revisado:infra "*)
+              echo "PR carrega o selo 'revisado:infra' — liberado."
+              exit 0 ;;
+          esac
+          PROTEGIDOS='^(\.github/|CLAUDE\.md|server/db/|server/scripts/|server/\.npmrc|server/panel/\.npmrc|server/package\.json|server/panel/package\.json|server/panel/(asaas|meta-whatsapp|anthropic|evolution)-service\.js)'
+          MUDOU=$(git diff --name-only "$BASE" "$HEAD" | grep -E "$PROTEGIDOS" || true)
+          if [ -n "$MUDOU" ]; then
+            echo "::error::PR toca caminho protegido sem a label 'revisado:infra'."
+            echo "Arquivos:"
+            echo "$MUDOU" | sed 's/^/  - /'
+            echo
+            echo "Se a mudança é intencional e foi revisada por um humano,"
+            echo "aplique a label 'revisado:infra' na PR e rode o gate de novo."
+            exit 1
+          fi
+          echo "Nenhum caminho protegido tocado."
