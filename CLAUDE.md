@@ -70,9 +70,10 @@ also static).
   migrations applied from zero against a `postgres:16` service container, then
   `tests-unit/` and Playwright (Playwright is `continue-on-error` until the
   external services are stubbed). A second job, `caminhos-protegidos`, fails any
-  PR that touches `.github/`, `CLAUDE.md`, `server/db/`, `server/scripts/`, an
-  `.npmrc`, a `package.json`, or a `*-service.js` unless the PR carries the
-  `revisado:infra` label (Dependabot is exempt). Install is `npm install`, not
+  PR that touches `.github/workflows/`, `.github/dependabot.yml`, `CODEOWNERS`,
+  `CLAUDE.md`, `server/db/`, `server/scripts/`, an `.npmrc`, a `package.json`,
+  or a `*-service.js` unless the PR carries the `revisado:infra` label
+  (Dependabot is exempt). Install is `npm install`, not
   `npm ci`, because the committed `package-lock.json` files predate the
   `@kyvvohq/*` packages — restore `npm ci` once fresh locks are committed.
 - **`deploy.yml`** triggers on push to the **`release`** branch (not `main`),
