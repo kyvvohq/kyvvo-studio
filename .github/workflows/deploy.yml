@@ -48,7 +48,7 @@ jobs:
             echo 'KEYEOF'
           } >> "$GITHUB_OUTPUT"
       - name: Copiar arquivos da landing page pra EC2
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
@@ -88,7 +88,7 @@ jobs:
           echo "{\"commit\":\"${COMMIT_CURTO}\",\"deployedAt\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > server/panel/version.json
           sed -i "s/__COMMIT_SHA__/${COMMIT_CURTO}/" server/panel/public/admin/version.js
       - name: Copiar arquivos do painel pra EC2
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
