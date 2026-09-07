@@ -58,9 +58,18 @@ jobs:
         run: npm install --no-audit --no-fund --no-package-lock
         working-directory: server/panel
 
+      # server/db/ mistura migration de schema com fixture de dev. As fixtures
+      # abaixo assumem um tenant criado à mão em produção (UUID chumbado) e
+      # estouram FK quando rodam do zero — não são schema, ficam de fora do gate.
       - name: Aplicar migrations do zero, em ordem
+        env:
+          PULAR: "006_massa_dados.sql 017_seed_petshop_demo.sql"
         run: |
           for f in $(ls server/db/*.sql | sort); do
+            base=$(basename "$f")
+            case " $PULAR " in
+              *" $base "*) echo "· pulando $base (fixture de dev, não é schema)"; continue ;;
+            esac
             echo "→ $f"
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
           done

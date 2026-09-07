@@ -1,0 +1,66 @@
+name: Tarefa para agente
+description: Tarefa pequena e fechada para o agente de IA implementar via PR.
+title: "[agente] "
+labels: ["tarefa"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use para trabalho pequeno, com critério de aceite testável. Depois de
+        abrir, **aplique uma label `agent:*`** (`agent:tests`, `agent:admin`,
+        `agent:panel`, `agent:landing`) para disparar o workflow — a label
+        define o único diretório que o agente pode tocar.
+
+        Nada que mexa em caminho protegido (`.github/workflows/`, `server/db/`,
+        `.npmrc`, `package.json`, `*-service.js`, `CLAUDE.md`) vai por aqui —
+        isso é PR humano com a label `revisado:infra`.
+  - type: dropdown
+    id: categoria
+    attributes:
+      label: Categoria
+      description: Qual label `agent:*` vai ser aplicada.
+      options:
+        - "agent:tests — só server/panel/tests/ e server/panel/tests-unit/"
+        - "agent:panel — server/panel/ (front + rotas do painel do tenant)"
+        - "agent:admin — server/panel/public/admin/ + rotas de admin"
+        - "agent:landing — server/ (landing Express)"
+    validations:
+      required: true
+  - type: textarea
+    id: objetivo
+    attributes:
+      label: Objetivo
+      description: O que precisa existir ao final. Uma ou duas frases.
+    validations:
+      required: true
+  - type: textarea
+    id: aceite
+    attributes:
+      label: Critério de aceite
+      description: Lista verificável. De preferência "teste X passa", "tela Y mostra Z".
+      placeholder: |
+        - [ ] node --test server/panel/tests-unit/recorrencia.test.js passa
+        - [ ] caso de borda: recorrência semanal que cruza virada de mês
+    validations:
+      required: true
+  - type: textarea
+    id: arquivos
+    attributes:
+      label: Arquivos / áreas prováveis
+      description: Onde você acha que a mudança mora. Ajuda o agente a não vagar.
+    validations:
+      required: false
+  - type: textarea
+    id: fora
+    attributes:
+      label: Fora de escopo
+      description: O que explicitamente NÃO deve mudar nesta tarefa.
+    validations:
+      required: false
+  - type: textarea
+    id: contexto
+    attributes:
+      label: Contexto / links
+      description: Screenshots, PRs relacionadas, trechos de log.
+    validations:
+      required: false
