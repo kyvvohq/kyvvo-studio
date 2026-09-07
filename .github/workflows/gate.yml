@@ -1,6 +1,10 @@
 name: Gate
 
-on: [pull_request]
+# labeled/unlabeled entram para que aplicar (ou tirar) o selo 'revisado:infra'
+# re-rode o gate sem precisar de um commit vazio.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 jobs:
   verificar:
