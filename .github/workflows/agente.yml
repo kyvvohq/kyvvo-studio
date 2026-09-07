@@ -1,0 +1,60 @@
+name: Agente
+
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: agente-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  dev:
+    if: >
+      github.event.label.name == 'agent:tests' ||
+      github.event.label.name == 'agent:admin' ||
+      github.event.label.name == 'agent:panel' ||
+      github.event.label.name == 'agent:landing'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: "@kyvvohq"
+
+      - run: npm ci
+        working-directory: server
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE: #${{ github.event.issue.number }}
+            LABEL: ${{ github.event.label.name }}
+
+            Implemente este issue seguindo integralmente o CLAUDE.md da raiz,
+            incluindo a lista de caminhos protegidos e o fluxo obrigatório.
+
+            A label indica a categoria permitida. `agent:tests` significa que
+            você só pode alterar arquivos em server/panel/tests/ e
+            server/panel/tests-unit/ — nada além disso.
+
+            Abra um pull request com
+            "Closes #${{ github.event.issue.number }}" na descrição.
+          claude_args: |
+            --max-turns 30
+            --allowedTools Read,Glob,Grep,Edit,Write,Bash
