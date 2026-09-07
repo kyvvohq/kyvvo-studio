@@ -5,7 +5,7 @@ name: Deploy scripts to EC2
 
 on:
   push:
-    branches: [main]
+    branches: [release]
     paths:
       - "server/scripts/**"
   workflow_dispatch:
