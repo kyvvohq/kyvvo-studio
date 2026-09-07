@@ -5,7 +5,7 @@ on:
     types: [labeled]
 
 concurrency:
-  group: agente-${{ github.event.issue.number }}git p
+  group: agente-${{ github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
@@ -34,7 +34,12 @@ jobs:
       - run: npm ci
         working-directory: server
         env:
+          # setup-node grava um .npmrc no runner que usa NODE_AUTH_TOKEN, mas
+          # o server/.npmrc versionado tem precedência e expande
+          # ${NPM_PACKAGES_TOKEN} — precisa dos dois no env, senão o token
+          # some e o npm.pkg.github.com devolve E401.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
+          NPM_PACKAGES_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
 
       - uses: anthropics/claude-code-action@v1
         with:
