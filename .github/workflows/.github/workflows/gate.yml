@@ -1,0 +1,55 @@
+name: Gate
+
+on: [pull_request]
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kyvvo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/kyvvo_test
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+          scope: "@kyvvohq"
+
+      - name: Instalar dependências
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
+
+      - name: Aplicar migrations em ordem
+        run: |
+          for f in $(ls server/db/*.sql | sort); do
+            echo "→ $f"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: Testes unitários
+        run: node --test server/panel/tests-unit/
+
+      - name: Testes de integração (Playwright)
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test
+        working-directory: server/panel
