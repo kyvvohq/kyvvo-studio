@@ -24,16 +24,25 @@ jobs:
       id-token: write
       actions: read
     steps:
+<<<<<<< HEAD
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v5
+=======
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+>>>>>>> a4325abc3ffbc66aaf466e1dca23f0cf56295e65
         with:
           node-version: 22
           registry-url: https://npm.pkg.github.com
           scope: "@kyvvohq"
 
       - run: npm ci
+<<<<<<< HEAD
         working-directory: server
+=======
+>>>>>>> a4325abc3ffbc66aaf466e1dca23f0cf56295e65
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
 
