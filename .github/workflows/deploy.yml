@@ -57,7 +57,7 @@ jobs:
           target: "/opt/kyvvo/landing"
           strip_components: 1
       - name: Reiniciar container da landing
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
@@ -97,7 +97,7 @@ jobs:
           target: "/opt/kyvvo/panel"
           strip_components: 2
       - name: Reiniciar container do painel
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
