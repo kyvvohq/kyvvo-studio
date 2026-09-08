@@ -67,5 +67,5 @@ jobs:
             Abra um pull request com
             "Closes #${{ github.event.issue.number }}" na descrição.
           claude_args: |
-            --max-turns 30
+            --max-turns 60
             --allowedTools Read,Glob,Grep,Edit,Write,Bash
