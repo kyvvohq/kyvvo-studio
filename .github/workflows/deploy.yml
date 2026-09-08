@@ -18,7 +18,7 @@ jobs:
       landing: ${{ steps.filter.outputs.landing }}
       panel: ${{ steps.filter.outputs.panel }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
@@ -36,7 +36,7 @@ jobs:
     if: needs.changes.outputs.landing == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Preparar chave SSH
         id: sshkey
         run: |
@@ -71,7 +71,7 @@ jobs:
     if: needs.changes.outputs.panel == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Preparar chave SSH
         id: sshkey
         run: |
