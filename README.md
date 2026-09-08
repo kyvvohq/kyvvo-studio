@@ -63,3 +63,5 @@ Ambos scp pra `/opt/kyvvo/{landing,panel}` na EC2 e rodam
 
 Secrets necessários no repo: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY_B64`,
 `NPM_PACKAGES_TOKEN`.
+
+<!-- teste de branch protection -->
