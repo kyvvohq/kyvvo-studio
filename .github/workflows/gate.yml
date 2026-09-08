@@ -10,13 +10,9 @@ jobs:
   verificar:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # PR do Dependabot roda com token read-only e SEM acesso aos secrets de
-    # Actions — NPM_PACKAGES_TOKEN vem vazio e o npm install dá E401 no
-    # GitHub Packages. Enquanto o token não estiver nos *Dependabot secrets*
-    # (Settings > Secrets > Dependabot), o gate pesado não roda pra ele; esses
-    # PRs (bump de versão de action / de dependência) são conferidos no merge.
-    # Quando o secret existir lá, remover este if.
-    if: github.actor != 'dependabot[bot]'
+    # Roda pra todo mundo, Dependabot incluído: o NPM_PACKAGES_TOKEN está nos
+    # Dependabot secrets (Settings > Secrets > Dependabot), então o npm install
+    # autentica no GitHub Packages também nas PRs de bump.
 
     services:
       postgres:
@@ -100,6 +96,9 @@ jobs:
   # Dependabot fica de fora (bumps de versão de action são revisados no merge).
   caminhos-protegidos:
     runs-on: ubuntu-latest
+    # Este fica: bump do Dependabot mexe em .github/workflows/ e package.json
+    # (caminhos protegidos) e ele não tem como aplicar a label 'revisado:infra'
+    # — sem o if, toda PR de bump reprovaria aqui.
     if: github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v7

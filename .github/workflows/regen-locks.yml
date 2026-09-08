@@ -1,0 +1,58 @@
+name: Regenerar package-lock
+
+# Uso único (workflow_dispatch): roda `npm install` em server/ e server/panel/
+# com o NPM_PACKAGES_TOKEN do repo e abre uma PR com os package-lock.json
+# atualizados — os versionados foram gerados antes dos pacotes @kyvvohq/* e
+# não os contêm, o que impede voltar o gate para `npm ci`.
+# Pode apagar este arquivo depois que a PR dos locks entrar.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
+      NPM_PACKAGES_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+          scope: "@kyvvohq"
+
+      - name: npm install (landing)
+        run: npm install --no-audit --no-fund
+        working-directory: server
+
+      - name: npm install (painel)
+        run: npm install --no-audit --no-fund
+        working-directory: server/panel
+
+      - name: Abrir PR se os locks mudaram
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet -- server/package-lock.json server/panel/package-lock.json; then
+            echo "Locks já estão em dia — nada a fazer."
+            exit 0
+          fi
+          BRANCH="ci/regen-package-locks"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add server/package-lock.json server/panel/package-lock.json
+          git commit -m "CI: regenera package-lock.json com os pacotes @kyvvohq/*"
+          git push -f origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" \
+            --label "revisado:infra" \
+            --title "CI: regenera package-lock.json com os pacotes @kyvvohq/*" \
+            --body "Gerado pelo workflow \`regen-locks.yml\`. Depois de mergear, trocar \`npm install --no-package-lock\` de volta por \`npm ci\` no gate e no agente, e apagar o \`regen-locks.yml\`." \
+          || echo "PR não criada automaticamente — abra em: https://github.com/${{ github.repository }}/compare/main...$BRANCH"
