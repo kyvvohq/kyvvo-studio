@@ -14,7 +14,7 @@ set -uo pipefail
 REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 ENV_DIR="${ENV_DIR:-/opt/kyvvo/env}"
 SSM_PREFIX="${SSM_PREFIX:-/kyvvo}"
-SERVICES="${SERVICES:-postgres n8n landing studio people platform}"
+SERVICES="${SERVICES:-postgres n8n landing studio people platform admin}"
 
 mkdir -p "$ENV_DIR"
 chmod 700 "$ENV_DIR"
