@@ -3,7 +3,6 @@
 // POST /webhook/whatsapp (roteador: IA Engine pra tecnologia='ia', repasse
 // pro n8n pra tecnologia='bot').
 const metaWhatsappService = require('../meta-whatsapp-service');
-const evolutionService = require('../evolution-service');
 const { processarMensagemIA } = require('../lib/ia-engine');
 
 // Achado numa avaliação do bot (2026-08-19): antes, qualquer exceção não
@@ -14,7 +13,7 @@ const { processarMensagemIA } = require('../lib/ia-engine');
 const MENSAGEM_ERRO_GENERICO_IA = 'Desculpa, tive um probleminha aqui agora. Pode mandar sua mensagem de novo em instantes? 🙏';
 
 function registerWebhookWhatsappRoutes(fastify, pool) {
-  const TENANT_CAMPOS_WEBHOOK = `id, nome, telefone, instancia_whatsapp, meta_phone_number_id, tecnologia,
+  const TENANT_CAMPOS_WEBHOOK = `id, nome, telefone, meta_phone_number_id, tecnologia,
                 dias_funcionamento, horario_abertura, horario_fechamento,
                 horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim,
                 onboarding_horario_revisado, feriados_bloqueados`;
@@ -33,10 +32,9 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
     return reply.code(200).type('text/plain').send(query['hub.challenge'] || '');
   });
 
-  // US68.2 — roteador: recebe o webhook (Meta Cloud API ou, se algum dia
-  // voltar a existir, Evolution API) no lugar do n8n e decide, por
-  // tenant.tecnologia, se processa pelo IA Engine (US68) ou repassa sem
-  // alteração pro n8n (fluxo de bot atual, intocado). Sem auth — é um
+  // US68.2 — roteador: recebe o webhook da Meta Cloud API no lugar do n8n e
+  // decide, por tenant.tecnologia, se processa pelo IA Engine (US68) ou
+  // repassa sem alteração pro n8n (fluxo de bot atual, intocado). Sem auth — é um
   // webhook externo, mesmo padrão de rota pública já usado em /api/planos.
   // Tenant desconhecido/inativo, evento sem mensagem (ex.: status de
   // entrega) ou qualquer erro no processamento cai no repasse pro n8n —
@@ -71,21 +69,6 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
       // Sem messages[0] (ex.: webhook de status "delivered"/"read") ou sem
       // phone_number_id: não há o que processar — cai no repasse abaixo, que
       // é inofensivo (o n8n também ignora esses eventos na mesma condição).
-    } else if (body.instance) {
-      // Compat: Evolution API não está mais em uso, mas o repasse continua
-      // funcionando caso volte a existir — mesma lógica de antes.
-      const { rows } = await pool.query(
-        `SELECT ${TENANT_CAMPOS_WEBHOOK} FROM tenants WHERE instancia_whatsapp = $1 AND ativo = true LIMIT 1`,
-        [body.instance]
-      );
-      tenant = rows[0] || null;
-      const data = body.data || {};
-      if (data.key && !data.key.fromMe) {
-        telefone = (data.key.remoteJid || '').replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
-        mensagem = (data.message && (data.message.conversation || (data.message.extendedTextMessage && data.message.extendedTextMessage.text))) || '';
-        pushName = data.pushName || null;
-        enviarResposta = (numero, texto) => evolutionService.enviarTexto(tenant.instancia_whatsapp, numero, texto);
-      }
     }
 
     if (tenant && tenant.tecnologia === 'ia' && telefone && mensagem && mensagem.trim()) {
