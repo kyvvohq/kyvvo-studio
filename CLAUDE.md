@@ -66,16 +66,16 @@ also static).
 
 ## CI / deploy
 
-- **`gate.yml`** — the PR gate: `npm install` in `server/` + `server/panel/`,
+- **`gate.yml`** — the PR gate: `npm ci` in `server/` + `server/panel/`,
   migrations applied from zero against a `postgres:16` service container, then
   `tests-unit/` and Playwright (Playwright is `continue-on-error` until the
   external services are stubbed). A second job, `caminhos-protegidos`, fails any
   PR that touches `.github/workflows/`, `.github/dependabot.yml`, `CODEOWNERS`,
   `CLAUDE.md`, `server/db/`, `server/scripts/`, an `.npmrc`, a `package.json`,
   or a `*-service.js` unless the PR carries the `revisado:infra` label
-  (Dependabot is exempt). Install is `npm install`, not
-  `npm ci`, because the committed `package-lock.json` files predate the
-  `@kyvvohq/*` packages — restore `npm ci` once fresh locks are committed.
+  (`caminhos-protegidos` skips Dependabot PRs — their bumps hit protected paths
+  and can't carry the label; `verificar` runs for everyone since
+  `NPM_PACKAGES_TOKEN` is in the Dependabot secrets).
 - **`deploy.yml`** triggers on push to the **`release`** branch (not `main`),
   path-filtered: landing files → recreate `landing` container; `server/panel/**`
   → recreate `studio`. scp to `/opt/kyvvo/{landing,panel}` on EC2, then
