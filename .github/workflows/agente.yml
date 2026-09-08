@@ -64,8 +64,10 @@ jobs:
             você só pode alterar arquivos em server/panel/tests/ e
             server/panel/tests-unit/ — nada além disso.
 
-            Abra um pull request com
-            "Closes #${{ github.event.issue.number }}" na descrição.
+            OBRIGATÓRIO no fim: faça commit, push da sua branch e **abra a PR
+            você mesmo** com
+            `gh pr create --base main --head <sua-branch> --title "<título>" --body "<resumo>\n\nCloses #${{ github.event.issue.number }}"`.
+            A tarefa não está concluída sem a PR aberta.
           claude_args: |
             --max-turns 60
-            --allowedTools Read,Glob,Grep,Edit,Write,Bash
+            --allowedTools Read,Glob,Grep,Edit,Write,Bash,Bash(gh pr create:*)
