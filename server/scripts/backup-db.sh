@@ -12,6 +12,10 @@
 # Assume Postgres no serviço "postgres" do docker-compose.yml de /opt/kyvvo.
 # Ajuste POSTGRES_SERVICE/POSTGRES_USER/POSTGRES_DBS/BACKUP_DIR via env
 # (ou no /opt/kyvvo/.env, carregado abaixo).
+#
+# Usa `docker exec` no container (não `docker compose exec`): o cron roda como
+# `ubuntu` e o `docker compose` precisaria ler os env_file mode 600 (dono root)
+# do compose — o que quebrava o backup desde o cutover pro SSM (2026-09-02).
 set -uo pipefail
 
 COMPOSE_DIR="${COMPOSE_DIR:-/opt/kyvvo}"
@@ -22,6 +26,8 @@ if [ -f "$COMPOSE_DIR/.env" ]; then
 fi
 
 POSTGRES_SERVICE="${POSTGRES_SERVICE:-postgres}"
+# Resolve o nome do container pela label do compose (não lê o compose.yml).
+POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-$(docker ps --filter label=com.docker.compose.service=${POSTGRES_SERVICE} --format={{.Names}} | head -n1)}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_DBS="${POSTGRES_DBS:-railway kyvvo_people}"
 BACKUP_DIR="${BACKUP_DIR:-/opt/kyvvo/backups}"
@@ -39,8 +45,14 @@ for DB in $POSTGRES_DBS; do
   DEST="$BACKUP_DIR/$FILENAME"
   TMP_DEST="${DEST}.tmp"
 
+  if [ -z "$POSTGRES_CONTAINER" ]; then
+    echo "ERRO: container do Postgres (serviço '$POSTGRES_SERVICE') não encontrado" >&2
+    falhou=1
+    break
+  fi
+
   # pipefail garante que uma falha do pg_dump (não do gzip) derrube o status.
-  if ! docker compose exec -T "$POSTGRES_SERVICE" \
+  if ! docker exec -i "$POSTGRES_CONTAINER" \
         pg_dump -U "$POSTGRES_USER" -d "$DB" --no-owner --no-privileges \
         | gzip > "$TMP_DEST"; then
     echo "ERRO: pg_dump falhou para '$DB'" >&2
