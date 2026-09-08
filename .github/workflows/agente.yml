@@ -34,18 +34,15 @@ jobs:
       # setup-node grava um .npmrc no runner que usa NODE_AUTH_TOKEN, mas o
       # .npmrc versionado tem precedência e expande ${NPM_PACKAGES_TOKEN} —
       # precisa dos dois no env, senão o token some e o npm.pkg.github.com
-      # devolve E401. `npm install` (não `ci`): os package-lock.json versionados
-      # não têm os pacotes @kyvvohq/* (o container em prod sempre usou install);
-      # `npm ci` quebraria com "Missing: @kyvvohq/... from lock file". Voltar
-      # para `npm ci` quando locks frescos forem commitados.
+      # devolve E401.
       - name: Instalar dependências (landing)
-        run: npm install --no-audit --no-fund --no-package-lock
+        run: npm ci
         working-directory: server
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
           NPM_PACKAGES_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
       - name: Instalar dependências (painel)
-        run: npm install --no-audit --no-fund --no-package-lock
+        run: npm ci
         working-directory: server/panel
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_PACKAGES_TOKEN }}
