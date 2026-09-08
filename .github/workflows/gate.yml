@@ -83,6 +83,7 @@ jobs:
       # Remover o continue-on-error quando os serviços estiverem stubbados.
       - name: Testes de integração (Playwright)
         continue-on-error: true
+        timeout-minutes: 8   # se travar batendo em serviço externo, corta aqui e não come o budget do job
         run: |
           npx playwright install --with-deps chromium
           npx playwright test
