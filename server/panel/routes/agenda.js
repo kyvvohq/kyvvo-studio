@@ -10,6 +10,15 @@ const { ehFeriadoNacional } = require('../lib/feriados');
 const { dentroDoHorarioFuncionamento, buscarBloqueioConflitante, empurrarProximoDiaAberto } = require('../lib/horario-funcionamento');
 const { sincronizarLancamentoFinanceiro } = require('../lib/financeiro');
 const { garantirProfissionalPadrao } = require('../lib/profissionais');
+const { dispararAutomacoes } = require('../lib/automacoes');
+
+// PATCH status -> gatilho de automação (só quando o status muda de fato).
+const GATILHO_POR_STATUS = {
+  cancelado: 'agendamento_cancelado',
+  concluido: 'agendamento_concluido',
+  falta: 'agendamento_falta',
+  reagendado: 'agendamento_reagendado',
+};
 const { normalizarTelefoneCliente } = require('../lib/clientes');
 
 // Semanal/quinzenal são aditivos (7/14 dias vezes N a partir da âncora,
@@ -210,6 +219,14 @@ function registerAgendaRoutes(fastify, pool) {
        WHERE a.id = $1`,
       [id]
     );
+
+    // Automação por mudança de status (cancelado/concluido/falta/reagendado)
+    // — só quando o status muda de verdade. Best-effort.
+    const gatilho = status !== undefined && status !== atual.status ? GATILHO_POR_STATUS[status] : null;
+    if (gatilho) {
+      dispararAutomacoes(pool, { tenantId, gatilho, agendamento: detalhado[0] })
+        .catch((err) => request.log.error({ err }, `automacao ${gatilho}`));
+    }
 
     return detalhado[0];
   });
@@ -606,6 +623,13 @@ function registerAgendaRoutes(fastify, pool) {
         limite_atingido: limiteRecorrenciaAtingido,
       };
     }
+
+    // Automação "agendamento_criado" — só pro agendamento âncora (não uma
+    // por ocorrência da recorrência, viraria spam; a trava de 24h ampara o
+    // resto). Best-effort, não bloqueia a resposta.
+    dispararAutomacoes(pool, { tenantId, gatilho: 'agendamento_criado', agendamento: resposta })
+      .catch((err) => request.log.error({ err }, 'automacao agendamento_criado'));
+
     return resposta;
   });
 }

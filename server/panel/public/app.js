@@ -388,6 +388,7 @@ const ICON_PATHS = {
   wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
   'chart-column': '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
   kanban: '<path d="M5 3v14"/><path d="M12 3v8"/><path d="M19 3v18"/>',
+  zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   'sun-moon': '<path d="M12 2v2"/><path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715"/><path d="M16 12a4 4 0 0 0-4-4"/><path d="m19 5-1.256 1.256"/><path d="M20 12h2"/>',
 };
 
@@ -461,6 +462,7 @@ const ROTAS_MENU = {
   clientes: '/clientes',
   bloqueios: '/bloqueios',
   whatsapp: '/whatsapp',
+  automacoes: '/automacoes',
   pagamentos: '/cobranca',
   perfil: '/perfil',
   empresa: '/empresa',
@@ -2865,6 +2867,7 @@ async function render() {
   if (menuAtual === 'empresa') return renderMinhaEmpresa();
   if (menuAtual === 'equipe') return renderEquipe();
   if (menuAtual === 'whatsapp') return renderWhatsapp();
+  if (menuAtual === 'automacoes') return renderAutomacoes();
   // "Ajuda" (user menu, PR11) reaproveita o mesmo placeholder "em breve" já
   // usado pros módulos ainda não desenvolvidos.
   if (menuAtual === 'ajuda') return renderModuloEmBreve();
@@ -5974,6 +5977,100 @@ async function conectarWhatsapp(code, wabaId, phoneNumberId) {
     mostrarToast((resultado && resultado.error) || 'Erro ao conectar o WhatsApp.', 'erro');
   }
   renderWhatsapp();
+}
+
+// --- Automações -----------------------------------------------------------
+
+const AUTOMACAO_GATILHO_LABEL = {
+  agendamento_criado: 'Quando um agendamento é criado',
+  agendamento_cancelado: 'Quando um agendamento é cancelado',
+  agendamento_concluido: 'Depois de um atendimento concluído',
+  agendamento_falta: 'Quando o cliente falta (no-show)',
+  agendamento_reagendado: 'Quando um agendamento é remarcado',
+  lembrete_agendamento: 'Lembrete antes do agendamento',
+  aniversario_cliente: 'No aniversário do cliente',
+  cliente_inativo: 'Cliente sem agendar há um tempo',
+};
+
+async function renderAutomacoes() {
+  conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
+  const [dados, dadosTemplates] = await Promise.all([
+    api('/api/automacoes'),
+    api('/api/automacoes/templates-whatsapp'),
+  ]);
+  if (!dados) return;
+  const automacoesLista = dados.automacoes || [];
+  const templates = (dadosTemplates && dadosTemplates.templates) || [];
+  const semWhatsapp = !templates.length;
+
+  const aviso = semWhatsapp
+    ? `<div class="pagamento-plano-card" style="margin-bottom:16px">
+         <p style="margin:0">As automações mandam mensagem por <strong>WhatsApp</strong> usando modelos aprovados pela Meta.
+         Conecte o WhatsApp do seu negócio em <a href="#" id="link-ir-whatsapp">Configurações → WhatsApp</a> —
+         os modelos são criados e enviados pra aprovação automaticamente.</p>
+       </div>`
+    : '';
+
+  const opcoesTemplate = (selecionado) => `
+    <option value="">— escolher modelo —</option>
+    ${templates.map((t) => `
+      <option value="${escapeHtml(t.nome)}" ${t.nome === selecionado ? 'selected' : ''}>
+        ${escapeHtml(t.nome)}${t.status && t.status !== 'APPROVED' ? ` (${t.status.toLowerCase()})` : ''}
+      </option>`).join('')}
+  `;
+
+  const card = (a) => `
+    <div class="pagamento-plano-card" data-automacao="${a.id}" data-gatilho="${a.gatilho}" style="margin-bottom:14px">
+      <div class="pagamento-plano-linha" style="align-items:flex-start">
+        <div>
+          <strong>${escapeHtml(a.nome)}</strong>
+          <div style="color:var(--muted-strong);font-size:13px;margin-top:2px">${AUTOMACAO_GATILHO_LABEL[a.gatilho] || a.gatilho}</div>
+        </div>
+        <label class="toggle-linha">
+          <span class="toggle-switch">
+            <input type="checkbox" class="auto-ativo" ${a.ativo ? 'checked' : ''} ${a.removivel ? '' : 'disabled title="Obrigatória"'}>
+            <span class="toggle-switch-trilho"></span>
+          </span>
+        </label>
+      </div>
+      ${a.gatilho === 'lembrete_agendamento' ? `
+        <label style="display:block;margin-top:10px">Enviar
+          <input type="number" class="auto-horas" min="1" max="168" value="${a.lembrete_horas_antes || 24}" style="width:64px"> horas antes
+        </label>` : ''}
+      <label style="display:block;margin-top:10px">Modelo aprovado (Meta)
+        <select class="auto-template" ${semWhatsapp ? 'disabled' : ''}>${opcoesTemplate(a.whatsapp_template)}</select>
+      </label>
+      <label style="display:block;margin-top:10px">Texto de referência (o cliente recebe o texto do modelo aprovado)
+        <textarea class="auto-corpo" rows="3" style="width:100%">${escapeHtml(a.corpo || '')}</textarea>
+      </label>
+    </div>
+  `;
+
+  conteudo.innerHTML = `
+    <div class="nav-periodo"><strong>Automações</strong></div>
+    <p style="color:var(--muted-strong);font-size:13px;margin:-4px 0 16px">
+      Mensagens automáticas de WhatsApp por evento da agenda. Uma por gatilho, valem pra todo o salão.
+    </p>
+    ${aviso}
+    ${automacoesLista.map(card).join('')}
+  `;
+
+  const linkWpp = document.getElementById('link-ir-whatsapp');
+  if (linkWpp) linkWpp.addEventListener('click', (e) => { e.preventDefault(); selecionarMenu('whatsapp'); });
+
+  conteudo.querySelectorAll('[data-automacao]').forEach((el) => {
+    const id = el.dataset.automacao;
+    const salvar = async (campo, valor) => {
+      const r = await api(`/api/automacoes/${id}`, { method: 'PATCH', body: JSON.stringify({ [campo]: valor }) });
+      if (!r || r.error) mostrarToast((r && r.error) || 'Não salvou.', 'erro');
+      else mostrarToast('Salvo.');
+    };
+    el.querySelector('.auto-ativo').addEventListener('change', (e) => salvar('ativo', e.target.checked));
+    el.querySelector('.auto-template').addEventListener('change', (e) => salvar('whatsapp_template', e.target.value));
+    el.querySelector('.auto-corpo').addEventListener('blur', (e) => salvar('corpo', e.target.value));
+    const horas = el.querySelector('.auto-horas');
+    if (horas) horas.addEventListener('change', (e) => salvar('lembrete_horas_antes', Number(e.target.value)));
+  });
 }
 
 async function renderConfiguracao() {

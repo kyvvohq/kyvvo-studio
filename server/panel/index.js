@@ -79,6 +79,8 @@ const { registerPerfilRoutes } = require('./routes/perfil');
 const { registerEquipeRoutes } = require('./routes/equipe');
 // Fase 7 da modularização
 const { registerWhatsappConfigRoutes } = require('./routes/whatsapp-config');
+const { registerAutomacoesRoutes } = require('./routes/automacoes');
+const automacoes = require('./lib/automacoes');
 const { registerConfiguracaoRoutes } = require('./routes/configuracao');
 // Fase 8 da modularização
 const { registerPagamentosRoutes } = require('./routes/pagamentos');
@@ -227,7 +229,7 @@ async function start() {
   // (client-side, igual todo o resto do painel).
   const ROTAS_PAINEL_TENANT = [
     '/quadro', '/agenda', '/servicos', '/profissionais', '/clientes', '/bloqueios',
-    '/whatsapp', '/cobranca', '/perfil', '/empresa', '/equipe',
+    '/whatsapp', '/automacoes', '/cobranca', '/perfil', '/empresa', '/equipe',
     '/preferencias', '/ajuda',
   ];
   for (const rota of ROTAS_PAINEL_TENANT) {
@@ -472,6 +474,10 @@ async function start() {
   // POST /api/whatsapp/solicitar-numero-novo|conectar.
   registerWhatsappConfigRoutes(fastify, pool);
 
+  // Automações (menu Config > Automações) — GET /api/automacoes[/templates-
+  // whatsapp], PATCH /api/automacoes/:id. Motor + worker em lib/automacoes.js.
+  registerAutomacoesRoutes(fastify, pool);
+
   // Configuração — extraído pra routes/configuracao.js (fase 7 da
   // modularização): GET/PATCH /api/configuracao, GET /api/tenant/modulos.
   registerConfiguracaoRoutes(fastify, pool);
@@ -637,6 +643,32 @@ async function start() {
 
   await fastify.listen({ port: PORT, host: '0.0.0.0' });
   console.log(`Painel Kyvvo rodando na porta ${PORT}`);
+  iniciarWorkerAutomacoes();
+}
+
+// Worker das automações — o painel nunca teve processo em background; um
+// setInterval no próprio processo já resolve (volume baixo, 1 container).
+// Roda a cada 5 min: drena a fila de WhatsApp de fora-do-horário e checa os
+// gatilhos por tempo (lembrete / aniversário / cliente inativo). Best-effort
+// — uma falha numa rodada loga e não derruba o processo.
+const INTERVALO_WORKER_AUTOMACOES_MS = 5 * 60 * 1000;
+function iniciarWorkerAutomacoes() {
+  setInterval(async () => {
+    for (const [nome, fn] of [
+      ['fila-whatsapp', automacoes.processarFilaWhatsapp],
+      ['lembretes', automacoes.processarLembretes],
+      ['aniversarios', automacoes.processarAniversarios],
+      ['inativos', automacoes.processarInativos],
+    ]) {
+      try {
+        const r = await fn(pool);
+        const n = (r && (r.processados || r.enviados)) || 0;
+        if (n) console.log(`[automacoes] ${nome}: ${n} envio(s)`);
+      } catch (err) {
+        console.error(`[automacoes] worker ${nome} falhou: ${err.message}`);
+      }
+    }
+  }, INTERVALO_WORKER_AUTOMACOES_MS);
 }
 
 start().catch((err) => {
