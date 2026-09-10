@@ -49,8 +49,12 @@ jobs:
       - name: Instalar dependências (landing)
         run: npm ci
         working-directory: server
+      # `npm install` temporário: server/panel/package.json ganhou
+      # @kyvvohq/whatsapp e o lock ainda não foi regenerado com um token
+      # read:packages. Rodar o workflow "Regenerar package-lock" e voltar
+      # pra `npm ci`.
       - name: Instalar dependências (painel)
-        run: npm ci
+        run: npm install --no-audit --no-fund --no-package-lock
         working-directory: server/panel
 
       # server/db/ mistura migration de schema com fixture de dev. As fixtures
