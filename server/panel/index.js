@@ -104,6 +104,7 @@ const { registerContaRoutes } = require('./routes/conta');
 // routes/webhook-whatsapp.js, que os importam direto.
 const disponibilidadeLib = require('./lib/disponibilidade');
 const iaEngineLib = require('./lib/ia-engine');
+const { iniciarWorkerHandoff } = require('./lib/worker-handoff');
 const { registerWebhookWhatsappRoutes } = require('./routes/webhook-whatsapp');
 const { openapiConfig, transform: swaggerTransform } = require('./lib/swagger-config');
 const { contarHorariosLivresNoDia } = disponibilidadeLib;
@@ -643,6 +644,10 @@ async function start() {
 
   await fastify.listen({ port: PORT, host: '0.0.0.0' });
   console.log(`Painel Kyvvo rodando na porta ${PORT}`);
+
+  // Retorno automático de handoff — devolve ao atendimento por IA as conversas
+  // que ficaram em 'aguardando_humano' além do limite sem o salão retomar.
+  iniciarWorkerHandoff(pool, configSistema, fastify.log);
   iniciarWorkerAutomacoes();
 }
 
@@ -650,7 +655,8 @@ async function start() {
 // setInterval no próprio processo já resolve (volume baixo, 1 container).
 // Roda a cada 5 min: drena a fila de WhatsApp de fora-do-horário e checa os
 // gatilhos por tempo (lembrete / aniversário / cliente inativo). Best-effort
-// — uma falha numa rodada loga e não derruba o processo.
+// — uma falha numa rodada loga e não derruba o processo. Só no processo real
+// (start()), nunca em teste (build()/require não chega aqui).
 const INTERVALO_WORKER_AUTOMACOES_MS = 5 * 60 * 1000;
 function iniciarWorkerAutomacoes() {
   setInterval(async () => {
