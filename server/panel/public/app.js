@@ -5822,9 +5822,17 @@ async function abrirModalConversa(clienteId) {
   // efeito nos dois casos, só muda o rótulo.
   const jaAssumida = dados.cliente.status_conversa === 'aguardando_humano';
 
+  // Aviso quando o worker devolveu a conversa ao bot sozinho por timeout
+  // (handoff que ninguém retomou) — some assim que alguém assume de novo
+  // (POST /liberar limpa handoff_devolvido_em).
+  const notaHandoff = dados.cliente.handoff_devolvido_em && !jaAssumida
+    ? `<p class="modal-subtitulo" style="color:var(--cor-alerta,#b45309)">🔄 Devolvida automaticamente ao atendimento por IA em ${formatarDataHoraCurta(dados.cliente.handoff_devolvido_em)} (sem retomada do salão a tempo).</p>`
+    : '';
+
   abrirModal(
     `<h3>${escapeHtml(dados.cliente.nome || 'Conversa')}</h3>
      <p class="modal-subtitulo">${escapeHtml(formatarTelefoneWhatsapp(dados.cliente.telefone || ''))}</p>
+     ${notaHandoff}
      <div class="modal-acoes">
        <button type="button" class="btn-secundario" id="btn-assumir-atendimento">${jaAssumida ? 'Continuar atendimento' : 'Assumir atendimento'}</button>
      </div>`,

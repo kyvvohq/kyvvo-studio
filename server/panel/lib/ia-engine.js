@@ -350,7 +350,9 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
 // cliente — reaproveitado aqui pra notificar o salão. Nunca lança — uma
 // falha aqui não pode derrubar a resposta já dada ao cliente.
 async function acionarFallbackHumanoIA(tenant, cliente, enviarResposta) {
-  await pool.query("UPDATE clientes SET status_conversa = 'aguardando_humano' WHERE id = $1", [cliente.id]);
+  // aguardando_humano_desde marca o início do handoff pro worker de retorno
+  // automático (lib/worker-handoff.js) saber quando devolver a conversa.
+  await pool.query("UPDATE clientes SET status_conversa = 'aguardando_humano', aguardando_humano_desde = now() WHERE id = $1", [cliente.id]);
   if (!tenant.telefone) return;
   try {
     await enviarResposta(

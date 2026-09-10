@@ -102,6 +102,7 @@ const { registerContaRoutes } = require('./routes/conta');
 // routes/webhook-whatsapp.js, que os importam direto.
 const disponibilidadeLib = require('./lib/disponibilidade');
 const iaEngineLib = require('./lib/ia-engine');
+const { iniciarWorkerHandoff } = require('./lib/worker-handoff');
 const { registerWebhookWhatsappRoutes } = require('./routes/webhook-whatsapp');
 const { openapiConfig, transform: swaggerTransform } = require('./lib/swagger-config');
 const { contarHorariosLivresNoDia } = disponibilidadeLib;
@@ -637,6 +638,12 @@ async function start() {
 
   await fastify.listen({ port: PORT, host: '0.0.0.0' });
   console.log(`Painel Kyvvo rodando na porta ${PORT}`);
+
+  // Retorno automático de handoff — só no processo real (o index.js não é
+  // importado pelos testes, então isso nunca roda em teste). Devolve ao
+  // atendimento por IA as conversas que ficaram em 'aguardando_humano' além
+  // do limite sem o salão retomar.
+  iniciarWorkerHandoff(pool, configSistema, fastify.log);
 }
 
 start().catch((err) => {

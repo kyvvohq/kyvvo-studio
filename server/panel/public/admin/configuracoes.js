@@ -108,9 +108,10 @@ const CONFIG_SISTEMA_LABELS = {
   max_tentativas_reenvio_token: 'Máximo de tentativas de reenvio de token',
   email_suporte: 'E-mail de suporte exibido no portal',
   whatsapp_suporte: 'WhatsApp de suporte',
+  whatsapp_handoff_retorno_horas: 'Devolver conversa ao bot após (horas sem retomada do salão)',
 };
-const CONFIG_SISTEMA_NUMERICAS = new Set(['trial_dias', 'carencia_dias_inadimplencia', 'max_tentativas_reenvio_token']);
-const CONFIG_SISTEMA_ORDEM = ['trial_dias', 'carencia_dias_inadimplencia', 'max_tentativas_reenvio_token', 'email_suporte', 'whatsapp_suporte'];
+const CONFIG_SISTEMA_NUMERICAS = new Set(['trial_dias', 'carencia_dias_inadimplencia', 'max_tentativas_reenvio_token', 'whatsapp_handoff_retorno_horas']);
+const CONFIG_SISTEMA_ORDEM = ['trial_dias', 'carencia_dias_inadimplencia', 'max_tentativas_reenvio_token', 'email_suporte', 'whatsapp_suporte', 'whatsapp_handoff_retorno_horas'];
 
 let dados = null;
 // Chaves de configuração geral atualmente em modo de edição inline (planos

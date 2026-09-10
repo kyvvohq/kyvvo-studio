@@ -107,7 +107,7 @@ function registerWhatsappConfigRoutes(fastify, pool) {
     const { clienteId } = request.params;
 
     const { rows: clienteRows } = await pool.query(
-      'SELECT nome, telefone, status_conversa FROM clientes WHERE id = $1 AND tenant_id = $2',
+      'SELECT nome, telefone, status_conversa, handoff_devolvido_em FROM clientes WHERE id = $1 AND tenant_id = $2',
       [clienteId, tenantId]
     );
     const cliente = clienteRows[0];
@@ -135,7 +135,16 @@ function registerWhatsappConfigRoutes(fastify, pool) {
     });
 
     return {
-      cliente: { nome: cliente.nome, telefone: cliente.telefone, status_conversa: cliente.status_conversa },
+      cliente: {
+        nome: cliente.nome,
+        telefone: cliente.telefone,
+        status_conversa: cliente.status_conversa,
+        // Preenchido pelo worker de retorno automático (lib/worker-handoff.js)
+        // quando ele devolve a conversa ao bot por timeout; limpo quando o
+        // salão retoma manualmente. O front usa isso pra avisar que a
+        // devolução foi automática, não feita por alguém da equipe.
+        handoff_devolvido_em: cliente.handoff_devolvido_em,
+      },
       mensagens,
     };
   });
@@ -149,7 +158,7 @@ function registerWhatsappConfigRoutes(fastify, pool) {
     const { tenantId } = request.user;
     const { clienteId } = request.params;
     const { rowCount } = await pool.query(
-      "UPDATE clientes SET status_conversa = 'aguardando_humano' WHERE id = $1 AND tenant_id = $2",
+      "UPDATE clientes SET status_conversa = 'aguardando_humano', aguardando_humano_desde = now() WHERE id = $1 AND tenant_id = $2",
       [clienteId, tenantId]
     );
     if (!rowCount) return reply.code(404).send({ error: 'Cliente não encontrado' });
@@ -165,8 +174,11 @@ function registerWhatsappConfigRoutes(fastify, pool) {
   fastify.post('/api/whatsapp/conversas/:clienteId/liberar', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { tenantId } = request.user;
     const { clienteId } = request.params;
+    // Retomada manual pelo salão: zera o cronômetro do handoff e também o
+    // marcador de devolução automática (se a conversa tinha voltado pro bot
+    // sozinha antes, agora quem está no controle é a equipe de novo).
     const { rowCount } = await pool.query(
-      "UPDATE clientes SET status_conversa = 'ativo' WHERE id = $1 AND tenant_id = $2",
+      "UPDATE clientes SET status_conversa = 'ativo', aguardando_humano_desde = NULL, handoff_devolvido_em = NULL WHERE id = $1 AND tenant_id = $2",
       [clienteId, tenantId]
     );
     if (!rowCount) return reply.code(404).send({ error: 'Cliente não encontrado' });
@@ -213,8 +225,9 @@ function registerWhatsappConfigRoutes(fastify, pool) {
     );
     // Defensivo — mensagem manual só faz sentido em atendimento humano;
     // garante o estado certo mesmo se a janela for aberta sem passar pelo
-    // /assumir antes (ex.: aba antiga reaberta).
-    await pool.query("UPDATE clientes SET status_conversa = 'aguardando_humano' WHERE id = $1", [clienteId]);
+    // /assumir antes (ex.: aba antiga reaberta). coalesce pra não reiniciar
+    // o cronômetro do handoff se ele já estava rodando.
+    await pool.query("UPDATE clientes SET status_conversa = 'aguardando_humano', aguardando_humano_desde = coalesce(aguardando_humano_desde, now()) WHERE id = $1", [clienteId]);
 
     return { ok: true };
   });
