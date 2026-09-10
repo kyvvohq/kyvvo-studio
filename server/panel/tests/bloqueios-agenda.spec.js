@@ -1,10 +1,9 @@
 const { test, expect } = require('@playwright/test');
 
 // Cobre US61: bloqueios manuais de agenda pelo portal (listar, criar — pra
-// toda a agenda ou só um profissional —, validar e excluir), agora dentro do
-// menu Configurações (item "Bloqueio de agenda", movido do menu Agenda). As
-// chamadas de API são mockadas via page.route — sem dependência de Postgres
-// real.
+// toda a agenda ou só um profissional —, validar e excluir), agora como aba
+// "Bloqueio de agenda" da tela Configurações > Cadastro. As chamadas de API
+// são mockadas via page.route — sem dependência de Postgres real.
 
 async function entrarNoPainel(page, { bloqueios = [], profissionais = [], plano = 'professional' } = {}) {
   await page.route('**/api/configuracao', (route) =>
@@ -53,7 +52,8 @@ async function entrarNoPainel(page, { bloqueios = [], profissionais = [], plano 
 
 async function abrirTelaBloqueios(page) {
   await page.click('#menu-config-toggle');
-  await page.click('.menu-item[data-menu="bloqueios"]');
+  await page.click('.menu-item[data-menu="cadastro"]');
+  await page.click('#subtabs-cadastro .tab[data-aba-cadastro="bloqueios"]');
 }
 
 test.describe('Bloqueios de agenda — CRUD (US61)', () => {

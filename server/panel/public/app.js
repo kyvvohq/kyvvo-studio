@@ -350,9 +350,18 @@ function atualizarSaudacao() {
 const conteudo = document.getElementById('conteudo');
 const menuEl = document.querySelector('.menu');
 const subtabsEl = document.getElementById('subtabs');
-const tabs = document.querySelectorAll('.tab');
+const subtabsCadastroEl = document.getElementById('subtabs-cadastro');
+// Só as abas da barra da Agenda (Dia/Semana/Mês) — escopado pra não pegar
+// as abas de Cadastro (Serviços/Profissionais/Bloqueio), que têm listener
+// próprio mais abaixo.
+const tabs = document.querySelectorAll('#subtabs .tab');
 let menuAtual = 'inicio';
 let abaAtual = 'dia';
+// Aba ativa da tela Cadastro (menuAtual === 'cadastro'). Serviços,
+// Profissionais e Bloqueio de agenda eram itens de menu soltos e viraram
+// abas desta tela; os caminhos /servicos, /profissionais e /bloqueios
+// continuam valendo (viram deep link pra aba correspondente).
+let abaCadastro = 'servicos';
 let dataRef = new Date();
 let configuracao = { dias_funcionamento: [1, 2, 3, 4, 5, 6], formato_hora: '24h' };
 
@@ -389,6 +398,7 @@ const ICON_PATHS = {
   'chart-column': '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
   kanban: '<path d="M5 3v14"/><path d="M12 3v8"/><path d="M19 3v18"/>',
   zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  'clipboard-list': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
   'sun-moon': '<path d="M12 2v2"/><path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715"/><path d="M16 12a4 4 0 0 0-4-4"/><path d="m19 5-1.256 1.256"/><path d="M20 12h2"/>',
 };
 
@@ -457,10 +467,8 @@ const ROTAS_MENU = {
   inicio: '/painel',
   quadro: '/quadro',
   agendamento: '/agenda',
-  servicos: '/servicos',
-  profissionais: '/profissionais',
+  cadastro: '/cadastro',
   clientes: '/clientes',
-  bloqueios: '/bloqueios',
   whatsapp: '/whatsapp',
   automacoes: '/automacoes',
   pagamentos: '/cobranca',
@@ -472,15 +480,29 @@ const ROTAS_MENU = {
 };
 const CAMINHO_PARA_MENU = Object.fromEntries(Object.entries(ROTAS_MENU).map(([menu, caminho]) => [caminho, menu]));
 
+// Abas da tela Cadastro. Cada uma mantém o caminho curto que já existia
+// quando eram itens de menu soltos, pra não quebrar links/bookmarks — o
+// caminho vira deep link pra aba (menuAtual = 'cadastro' + abaCadastro).
+const ABAS_CADASTRO = ['servicos', 'profissionais', 'bloqueios'];
+const CAMINHO_ABA_CADASTRO = { servicos: '/servicos', profissionais: '/profissionais', bloqueios: '/bloqueios' };
+
 // Módulos (menuAtual = 'modulo:chave', ver render()) não entram no mapa
 // fixo acima — a chave é dinâmica (tenant_modulos), por isso uma regra à
 // parte em vez de mais entradas fixas.
 function caminhoDoMenu(menu) {
   if (menu.startsWith('modulo:')) return '/modulo/' + menu.slice('modulo:'.length);
+  // A URL de Cadastro reflete a aba ativa (/servicos, /profissionais,
+  // /bloqueios) — mantém as URLs idênticas às de antes de virarem abas.
+  if (menu === 'cadastro') return CAMINHO_ABA_CADASTRO[abaCadastro] || '/cadastro';
   return ROTAS_MENU[menu] || null;
 }
 function menuDoCaminho(caminho) {
   if (CAMINHO_PARA_MENU[caminho]) return CAMINHO_PARA_MENU[caminho];
+  // /servicos, /profissionais, /bloqueios → tela Cadastro na aba certa.
+  // (Efeito colateral em abaCadastro de propósito: a URL é a fonte da
+  // verdade no load inicial e no popstate.)
+  const abaAlvo = Object.keys(CAMINHO_ABA_CADASTRO).find((aba) => CAMINHO_ABA_CADASTRO[aba] === caminho);
+  if (abaAlvo) { abaCadastro = abaAlvo; return 'cadastro'; }
   const moduloMatch = caminho.match(/^\/modulo\/([a-z0-9_-]+)$/);
   return moduloMatch ? 'modulo:' + moduloMatch[1] : null;
 }
@@ -494,6 +516,13 @@ function menuDoCaminho(caminho) {
 // fonte da verdade, empurrar de novo criaria uma entrada redundante no
 // histórico (ou um loop, no caso do popstate).
 function selecionarMenu(novoMenu, { atualizarUrl = true } = {}) {
+  // Serviços / Profissionais / Bloqueio de agenda viraram abas da tela
+  // Cadastro — aceitar os nomes antigos (avisos, passos de onboarding,
+  // chamadas diretas) e redirecionar pra aba certa.
+  if (ABAS_CADASTRO.includes(novoMenu)) {
+    abaCadastro = novoMenu;
+    novoMenu = 'cadastro';
+  }
   menuEl.querySelectorAll('.menu-item').forEach((i) => i.classList.remove('active'));
   const itemSidebar = menuEl.querySelector(`.menu-item[data-menu="${novoMenu}"]`);
   if (itemSidebar) itemSidebar.classList.add('active');
@@ -517,6 +546,8 @@ function selecionarMenu(novoMenu, { atualizarUrl = true } = {}) {
   });
   menuAtual = novoMenu;
   subtabsEl.style.display = menuAtual === 'agendamento' ? 'flex' : 'none';
+  subtabsCadastroEl.style.display = menuAtual === 'cadastro' ? 'flex' : 'none';
+  if (menuAtual === 'cadastro') sincronizarAbasCadastro();
   dataRef = new Date();
   if (atualizarUrl) {
     const caminho = caminhoDoMenu(novoMenu);
@@ -683,6 +714,26 @@ tabs.forEach((tab) => {
     tab.classList.add('active');
     abaAtual = tab.dataset.tab;
     dataRef = new Date();
+    render();
+  });
+});
+
+// Marca só a aba ativa da tela Cadastro (as abas escondidas por
+// data-somente-plano-custom continuam escondidas — só nunca ficam "active").
+function sincronizarAbasCadastro() {
+  subtabsCadastroEl.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.abaCadastro === abaCadastro);
+  });
+}
+
+subtabsCadastroEl.querySelectorAll('.tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    abaCadastro = tab.dataset.abaCadastro;
+    sincronizarAbasCadastro();
+    const caminho = caminhoDoMenu('cadastro');
+    if (caminho && window.location.pathname !== caminho) {
+      history.pushState({ menu: 'cadastro' }, '', caminho);
+    }
     render();
   });
 });
@@ -2872,10 +2923,8 @@ async function render() {
   // usado pros módulos ainda não desenvolvidos.
   if (menuAtual === 'ajuda') return renderModuloEmBreve();
   if (menuAtual === 'pagamentos') return renderPagamentos();
-  if (menuAtual === 'servicos') return renderServicos();
-  if (menuAtual === 'profissionais') return renderProfissionais();
+  if (menuAtual === 'cadastro') return renderCadastro();
   if (menuAtual === 'clientes') return renderClientes();
-  if (menuAtual === 'bloqueios') return renderBloqueios();
   if (menuAtual === 'modulo:financeiro') return renderFinanceiro();
   if (menuAtual === 'modulo:dashboards') return renderRelatorios();
   if (menuAtual.startsWith('modulo:')) return renderModuloEmBreve();
@@ -2883,6 +2932,23 @@ async function render() {
   if (abaAtual === 'dia') return renderDia();
   if (abaAtual === 'semana') return renderSemana();
   if (abaAtual === 'mes') return renderMes();
+}
+
+// ---------- Cadastro (Config > Cadastro) ----------
+// Casca das abas Serviços / Profissionais / Bloqueio de agenda. A barra de
+// abas (#subtabs-cadastro) é fixa no painel.html, como a da Agenda; aqui só
+// delega pro render da aba ativa, que escreve em #conteudo como antes.
+async function renderCadastro() {
+  const abaEl = subtabsCadastroEl.querySelector(`.tab[data-aba-cadastro="${abaCadastro}"]`);
+  // Aba escondida (ex.: Profissionais fora do plano Custom) ou valor
+  // inválido → cai em Serviços, que está sempre visível.
+  if (!abaEl || abaEl.hidden) {
+    abaCadastro = 'servicos';
+    sincronizarAbasCadastro();
+  }
+  if (abaCadastro === 'profissionais') return renderProfissionais();
+  if (abaCadastro === 'bloqueios') return renderBloqueios();
+  return renderServicos();
 }
 
 // ---------- Serviços (US17/ST17.3) ----------

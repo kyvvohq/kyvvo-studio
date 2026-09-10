@@ -63,8 +63,6 @@
       <div class="menu-item active" data-menu="inicio" data-icon="layout-dashboard">Início</div>
       <div class="menu-item" data-menu="quadro" data-icon="kanban">Quadro</div>
       <div class="menu-item" data-menu="agendamento" data-icon="calendar-days">Agenda</div>
-      <div class="menu-item" data-menu="servicos" data-icon="scissors">Serviços</div>
-      <div class="menu-item" data-menu="profissionais" data-somente-plano-custom data-icon="briefcase">Profissionais</div>
       <div class="menu-item" data-menu="clientes" data-icon="users">Clientes</div>
       <div id="menu-modulos-anchor"></div>
       <div class="menu-item-grupo" id="menu-config-toggle" data-submenu="menu-config-submenu" data-icon="settings">
@@ -72,9 +70,9 @@
         <span class="menu-chevron" aria-hidden="true"></span>
       </div>
       <div class="menu-submenu" id="menu-config-submenu">
+        <div class="menu-item" data-menu="cadastro" data-icon="clipboard-list">Cadastro</div>
         <div class="menu-item" data-menu="empresa" data-somente-admin data-icon="building-2">Meu negócio</div>
         <div class="menu-item" data-menu="configuracao" data-somente-admin data-icon="sliders-horizontal">Preferências</div>
-        <div class="menu-item" data-menu="bloqueios" data-icon="calendar-x">Bloqueio de agenda</div>
         <div class="menu-item" data-menu="whatsapp" data-icon="message-circle">WhatsApp</div>
         <div class="menu-item" data-menu="automacoes" data-somente-admin data-icon="zap">Automações</div>
         <div class="menu-item" data-menu="pagamentos" data-somente-admin data-icon="credit-card">Plano e cobrança</div>
@@ -88,6 +86,11 @@
       <div class="tab" data-tab="semana">Semana</div>
       <div class="tab" data-tab="mes">Mês</div>
       <button class="btn-novo-agendamento" id="btn-novo-agendamento">+ Novo agendamento</button>
+    </div>
+    <div class="subtabs" id="subtabs-cadastro" style="display: none;">
+      <div class="tab active" data-aba-cadastro="servicos">Serviços</div>
+      <div class="tab" data-aba-cadastro="profissionais" data-somente-plano-custom>Profissionais</div>
+      <div class="tab" data-aba-cadastro="bloqueios">Bloqueio de agenda</div>
     </div>
     <div class="conteudo" id="conteudo"></div>
   </div>
