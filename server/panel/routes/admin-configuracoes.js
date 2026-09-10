@@ -16,6 +16,7 @@ const CONFIGURACOES_SISTEMA_CHAVES = [
   'max_tentativas_reenvio_token',
   'email_suporte',
   'whatsapp_suporte',
+  'whatsapp_handoff_retorno_horas',
 ];
 
 function registerAdminConfiguracoesRoutes(fastify, pool) {
@@ -210,7 +211,7 @@ function registerAdminConfiguracoesRoutes(fastify, pool) {
   // Chaves numéricas alimentam constantes centrais do sistema (TRIAL_DIAS
   // etc.) — um valor inválido aqui quebraria o cálculo de trial pra todo
   // mundo, então valida antes de gravar.
-  const CONFIGURACOES_SISTEMA_NUMERICAS = new Set(['trial_dias', 'carencia_dias_inadimplencia', 'max_tentativas_reenvio_token']);
+  const CONFIGURACOES_SISTEMA_NUMERICAS = new Set(['trial_dias', 'carencia_dias_inadimplencia', 'max_tentativas_reenvio_token', 'whatsapp_handoff_retorno_horas']);
 
   fastify.patch('/admin/api/configuracoes/sistema', { preHandler: [fastify.authenticateAdmin] }, async (request, reply) => {
     const corpo = request.body || {};

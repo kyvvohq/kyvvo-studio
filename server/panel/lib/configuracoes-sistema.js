@@ -14,6 +14,9 @@ const config = {
   carenciaDiasInadimplencia: 3,
   emailSuporte: 'suporte@kyvvo.com.br',
   whatsappSuporte: '553484285182',
+  // Horas em 'aguardando_humano' sem o salão retomar antes do worker
+  // (lib/worker-handoff.js) devolver a conversa ao atendimento por IA.
+  handoffRetornoHoras: 2,
 };
 
 let pool;
@@ -35,6 +38,7 @@ async function carregar() {
   if (valores.carencia_dias_inadimplencia != null) config.carenciaDiasInadimplencia = parseInt(valores.carencia_dias_inadimplencia, 10);
   if (valores.email_suporte != null) config.emailSuporte = valores.email_suporte;
   if (valores.whatsapp_suporte != null) config.whatsappSuporte = valores.whatsapp_suporte;
+  if (valores.whatsapp_handoff_retorno_horas != null) config.handoffRetornoHoras = parseInt(valores.whatsapp_handoff_retorno_horas, 10);
 }
 
 module.exports = { config, init, carregar };
