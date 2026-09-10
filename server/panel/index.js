@@ -92,6 +92,9 @@ const { registerAdminConfiguracoesRoutes } = require('./routes/admin-configuraco
 const { registerAdminMonitoramentoRoutes } = require('./routes/admin-monitoramento');
 const { registerAdminNumerosProntosRoutes } = require('./routes/admin-numeros-prontos');
 const { registerAdminUsuariosRoutes } = require('./routes/admin-usuarios');
+// Adapter server-to-server pro Kyvvo Admin (kyvvo-platform) — não usa o JWT
+// de admin, autentica por ADMIN_ADAPTER_TOKEN.
+const { registerAdminAdapterRoutes } = require('./routes/admin-adapter');
 // Fase 10 da modularização
 const { registerAuthRoutes } = require('./routes/auth');
 const { registerPublicoRoutes } = require('./routes/publico');
@@ -637,6 +640,7 @@ async function start() {
   registerAdminMonitoramentoRoutes(fastify, pool);
   registerAdminNumerosProntosRoutes(fastify, pool);
   registerAdminUsuariosRoutes(fastify, pool);
+  registerAdminAdapterRoutes(fastify, pool);
 
 
   // CA09 — carrega os valores configuráveis do banco antes de aceitar
