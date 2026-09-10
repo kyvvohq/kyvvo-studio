@@ -4,6 +4,7 @@
 // pro n8n pra tecnologia='bot').
 const metaWhatsappService = require('../meta-whatsapp-service');
 const { processarMensagemIA } = require('../lib/ia-engine');
+const { detectarOptOut } = require('../lib/automacoes');
 
 // Achado numa avaliação do bot (2026-08-19): antes, qualquer exceção não
 // tratada no pipeline (Anthropic fora do ar, timeout, erro de banco) só
@@ -69,6 +70,18 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
       // Sem messages[0] (ex.: webhook de status "delivered"/"read") ou sem
       // phone_number_id: não há o que processar — cai no repasse abaixo, que
       // é inofensivo (o n8n também ignora esses eventos na mesma condição).
+    }
+
+    // Opt-out das automações (lib/automacoes.js): cliente que responde
+    // "PARAR"/"SAIR"/... entra na lista e não recebe mais mensagem proativa.
+    // Escopo do tenant (cada tenant do Studio tem seu número). Não muda o
+    // fluxo da conversa — segue pro IA/n8n normalmente.
+    if (tenant && telefone && detectarOptOut(mensagem)) {
+      pool.query(
+        `UPDATE clientes SET whatsapp_opt_out = true, whatsapp_opt_out_em = now()
+         WHERE tenant_id = $1 AND telefone = $2 AND whatsapp_opt_out = false`,
+        [tenant.id, String(telefone).replace(/\D/g, '')]
+      ).catch((err) => fastify.log.error({ err: err.message, tenantId: tenant.id }, 'automacao opt-out'));
     }
 
     if (tenant && tenant.tecnologia === 'ia' && telefone && mensagem && mensagem.trim()) {
