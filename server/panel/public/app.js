@@ -365,6 +365,15 @@ let abaCadastro = 'servicos';
 let dataRef = new Date();
 let configuracao = { dias_funcionamento: [1, 2, 3, 4, 5, 6], formato_hora: '24h' };
 
+// Filtros da tela Quadro (persistem entre navegação de dia — só resetam se
+// a página recarregar). '' = sem filtro (mostra tudo).
+let quadroFiltroProfissionalId = '';
+let quadroFiltroServicoId = '';
+// Intervalo da linha de "agora" do Quadro — precisa ser limpo toda vez que
+// sai da tela (senão fica um setInterval fantasma rodando pra sempre depois
+// de trocar de menu) e recriado toda vez que entra nela de novo.
+let quadroLinhaAgoraIntervalo = null;
+
 async function carregarConfiguracao() {
   const dados = await api('/api/configuracao');
   if (dados) configuracao = dados;
@@ -516,6 +525,10 @@ function menuDoCaminho(caminho) {
 // fonte da verdade, empurrar de novo criaria uma entrada redundante no
 // histórico (ou um loop, no caso do popstate).
 function selecionarMenu(novoMenu, { atualizarUrl = true } = {}) {
+  // Sai da tela Quadro (ou troca de dia dentro dela, que re-renderiza do
+  // zero) — limpa o intervalo da linha de "agora" antes de decidir a
+  // próxima tela; renderQuadro cria um novo se for o caso.
+  clearInterval(quadroLinhaAgoraIntervalo);
   // Serviços / Profissionais / Bloqueio de agenda viraram abas da tela
   // Cadastro — aceitar os nomes antigos (avisos, passos de onboarding,
   // chamadas diretas) e redirecionar pra aba certa.
@@ -4903,14 +4916,16 @@ function renderSemanaCelula(diaISO, hora, itens, ativa) {
 // já lê configuracao.horario_abertura/fechamento/almoço).
 async function renderQuadro() {
   dataRef = proximoDiaAberto(dataRef, 1);
+  clearInterval(quadroLinhaAgoraIntervalo);
 
   const iso = formatarDataISO(dataRef);
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  const [data, profs] = await Promise.all([
+  const [data, profs, servs] = await Promise.all([
     api(`/api/agendamentos?view=dia&data=${iso}`),
     api('/api/profissionais'),
+    api('/api/servicos'),
   ]);
-  if (!data || !profs) return;
+  if (!data || !profs || !servs) return;
 
   const dataLabel = dataRef.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
 
@@ -4923,10 +4938,29 @@ async function renderQuadro() {
       </div>
       <button data-nav="1">Próximo →</button>
     </div>
+    <div class="clientes-filtros">
+      <select id="quadro-filtro-profissional">
+        <option value="">Todos os profissionais</option>
+        ${profs.profissionais.map((p) => `<option value="${p.id}" ${quadroFiltroProfissionalId === p.id ? 'selected' : ''}>${escapeHtml(p.nome)}</option>`).join('')}
+      </select>
+      <select id="quadro-filtro-servico">
+        <option value="">Todos os serviços</option>
+        ${servs.servicos.map((s) => `<option value="${s.id}" ${quadroFiltroServicoId === s.id ? 'selected' : ''}>${escapeHtml(s.nome)}</option>`).join('')}
+      </select>
+    </div>
   `;
 
+  // agendamentosAtuais fica com a lista INTEIRA (não filtrada) — é o que os
+  // menus de ação dos cards (concluir/reagendar/etc.) usam pra achar o
+  // agendamento pelo id; os filtros abaixo só decidem o que aparece na grade.
   agendamentosAtuais = data.agendamentos;
-  html += renderQuadroGrade(iso, profs.profissionais, data.agendamentos);
+  const profissionaisFiltrados = quadroFiltroProfissionalId
+    ? profs.profissionais.filter((p) => p.id === quadroFiltroProfissionalId)
+    : profs.profissionais;
+  const agendamentosFiltrados = quadroFiltroServicoId
+    ? data.agendamentos.filter((ag) => ag.servico_id === quadroFiltroServicoId)
+    : data.agendamentos;
+  html += renderQuadroGrade(iso, profissionaisFiltrados, agendamentosFiltrados);
 
   conteudo.innerHTML = html;
   conteudo.querySelector('[data-nav="-1"]').addEventListener('click', () => {
@@ -4939,6 +4973,44 @@ async function renderQuadro() {
     dataRef = proximoDiaAberto(dataRef, 1);
     renderQuadro();
   });
+  conteudo.querySelector('#quadro-filtro-profissional').addEventListener('change', (e) => {
+    quadroFiltroProfissionalId = e.target.value;
+    renderQuadro();
+  });
+  conteudo.querySelector('#quadro-filtro-servico').addEventListener('change', (e) => {
+    quadroFiltroServicoId = e.target.value;
+    renderQuadro();
+  });
+
+  // Linha vermelha de "agora" — só faz sentido no dia de hoje. Recalcula na
+  // hora (posição inicial) e a cada 30s depois (vai "correndo" ao longo do
+  // dia sem precisar de nenhuma ação do usuário).
+  if (iso === formatarDataISO(new Date())) {
+    atualizarLinhaAgoraQuadro();
+    quadroLinhaAgoraIntervalo = setInterval(atualizarLinhaAgoraQuadro, 30000);
+  }
+}
+
+// A régua de hora não tem altura fixa (cada linha cresce conforme quantos
+// agendamentos cabem nela), então a posição da linha não dá pra calcular só
+// com CSS/porcentagem — mede a altura REAL da célula da hora atual
+// (.quadro-hora-atual, já calculada por renderQuadroGrade) e posiciona a
+// linha proporcional aos minutos decorridos dela. Fora do horário comercial
+// (ou durante o almoço) a hora atual não tem linha na grade — sem
+// .quadro-hora-atual, a função só encerra o intervalo e não desenha nada.
+function atualizarLinhaAgoraQuadro() {
+  const grade = conteudo.querySelector('.quadro-grade');
+  const horaCel = grade && grade.querySelector('.quadro-hora-atual');
+  if (!grade || !horaCel) { clearInterval(quadroLinhaAgoraIntervalo); return; }
+  let linha = grade.querySelector('.quadro-linha-agora');
+  if (!linha) {
+    linha = document.createElement('div');
+    linha.className = 'quadro-linha-agora';
+    grade.appendChild(linha);
+  }
+  const agora = new Date();
+  const proporcaoHora = (agora.getMinutes() + agora.getSeconds() / 60) / 60;
+  linha.style.top = `${horaCel.offsetTop + proporcaoHora * horaCel.offsetHeight}px`;
 }
 
 // Mesma técnica de grid da Semana (renderSemanaGrade) — régua de hora
@@ -4948,7 +5020,7 @@ async function renderQuadro() {
 // não precisa recolher nada pra caber).
 function renderQuadroGrade(diaISO, profissionais, agendamentos) {
   if (!profissionais.length) {
-    return '<div class="vazio">Nenhum profissional cadastrado — cadastre em Configurações → Profissionais.</div>';
+    return '<div class="vazio">Nenhum profissional encontrado — cadastre (ou ajuste o filtro) em Configurações → Cadastro → Profissionais.</div>';
   }
 
   const horarios = gerarHorariosGrade();

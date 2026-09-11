@@ -1106,6 +1106,12 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--sunken);
   border-top: 1px solid var(--border);
   text-align: right;
+  /* A linha da hora não tem altura fixa (cresce conforme os agendamentos
+     da raia), então sem isso o rótulo ("09:00"...) fica grudado no topo de
+     uma célula alta em vez de centralizado nela. */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .semana-grade-cel {
@@ -1154,7 +1160,35 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
    .semana-grade-cel da Semana, só o cabeçalho de coluna muda (avatar +
    nome do profissional, sem estado ativo/recolhido — aqui não tem
    accordion, o recorte já é um dia só). */
-.quadro-grade { overflow-x: auto; }
+.quadro-grade { overflow-x: auto; position: relative; }
+
+/* Linha de "agora" — só existe no dia de hoje (ver atualizarLinhaAgoraQuadro
+   no app.js). position:absolute dentro do próprio grid (.quadro-grade é o
+   positioned ancestor); "top" é calculado em JS porque as linhas de hora não
+   têm altura fixa. left:62px pula a régua de hora; a bolinha (::before)
+   marca a ponta como referência visual, igual o indicador de "agora" do
+   Google Calendar. */
+.quadro-linha-agora {
+  position: absolute;
+  left: 62px;
+  right: 0;
+  height: 2px;
+  background: var(--danger);
+  z-index: 3;
+  pointer-events: none;
+}
+.quadro-linha-agora::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--danger);
+}
+
 .quadro-cab {
   display: flex;
   align-items: center;
