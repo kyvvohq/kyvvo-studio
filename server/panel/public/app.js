@@ -2661,10 +2661,8 @@ async function renderPagamentos() {
 
       ${cancelado ? '' : `
         <div class="pagamento-detalhes">
-          <button type="button" class="pagamento-detalhes-toggle" id="btn-toggle-detalhes" aria-expanded="false">
-            <span class="menu-chevron" aria-hidden="true"></span><span>Alterar forma de pagar</span>
-          </button>
-          <div class="pagamento-detalhes-conteudo" id="pagamento-detalhes-conteudo" hidden>
+          <h4 class="pagamento-detalhes-titulo">Alterar forma de pagar</h4>
+          <div class="pagamento-detalhes-conteudo" id="pagamento-detalhes-conteudo">
             ${htmlFormPagamento(dados, {
               comBotaoCancelar: false,
               botoesPequenos: true,
@@ -2716,21 +2714,12 @@ async function renderPagamentos() {
   const btnTrocarPlano = document.getElementById('btn-trocar-plano');
   if (btnTrocarPlano) btnTrocarPlano.addEventListener('click', () => abrirModalTrocarPlano(dados));
 
-  // Collapse "Alterar forma de pagar" (redesenho "Plano") — substitui o
-  // antigo "Detalhes ▾"; o próprio formulário (htmlFormPagamento) já foi
-  // renderizado (oculto) dentro do conteúdo acima, só falta ligar o toggle e
-  // o wiring do formulário/cancelamento. `.expandido` no botão troca o
-  // glifo do `.menu-chevron` (> recolhido / ⌵ expandido, mesma convenção do
-  // menu lateral — ver style.css). Só existe na aba Cobrança.
-  const btnToggleDetalhes = document.getElementById('btn-toggle-detalhes');
-  if (btnToggleDetalhes) {
-    btnToggleDetalhes.addEventListener('click', () => {
-      const painel = document.getElementById('pagamento-detalhes-conteudo');
-      const vaiAbrir = painel.hidden;
-      painel.hidden = !vaiAbrir;
-      btnToggleDetalhes.setAttribute('aria-expanded', String(vaiAbrir));
-      btnToggleDetalhes.classList.toggle('expandido', vaiAbrir);
-    });
+  // "Alterar forma de pagar" (aba Cobrança) — pedido explícito: sem collapse,
+  // os campos já ficam direto na página (antes era um toggle "▾" escondendo
+  // o formulário; `pagamento-detalhes-conteudo` agora nunca começa `hidden`,
+  // ver o HTML acima). Só existe fora do estado 'cancelado'.
+  const painelDetalhes = document.getElementById('pagamento-detalhes-conteudo');
+  if (painelDetalhes) {
     wireFormPagamento(dados, { onSucesso: () => renderPagamentos() });
     const btnCancelarAssinatura = document.getElementById('btn-cancelar-assinatura');
     if (btnCancelarAssinatura) btnCancelarAssinatura.addEventListener('click', () => abrirModalCancelarAssinatura(dados));
@@ -4536,20 +4525,12 @@ function menuAcoesAgendamentoHtml(id) {
   `;
 }
 
-// Horários da grade Dia COM as faixas de almoço marcadas (gerarHorariosGrade
-// pula o almoço — aqui ele vira uma linha "Intervalo", como no mock).
+// Horários da grade Dia — pedido explícito: horário de intervalo não aparece
+// em NENHUMA view da agenda (antes essa função mantinha o slot do almoço e a
+// grade desenhava uma linha "Intervalo"; agora só reaproveita
+// gerarHorariosGrade, que já pula o almoço, igual Semana/Mês).
 function gerarHorariosGradeDia() {
-  const abertura = horarioParaMinutosFrontend(configuracao.horario_abertura || '08:00');
-  const fechamento = horarioParaMinutosFrontend(configuracao.horario_fechamento || '20:00');
-  const almocoAtivo = configuracao.horario_almoco_ativo;
-  const almocoIni = almocoAtivo ? horarioParaMinutosFrontend(configuracao.horario_almoco_inicio) : null;
-  const almocoFim = almocoAtivo ? horarioParaMinutosFrontend(configuracao.horario_almoco_fim) : null;
-  const linhas = [];
-  for (let m = abertura; m < fechamento; m += SLOT_INTERVALO_MINUTOS) {
-    const hhmm = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-    linhas.push({ hora: hhmm, intervalo: !!(almocoAtivo && m >= almocoIni && m < almocoFim) });
-  }
-  return linhas;
+  return gerarHorariosGrade().map((hora) => ({ hora, intervalo: false }));
 }
 function minutosIntervaloAlmoco() {
   if (!configuracao.horario_almoco_ativo) return 0;
