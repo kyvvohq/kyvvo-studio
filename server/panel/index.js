@@ -133,10 +133,8 @@ const { registrarEventoTrialExpiradoUmaVez } = eventos;
 // — usada por Agenda (já extraída) e pelo grupo Clientes (ainda aqui).
 
 const PORT = process.env.PORT || 3001;
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error('JWT_SECRET não configurado');
-// Secret separado do JWT de tenant (US16) — isolamento real entre os dois
-// sistemas de autenticação, não só uma diferença de rota.
+// JWT_SECRET (token de tenant) saiu no corte P3 — sessão de tenant é RS256 do
+// kyvvo-platform. Sobra só o secret do JWT de admin (US16).
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET;
 if (!ADMIN_JWT_SECRET) throw new Error('ADMIN_JWT_SECRET não configurado');
 
@@ -174,7 +172,8 @@ iaEngineLib.init(pool, fastify);
 
 async function start() {
   await fastify.register(cors, { origin: true });
-  await fastify.register(jwt, { secret: JWT_SECRET });
+  // JWT do tenant saiu no corte P3 — o token de sessão é RS256 emitido pelo
+  // kyvvo-platform e verificado em `authenticate` (lib/resolver-sessao.js).
   // JWT completamente separado pra área admin da Kyvvo (US16) — secret
   // próprio, namespace próprio (fastify.jwt.admin.*, request.adminJwtVerify,
   // reply.adminJwtSign) e decoratorName próprio (request.admin em vez de
@@ -283,10 +282,6 @@ async function start() {
     const claims = await resolverClaims({
       authorizationHeader: request.headers.authorization,
       verificarRs256: (token) => platform.verifyToken(token),
-      verificarHs256: async () => {
-        await request.jwtVerify();
-        return request.user;
-      },
     });
     if (!claims) {
       return reply.code(401).send({ error: 'Não autenticado' });

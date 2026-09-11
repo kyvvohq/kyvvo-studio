@@ -1,43 +1,32 @@
-// Resolve os claims de sessão de uma request no corte P3 (serviço
-// kyvvo-platform vira a autoridade de auth).
+// Resolve os claims de sessão de uma request. Depois do corte P3 o
+// kyvvo-platform é a única autoridade de auth: o token é sempre RS256,
+// verificado local via @kyvvohq/platform-client (JWKS, sem round-trip).
 //
-// Tenta primeiro verificar o token como RS256 na plataforma
-// (@kyvvohq/platform-client → JWKS local, sem round-trip). Cai pra verificação
-// HS256 legada (@fastify/jwt) enquanto tokens de 7 dias emitidos pelo próprio
-// painel ANTES do corte ainda circulam — esse fallback sai numa limpeza
-// depois que todos expirarem.
+// (Havia um fallback HS256 pros tokens de 7 dias emitidos pelo próprio painel
+// ANTES do corte — removido em 2026-09 depois que todos expiraram.)
 //
-// Puro/injetável pra teste: recebe o header e as duas funções de verificação,
+// Puro/injetável pra teste: recebe o header e a função de verificação RS256,
 // devolve os claims normalizados ({ userId, tenantId, email, tokenVersion,
 // alg }) ou null.
 
-async function resolverClaims({ authorizationHeader, verificarRs256, verificarHs256 }) {
+async function resolverClaims({ authorizationHeader, verificarRs256 }) {
   const token = String(authorizationHeader || '').replace(/^Bearer /i, '').trim();
-
-  if (token) {
-    try {
-      const c = await verificarRs256(token);
-      return normalizar(c, 'RS256');
-    } catch {
-      // não é um token da plataforma (ou inválido) — tenta o legado
-    }
-  }
+  if (!token) return null;
 
   try {
-    const c = await verificarHs256();
-    return normalizar(c, 'HS256');
+    return normalizar(await verificarRs256(token));
   } catch {
     return null;
   }
 }
 
-function normalizar(c, alg) {
+function normalizar(c) {
   return {
     userId: c.userId,
     tenantId: c.tenantId,
     email: c.email,
     tokenVersion: c.tokenVersion,
-    alg,
+    alg: 'RS256',
   };
 }
 
