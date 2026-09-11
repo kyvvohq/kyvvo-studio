@@ -99,6 +99,7 @@ const { registerAdminAdapterRoutes } = require('./routes/admin-adapter');
 const { registerAuthRoutes } = require('./routes/auth');
 const { registerPublicoRoutes } = require('./routes/publico');
 const { registerContaRoutes } = require('./routes/conta');
+const { registerMensagensRoutes } = require('./routes/mensagens');
 // Fase 11 da modularização (última) — anthropicService/parsearIntentIA/
 // escolherAgendamentoAlvoIA/IA_INTENTS_VALIDOS/metaWhatsappService/
 // evolutionService/sincronizarLancamentoFinanceiro/garantirProfissionalPadrao/
@@ -419,6 +420,7 @@ async function start() {
   // modularização): GET /api/config-publica, GET /api/segmentos,
   // GET /api/planos[/:slug].
   registerPublicoRoutes(fastify, pool);
+  registerMensagensRoutes(fastify);
 
   // WhatsApp webhook — extraído pra routes/webhook-whatsapp.js (fase 11 da
   // modularização, a última): GET/POST /webhook/whatsapp (handshake +
