@@ -108,11 +108,18 @@ async function verificarStatusConta() {
     el.hidden = status.role === 'operador';
   });
 
-  // Menu Profissionais e Equipe são exclusivos do plano Kyvvo Custom (chave
-  // 'custom' na tabela planos). Equipe também é somente-admin — `el.hidden ||`
-  // acumula em vez de sobrescrever, senão um admin em plano não-Custom via
-  // esse segundo loop reapareceria escondido pelo primeiro (dois gates
-  // independentes têm que combinar com E, nunca um substituir o outro).
+  // Menu Equipe é exclusivo do plano Kyvvo Custom (chave 'custom' na tabela
+  // planos) — Custom ainda não existe como plano de verdade (só
+  // starter/business/professional/enterprise, ver server/db/045), então
+  // Equipe fica escondido pra todo mundo até esse plano existir de fato,
+  // por design. Também é somente-admin — `el.hidden ||` acumula em vez de
+  // sobrescrever, senão um admin via esse segundo loop reapareceria
+  // escondido pelo primeiro (dois gates independentes têm que combinar com
+  // E, nunca um substituir o outro).
+  // Profissionais SAIU desse gate (bug achado 2026-09-11): todo plano real
+  // permite 3+ profissionais (server/db/049_plano_features_limites.sql),
+  // então a aba nunca devia ter sido presa ao plano Custom inexistente — ela
+  // ficava escondida pra 100% dos tenants, sempre.
   document.querySelectorAll('[data-somente-plano-custom]').forEach((el) => {
     el.hidden = el.hidden || status.plano !== 'custom';
   });
