@@ -97,7 +97,14 @@ async function verificarStatusConta() {
   // aviso crítico não-dispensável (CA09/US52); estes podem se acumular (mais
   // de uma pendência de configuração ao mesmo tempo) e alguns são
   // dispensáveis pelo usuário.
-  renderAvisos(construirAvisos(status));
+  const avisosOnboarding = construirAvisos(status);
+  renderAvisos(avisosOnboarding);
+  // Mensagens/anúncios publicados pelo admin da Kyvvo (Produtos > Studio >
+  // Mensagens, ou "Kyvvo inteira") — busca à parte, sem travar o resto do
+  // carregamento se falhar (fail-open, mesmo raciocínio do resto do
+  // arquivo). Chega depois do primeiro renderAvisos() acima, então
+  // re-renderiza com a lista completa quando (se) responder.
+  carregarMensagensAdmin(avisosOnboarding);
 
   // US62 — itens de menu restritos ao administrador (Equipe, Minha Empresa,
   // Cobrança, Preferências) somem pro operador. É só a camada de UX — quem
@@ -269,6 +276,28 @@ function construirPassosOnboarding(status) {
 }
 
 let avisosAtuais = [];
+let avisosAdmin = [];
+
+// Busca GET /api/mensagens-ativas (kyvvo-studio, que por sua vez busca do
+// kyvvo-admin — ver lib/mensagens-admin.js) e funde no mesmo painel dos
+// avisos de onboarding (US59). Prefixo "admin-" no id evita colisão com os
+// ids fixos de onboarding (sem_servicos, horario_nao_confirmado, ...).
+async function carregarMensagensAdmin(avisosOnboarding) {
+  try {
+    const res = await fetch('/api/mensagens-ativas', { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return;
+    const dados = await res.json();
+    avisosAdmin = (dados.mensagens || []).map((m) => ({
+      id: `admin-${m.id}`,
+      mensagem: m.texto,
+      severidade: m.severidade,
+      critico: false, // sempre dispensável — severidade já comunica a urgência via cor
+    }));
+  } catch (e) {
+    avisosAdmin = [];
+  }
+  renderAvisos([...avisosOnboarding, ...avisosAdmin]);
+}
 
 function idsAvisosDispensados() {
   try {
@@ -295,15 +324,24 @@ function renderAvisosNaTela() {
   if (!painel) return;
   const dispensados = new Set(idsAvisosDispensados());
   const visiveis = avisosAtuais.filter((a) => a.critico || !dispensados.has(a.id));
-  painel.innerHTML = visiveis.map((a) => `
-    <div class="aviso-item ${a.critico ? 'aviso-critico' : 'aviso-info'}" data-aviso-id="${a.id}">
-      <span>${a.mensagem}</span>
+  painel.innerHTML = visiveis.map((a) => {
+    // severidade (mensagens do admin: info/aviso/erro) tem prioridade sobre
+    // o critico/info binário dos avisos de onboarding (US59), que não tem
+    // esse campo.
+    const classe = a.severidade === 'erro' ? 'aviso-critico'
+      : a.severidade === 'aviso' ? 'aviso-aviso'
+        : a.severidade === 'info' ? 'aviso-info'
+          : a.critico ? 'aviso-critico' : 'aviso-info';
+    return `
+    <div class="aviso-item ${classe}" data-aviso-id="${a.id}">
+      <span>${escapeHtml(a.mensagem)}</span>
       <div class="aviso-acoes">
         ${a.acaoMenu ? `<button class="aviso-acao" data-acao-aviso-menu="${a.acaoMenu}">${a.acaoLabel}</button>` : ''}
         ${a.critico ? '' : `<button class="aviso-dispensar" data-acao-dispensar-aviso="${a.id}" aria-label="Dispensar aviso">×</button>`}
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function dispensarAviso(id) {

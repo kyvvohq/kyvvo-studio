@@ -3199,6 +3199,15 @@ body.conta-bloqueada .btn-novo-agendamento:not(#btn-cadastrar-pagamento) {
   color: var(--accent-strong);
 }
 
+/* Severidade "aviso" (Mensagens do admin, ver produtos-studio.html no
+   kyvvo-admin) — entre .aviso-info e .aviso-critico. Os avisos de
+   onboarding (US59) não usam esta classe, só severidade='erro'/'aviso' de
+   mensagens publicadas pelo admin. */
+.aviso-aviso {
+  background: rgba(var(--warning-rgb), 0.14);
+  color: var(--warning);
+}
+
 .aviso-acoes {
   display: flex;
   align-items: center;
