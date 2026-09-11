@@ -1,7 +1,7 @@
 // Motor de automações do Studio — mensagens de WhatsApp por gatilho de
-// agendamento (schema: db/067_automacoes.sql + db/068_whatsapp_travas.sql).
+// agendamento (schema: db/068_automacoes.sql + db/069_whatsapp_travas.sql).
 // Espelha kyvvo-people/lib/automacoes.js, adaptado: contexto de agendamento,
-// só canal WhatsApp, escopo tenant-wide, número/WABA Meta POR TENANT
+// só canal WhatsApp, várias automações por gatilho (tenant-wide), número/WABA Meta POR TENANT
 // (tenants.meta_phone_number_id/meta_waba_id, token de System User
 // compartilhado — @kyvvohq/whatsapp v1.1.0 aceita phoneNumberId/wabaId por
 // chamada).
@@ -28,11 +28,12 @@ function whatsapp() { return _whatsapp || (_whatsapp = require('@kyvvohq/whatsap
 const enviarTemplate = (...a) => whatsapp().enviarTemplate(...a);
 const listarTemplates = (...a) => whatsapp().listarTemplates(...a);
 
-// Uma automação por gatilho, criada sem o tenant precisar abrir a tela.
-// `corpo` é preview/referência editável — o texto que o cliente recebe é o do
-// template aprovado na Meta. `whatsapp_template` nasce nulo; a Fase 2
-// (auto-provisionamento) preenche automaticamente pelo nome do template
-// padrão de cada gatilho.
+// A automação PADRÃO de cada gatilho, criada sem o tenant precisar abrir a
+// tela. O tenant pode adicionar/duplicar outras pela tela (várias por
+// gatilho). `corpo` é preview/referência editável — o texto que o cliente
+// recebe é o do template aprovado na Meta. `whatsapp_template` nasce nulo:
+// o tenant escolhe na tela um modelo aprovado na WABA dele (a automação só
+// dispara depois disso).
 const SEEDS = [
   { gatilho: 'agendamento_criado', nome: 'Confirmação de agendamento',
     corpo: 'Oi, {{cliente}}! Seu horário de {{servico}} com {{profissional}} está confirmado para {{data}} às {{hora}}. Até lá! — {{salao}}' },
@@ -186,16 +187,19 @@ async function enviarOuEnfileirar(pool, {
   if (enviado) await registrarEnvioWhatsapp(pool, tenantId, telefoneE164);
 }
 
-// Resolve a automação ativa do gatilho + o número/WABA/nome do tenant + o
-// templateInfo, e chama enviarOuEnfileirar. Usado tanto pelos gatilhos de
-// evento quanto pelos de tempo.
-async function dispararUm(pool, { tenantId, gatilho, telefoneE164, optOut, dados }) {
+// Resolve TODAS as automações ativas do gatilho (com template escolhido) + o
+// número/WABA/nome do tenant + o templateInfo, e chama enviarOuEnfileirar pra
+// cada uma. A trava de 24h dentro de enviarOuEnfileirar (enviadoRecentemente,
+// por telefone) garante que, se houver mais de uma automação no mesmo
+// gatilho, o cliente recebe no máximo uma mensagem — mesma regra anti-spam
+// do People, que cruza todas as automações.
+async function dispararGatilho(pool, { tenantId, gatilho, telefoneE164, optOut, dados }) {
   const { rows: autos } = await pool.query(
-    'select * from automacoes where tenant_id = $1 and gatilho = $2 and ativo = true limit 1',
+    `select * from automacoes
+     where tenant_id = $1 and gatilho = $2 and ativo = true and whatsapp_template is not null`,
     [tenantId, gatilho]
   );
-  const automacao = autos[0];
-  if (!automacao || !automacao.whatsapp_template) return false;
+  if (!autos.length) return false;
 
   const { rows: tRows } = await pool.query(
     'select nome, meta_phone_number_id, meta_waba_id from tenants where id = $1',
@@ -205,14 +209,15 @@ async function dispararUm(pool, { tenantId, gatilho, telefoneE164, optOut, dados
   if (!tenant || !tenant.meta_phone_number_id) return false;
 
   const templates = await listarTemplates({ wabaId: tenant.meta_waba_id });
-  const templateInfo = templates.find((t) => t.nome === automacao.whatsapp_template);
-  const { parametrosCorpo, parametroBotao } = montarParametrosWhatsapp(gatilho, dados, templateInfo);
-
-  await enviarOuEnfileirar(pool, {
-    tenantId, telefoneE164, optOut, gatilho,
-    templateNome: automacao.whatsapp_template, parametrosCorpo, parametroBotao,
-    phoneNumberId: tenant.meta_phone_number_id, wabaId: tenant.meta_waba_id,
-  });
+  for (const automacao of autos) {
+    const templateInfo = templates.find((t) => t.nome === automacao.whatsapp_template);
+    const { parametrosCorpo, parametroBotao } = montarParametrosWhatsapp(gatilho, dados, templateInfo);
+    await enviarOuEnfileirar(pool, {
+      tenantId, telefoneE164, optOut, gatilho,
+      templateNome: automacao.whatsapp_template, parametrosCorpo, parametroBotao,
+      phoneNumberId: tenant.meta_phone_number_id, wabaId: tenant.meta_waba_id,
+    });
+  }
   return true;
 }
 
@@ -234,7 +239,7 @@ async function dispararAutomacoes(pool, { tenantId, gatilho, agendamento }) {
     const telefoneE164 = telefoneParaE164(agendamento.cliente_telefone);
     if (!telefoneE164) return;
 
-    await dispararUm(pool, {
+    await dispararGatilho(pool, {
       tenantId, gatilho, telefoneE164,
       optOut: !!(cli && cli.whatsapp_opt_out),
       dados: dadosDoAgendamento(agendamento, cli ? cli.salao : ''),
