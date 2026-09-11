@@ -669,7 +669,6 @@ function iniciarWorkerAutomacoes() {
   setInterval(async () => {
     for (const [nome, fn] of [
       ['fila-whatsapp', automacoes.processarFilaWhatsapp],
-      ['lembretes', automacoes.processarLembretes],
       ['aniversarios', automacoes.processarAniversarios],
       ['inativos', automacoes.processarInativos],
     ]) {

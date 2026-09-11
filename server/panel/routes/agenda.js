@@ -13,11 +13,9 @@ const { garantirProfissionalPadrao } = require('../lib/profissionais');
 const { dispararAutomacoes } = require('../lib/automacoes');
 
 // PATCH status -> gatilho de automação (só quando o status muda de fato).
+// Só "concluido" (Feedback do serviço) dispara automação hoje.
 const GATILHO_POR_STATUS = {
-  cancelado: 'agendamento_cancelado',
   concluido: 'agendamento_concluido',
-  falta: 'agendamento_falta',
-  reagendado: 'agendamento_reagendado',
 };
 const { normalizarTelefoneCliente } = require('../lib/clientes');
 
@@ -220,8 +218,8 @@ function registerAgendaRoutes(fastify, pool) {
       [id]
     );
 
-    // Automação por mudança de status (cancelado/concluido/falta/reagendado)
-    // — só quando o status muda de verdade. Best-effort.
+    // Automação por mudança de status (hoje só "concluido" -> Feedback do
+    // serviço) — só quando o status muda de verdade. Best-effort.
     const gatilho = status !== undefined && status !== atual.status ? GATILHO_POR_STATUS[status] : null;
     if (gatilho) {
       dispararAutomacoes(pool, { tenantId, gatilho, agendamento: detalhado[0] })

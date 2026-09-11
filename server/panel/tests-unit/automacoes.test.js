@@ -93,14 +93,17 @@ describe('detectarOptOut', () => {
 });
 
 describe('SEEDS', () => {
-  test('uma automação por gatilho, só o lembrete tem lembrete_horas_antes', () => {
+  test('um seed por gatilho, cobre exatamente os 4 gatilhos', () => {
     const gatilhos = SEEDS.map((s) => s.gatilho);
     assert.equal(new Set(gatilhos).size, gatilhos.length);
-    assert.equal(gatilhos.length, 8);
-    const lembrete = SEEDS.find((s) => s.gatilho === 'lembrete_agendamento');
-    assert.equal(lembrete.lembrete_horas_antes, 24);
-    for (const s of SEEDS.filter((x) => x.gatilho !== 'lembrete_agendamento')) {
-      assert.equal(s.lembrete_horas_antes, undefined, s.gatilho);
+    assert.deepEqual(
+      [...gatilhos].sort(),
+      ['agendamento_concluido', 'agendamento_criado', 'aniversario_cliente', 'cliente_inativo']
+    );
+  });
+  test('só agendamento_criado nasce ativo', () => {
+    for (const s of SEEDS) {
+      assert.equal(s.ativo !== false, s.gatilho === 'agendamento_criado', s.gatilho);
     }
   });
 });
