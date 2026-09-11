@@ -1233,6 +1233,9 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   color: var(--muted-strong);
   padding: 4px 0;
 }
+/* Dia da semana sem funcionamento — coluna mais estreita (grid-template-columns
+   inline, ver renderMes), rótulo apagado pra reforçar que é fechado. */
+.calendario-cabecalho-dia-fechado { color: var(--muted); opacity: 0.6; }
 
 .calendario {
   display: grid;

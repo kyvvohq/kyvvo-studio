@@ -5084,16 +5084,29 @@ async function renderMes() {
       <strong>${mesLabel}</strong>
       <button data-nav="1">Próximo mês →</button>
     </div>
-    <div class="calendario-cabecalho">
-      ${NOMES_DIAS.map((nome) => `<div class="calendario-cabecalho-dia">${nome.slice(0, 3)}</div>`).join('')}
+  `;
+
+  // Colunas de dia da semana sem funcionamento (Configuração > Dias de
+  // funcionamento) não têm nada pra mostrar — nenhum agendamento cai nelas —
+  // então ficavam do mesmo tamanho das colunas úteis à toa, espremendo o
+  // espaço de quem realmente tem conteúdo (data/agendamentos cortando).
+  // grid-template-columns fica menor nessas colunas (0.4fr contra 1fr) e
+  // maior nas abertas; cabeçalho e corpo do grid usam o MESMO template pra
+  // não desalinhar as colunas entre si. diaSemana index bate com
+  // NOMES_DIAS/getDay() (0 = domingo).
+  const diasFuncionamentoMes = configuracao.dias_funcionamento || [1, 2, 3, 4, 5, 6];
+  const templateColunasMes = NOMES_DIAS.map((_, diaSemana) => (diasFuncionamentoMes.includes(diaSemana) ? '1fr' : '0.4fr')).join(' ');
+
+  html += `
+    <div class="calendario-cabecalho" style="grid-template-columns:${templateColunasMes}">
+      ${NOMES_DIAS.map((nome, diaSemana) => `<div class="calendario-cabecalho-dia${diasFuncionamentoMes.includes(diaSemana) ? '' : ' calendario-cabecalho-dia-fechado'}">${nome.slice(0, 3)}</div>`).join('')}
     </div>
-    <div class="calendario">
+    <div class="calendario" style="grid-template-columns:${templateColunasMes}">
   `;
 
   for (let i = 0; i < offsetSemana; i++) {
     html += '<div class="dia-cel vazio-cel"></div>';
   }
-  const diasFuncionamentoMes = configuracao.dias_funcionamento || [1, 2, 3, 4, 5, 6];
   const hojeISOMes = formatarDataISO(new Date());
   for (let dia = 1; dia <= ultimoDia.getDate(); dia++) {
     const diaISO = `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
