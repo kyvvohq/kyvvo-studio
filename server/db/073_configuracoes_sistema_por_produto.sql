@@ -19,8 +19,12 @@
 alter table configuracoes_sistema add column produto text not null default 'studio';
 alter table configuracoes_sistema add constraint configuracoes_sistema_produto_check check (produto in ('studio', 'people'));
 
+-- PK antiga (só `chave`) precisa sair ANTES de duplicar as linhas pra
+-- 'people' — senão a segunda linha de cada chave viola a unicidade antiga
+-- (mesma `chave`, PK ainda não é composta).
+alter table configuracoes_sistema drop constraint configuracoes_sistema_pkey;
+
 insert into configuracoes_sistema (chave, valor, produto)
   select chave, valor, 'people' from configuracoes_sistema where produto = 'studio';
 
-alter table configuracoes_sistema drop constraint configuracoes_sistema_pkey;
 alter table configuracoes_sistema add primary key (chave, produto);
