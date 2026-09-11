@@ -1,37 +1,22 @@
 // Automações do Studio (menu Config > Automações). Espelha a tela do
-// kyvvo-people: a lista mostra Nome / Gatilho / Canal / Ativo com ações
-// Editar / Duplicar / Excluir, e o tenant pode ter VÁRIAS automações por
-// gatilho (ex.: dois lembretes em horas diferentes, ou duas mensagens de
-// "agendamento criado"). O conjunto padrão é semeado na 1ª visita
-// (garantirAutomacoesPadrao). Canal é sempre 'whatsapp' no v1. Motor em
-// lib/automacoes.js. O texto que o cliente recebe é o do template aprovado
-// na Meta (whatsapp_template); `corpo` é só referência editável.
+// kyvvo-people: a lista mostra Nome / Gatilho / Ativa com ações Editar /
+// Duplicar / Excluir, e o tenant pode ter VÁRIAS automações por gatilho
+// (ex.: duas mensagens de "Confirmação de agenda"). O conjunto padrão é
+// semeado na 1ª visita (garantirAutomacoesPadrao). Canal é sempre 'whatsapp'
+// (não aparece na tela). Motor em lib/automacoes.js. O texto que o cliente
+// recebe é o do template aprovado na Meta (whatsapp_template); `corpo` é só
+// referência editável.
 const crypto = require('crypto');
 const { garantirAutomacoesPadrao } = require('../lib/automacoes');
 const { listarTemplates } = require('@kyvvohq/whatsapp');
 
-// Mesmos valores do CHECK em db/068_automacoes.sql.
+// Mesmos valores do CHECK em db/070_automacoes_4_gatilhos.sql.
 const GATILHOS_VALIDOS = [
-  'agendamento_criado', 'agendamento_cancelado', 'agendamento_concluido',
-  'agendamento_falta', 'agendamento_reagendado',
-  'lembrete_agendamento', 'aniversario_cliente', 'cliente_inativo',
+  'agendamento_criado', 'agendamento_concluido',
+  'aniversario_cliente', 'cliente_inativo',
 ];
 
-const COLUNAS = `id, gatilho, canal, nome, ativo, removivel, corpo, whatsapp_template,
-                 lembrete_horas_antes, atualizado_em`;
-
-// Normaliza lembrete_horas_antes conforme o CHECK do banco: obrigatório
-// (1-168) quando o gatilho é lembrete_agendamento, sempre null nos demais.
-// `entrada` pode vir undefined (não mexer / usar default).
-function normalizarHoras(gatilho, entrada, atual) {
-  if (gatilho !== 'lembrete_agendamento') return { ok: true, valor: null };
-  const bruto = entrada !== undefined ? entrada : (atual != null ? atual : 24);
-  const n = Number(bruto);
-  if (!Number.isInteger(n) || n < 1 || n > 168) {
-    return { ok: false, erro: '"lembrete_horas_antes" deve ser um inteiro entre 1 e 168.' };
-  }
-  return { ok: true, valor: n };
-}
+const COLUNAS = `id, gatilho, canal, nome, ativo, removivel, corpo, whatsapp_template, atualizado_em`;
 
 function registerAutomacoesRoutes(fastify, pool) {
   // Lista as automações do tenant (garante os seeds antes — cobre quem nunca
@@ -71,15 +56,12 @@ function registerAutomacoesRoutes(fastify, pool) {
     if (!GATILHOS_VALIDOS.includes(gatilho)) return reply.code(400).send({ error: 'Gatilho inválido.' });
     if (!nome) return reply.code(400).send({ error: 'Informe um nome.' });
     if (!corpo) return reply.code(400).send({ error: 'Informe o texto de referência.' });
-    const horas = normalizarHoras(gatilho, b.lembrete_horas_antes, null);
-    if (!horas.ok) return reply.code(400).send({ error: horas.erro });
 
     const { rows } = await pool.query(
-      `INSERT INTO automacoes (id, tenant_id, gatilho, canal, nome, ativo, removivel, corpo, whatsapp_template, lembrete_horas_antes)
-       VALUES ($1, $2, $3, 'whatsapp', $4, $5, true, $6, $7, $8)
+      `INSERT INTO automacoes (id, tenant_id, gatilho, canal, nome, ativo, removivel, corpo, whatsapp_template)
+       VALUES ($1, $2, $3, 'whatsapp', $4, $5, true, $6, $7)
        RETURNING ${COLUNAS}`,
-      [crypto.randomUUID(), tenantId, gatilho, nome, b.ativo !== false, corpo,
-       b.whatsapp_template || null, horas.valor]
+      [crypto.randomUUID(), tenantId, gatilho, nome, b.ativo !== false, corpo, b.whatsapp_template || null]
     );
     return reply.code(201).send(rows[0]);
   });
@@ -95,27 +77,25 @@ function registerAutomacoesRoutes(fastify, pool) {
     if (!base[0]) return reply.code(404).send({ error: 'Automação não encontrada' });
     const a = base[0];
     const { rows } = await pool.query(
-      `INSERT INTO automacoes (id, tenant_id, gatilho, canal, nome, ativo, removivel, corpo, whatsapp_template, lembrete_horas_antes)
-       VALUES ($1, $2, $3, $4, $5, false, true, $6, $7, $8)
+      `INSERT INTO automacoes (id, tenant_id, gatilho, canal, nome, ativo, removivel, corpo, whatsapp_template)
+       VALUES ($1, $2, $3, $4, $5, false, true, $6, $7)
        RETURNING ${COLUNAS}`,
-      [crypto.randomUUID(), tenantId, a.gatilho, a.canal, `${a.nome} (cópia)`,
-       a.corpo, a.whatsapp_template, a.lembrete_horas_antes]
+      [crypto.randomUUID(), tenantId, a.gatilho, a.canal, `${a.nome} (cópia)`, a.corpo, a.whatsapp_template]
     );
     return reply.code(201).send(rows[0]);
   });
 
-  // Edita nome / gatilho / ativo / corpo / template / horas-antes.
+  // Edita nome / gatilho / ativo / corpo / template.
   fastify.patch('/api/automacoes/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { tenantId } = request.user;
     const { id } = request.params;
     const {
       nome, gatilho, ativo, corpo,
       whatsapp_template: whatsappTemplate,
-      lembrete_horas_antes: lembreteHorasAntes,
     } = request.body || {};
 
     const { rows: atuais } = await pool.query(
-      'SELECT gatilho, removivel, lembrete_horas_antes FROM automacoes WHERE id = $1 AND tenant_id = $2',
+      'SELECT removivel FROM automacoes WHERE id = $1 AND tenant_id = $2',
       [id, tenantId]
     );
     const atual = atuais[0];
@@ -137,6 +117,7 @@ function registerAutomacoesRoutes(fastify, pool) {
       if (!n) return reply.code(400).send({ error: 'Informe um nome.' });
       push('nome', n);
     }
+    if (gatilho !== undefined) push('gatilho', String(gatilho));
     if (ativo !== undefined) push('ativo', ativo);
     if (corpo !== undefined) {
       const c = String(corpo).trim();
@@ -144,16 +125,6 @@ function registerAutomacoesRoutes(fastify, pool) {
       push('corpo', c);
     }
     if (whatsappTemplate !== undefined) push('whatsapp_template', whatsappTemplate || null);
-
-    // gatilho e horas andam juntos: mudar o gatilho pode exigir setar/limpar
-    // lembrete_horas_antes pro CHECK do banco bater.
-    const gatilhoFinal = gatilho !== undefined ? String(gatilho) : atual.gatilho;
-    if (gatilho !== undefined) push('gatilho', gatilhoFinal);
-    if (gatilho !== undefined || lembreteHorasAntes !== undefined) {
-      const horas = normalizarHoras(gatilhoFinal, lembreteHorasAntes, atual.lembrete_horas_antes);
-      if (!horas.ok) return reply.code(400).send({ error: horas.erro });
-      push('lembrete_horas_antes', horas.valor);
-    }
 
     if (!sets.length) return reply.code(400).send({ error: 'Nada para atualizar.' });
 

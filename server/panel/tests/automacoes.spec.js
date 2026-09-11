@@ -1,20 +1,22 @@
 const { test, expect } = require('@playwright/test');
 
 // Tela Configurações > Automações — lista estilo People (Nome / Gatilho /
-// Canal / Ativa + Editar / Duplicar / Excluir), várias automações por
-// gatilho. API mockada via page.route (sem Postgres).
+// Ativa + Editar / Duplicar / Excluir), várias automações por gatilho, canal
+// sempre WhatsApp (não aparece). 4 gatilhos: Confirmação de agenda, Feedback
+// do serviço, Aniversário do cliente, Clientes inativos. API mockada via
+// page.route (sem Postgres).
 
 const TEMPLATES = [
   { nome: 'studio_confirmacao', status: 'APPROVED', parametros_corpo: [], parametros_nomeados: false },
-  { nome: 'studio_lembrete', status: 'APPROVED', parametros_corpo: [], parametros_nomeados: false },
+  { nome: 'studio_feedback', status: 'APPROVED', parametros_corpo: [], parametros_nomeados: false },
 ];
 
 function automacaoBase(over = {}) {
   return {
     id: over.id || 'a1', gatilho: 'agendamento_criado', canal: 'whatsapp',
-    nome: 'Confirmação de agendamento', ativo: true, removivel: true,
+    nome: 'Confirmação de agenda', ativo: true, removivel: true,
     corpo: 'Oi {{cliente}}', whatsapp_template: 'studio_confirmacao',
-    lembrete_horas_antes: null, atualizado_em: '2026-09-10T12:00:00Z', ...over,
+    atualizado_em: '2026-09-10T12:00:00Z', ...over,
   };
 }
 
@@ -68,15 +70,23 @@ async function entrar(page, { automacoes = [automacaoBase()], templates = TEMPLA
 }
 
 test.describe('Automações — lista e ações', () => {
-  test('lista as automações com colunas Nome / Gatilho / Canal / Ativa', async ({ page }) => {
+  test('lista com colunas Nome / Gatilho / Ativa (sem coluna Canal)', async ({ page }) => {
     await entrar(page);
+    await expect(page.locator('.tabela-automacoes thead')).not.toContainText('Canal');
     const linha = page.locator('tr[data-automacao="a1"]');
-    await expect(linha).toContainText('Confirmação de agendamento');
-    await expect(linha).toContainText('Agendamento criado');
-    await expect(linha).toContainText('WhatsApp');
+    await expect(linha).toContainText('Confirmação de agenda');
     await expect(linha.locator('[data-auto-editar]')).toBeVisible();
     await expect(linha.locator('[data-auto-duplicar]')).toBeVisible();
     await expect(linha.locator('[data-auto-excluir]')).toBeVisible();
+  });
+
+  test('o filtro lista só os 4 gatilhos', async ({ page }) => {
+    await entrar(page);
+    const opcoes = await page.locator('#filtro-gatilho-auto option').allTextContents();
+    expect(opcoes).toEqual([
+      'Todos os gatilhos', 'Confirmação de agenda', 'Feedback do serviço',
+      'Aniversário do cliente', 'Clientes inativos',
+    ]);
   });
 
   test('"+ Nova automação" cria e a nova linha aparece', async ({ page }) => {
@@ -90,18 +100,17 @@ test.describe('Automações — lista e ações', () => {
     await expect(page.locator('.tabela-automacoes')).toContainText('Aviso de chegada');
   });
 
-  test('gatilho "lembrete" mostra o campo de horas no formulário', async ({ page }) => {
+  test('o formulário não tem campo de canal nem de horas', async ({ page }) => {
     await entrar(page, { automacoes: [] });
     await page.click('#btn-nova-automacao');
-    await expect(page.locator('#wrap-automacao-horas')).toBeHidden();
-    await page.selectOption('#automacao-gatilho', 'lembrete_agendamento');
-    await expect(page.locator('#wrap-automacao-horas')).toBeVisible();
+    await expect(page.locator('#automacao-canal')).toHaveCount(0);
+    await expect(page.locator('#automacao-horas')).toHaveCount(0);
   });
 
   test('Duplicar cria uma cópia desativada', async ({ page }) => {
     await entrar(page);
     await page.click('[data-auto-duplicar="a1"]');
-    await expect(page.locator('.tabela-automacoes')).toContainText('Confirmação de agendamento (cópia)');
+    await expect(page.locator('.tabela-automacoes')).toContainText('Confirmação de agenda (cópia)');
   });
 
   test('Excluir remove a linha após confirmação', async ({ page }) => {

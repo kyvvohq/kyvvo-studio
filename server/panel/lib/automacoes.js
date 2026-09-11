@@ -6,12 +6,16 @@
 // compartilhado — @kyvvohq/whatsapp v1.1.0 aceita phoneNumberId/wabaId por
 // chamada).
 //
+// Quatro gatilhos: agendamento_criado (Confirmação de agenda) e
+// agendamento_concluido (Feedback do serviço) são de EVENTO;
+// aniversario_cliente e cliente_inativo (Clientes inativos) são por TEMPO.
+//
 // Três responsabilidades:
 //  - garantirAutomacoesPadrao(pool, tenantId): semeia a automação padrão de
 //    cada gatilho (idempotente).
 //  - dispararAutomacoes(pool, {gatilho, agendamento}): gatilhos de EVENTO,
-//    chamado por routes/agenda.js (criar / mudar status).
-//  - processarLembretes/Aniversarios/Inativos(pool) + processarFilaWhatsapp:
+//    chamado por routes/agenda.js (criar / concluir).
+//  - processarAniversarios/Inativos(pool) + processarFilaWhatsapp:
 //    gatilhos por TEMPO e a fila de fora-do-horário, chamados pelo worker
 //    (server/panel/index.js) a cada 5 min.
 //
@@ -35,21 +39,13 @@ const listarTemplates = (...a) => whatsapp().listarTemplates(...a);
 // o tenant escolhe na tela um modelo aprovado na WABA dele (a automação só
 // dispara depois disso).
 const SEEDS = [
-  { gatilho: 'agendamento_criado', nome: 'Confirmação de agendamento',
+  { gatilho: 'agendamento_criado', nome: 'Confirmação de agenda',
     corpo: 'Oi, {{cliente}}! Seu horário de {{servico}} com {{profissional}} está confirmado para {{data}} às {{hora}}. Até lá! — {{salao}}' },
-  { gatilho: 'agendamento_cancelado', nome: 'Agendamento cancelado',
-    corpo: 'Oi, {{cliente}}. Seu horário de {{servico}} em {{data}} às {{hora}} foi cancelado. Qualquer coisa é só remarcar com a gente. — {{salao}}' },
-  { gatilho: 'agendamento_concluido', nome: 'Pós-atendimento', ativo: false,
-    corpo: 'Oi, {{cliente}}! Esperamos que tenha gostado do seu {{servico}} com {{profissional}}. Quando quiser marcar de novo, é só chamar. — {{salao}}' },
-  { gatilho: 'agendamento_falta', nome: 'Falta (no-show)', ativo: false,
-    corpo: 'Oi, {{cliente}}. Sentimos sua falta no horário de {{servico}} em {{data}}. Quer remarcar? — {{salao}}' },
-  { gatilho: 'agendamento_reagendado', nome: 'Agendamento remarcado',
-    corpo: 'Oi, {{cliente}}! Seu horário de {{servico}} com {{profissional}} foi remarcado para {{data}} às {{hora}}. — {{salao}}' },
-  { gatilho: 'lembrete_agendamento', nome: 'Lembrete de agendamento', lembrete_horas_antes: 24,
-    corpo: 'Oi, {{cliente}}! Lembrando do seu horário de {{servico}} com {{profissional}} amanhã, {{data}} às {{hora}}. — {{salao}}' },
+  { gatilho: 'agendamento_concluido', nome: 'Feedback do serviço', ativo: false,
+    corpo: 'Oi, {{cliente}}! Esperamos que tenha gostado do seu {{servico}} com {{profissional}}. Conta pra gente como foi? — {{salao}}' },
   { gatilho: 'aniversario_cliente', nome: 'Aniversário do cliente', ativo: false,
     corpo: 'Feliz aniversário, {{cliente}}! 🎉 Passa aqui pra comemorar com a gente. — {{salao}}' },
-  { gatilho: 'cliente_inativo', nome: 'Cliente inativo', ativo: false,
+  { gatilho: 'cliente_inativo', nome: 'Clientes inativos', ativo: false,
     corpo: 'Oi, {{cliente}}! Faz um tempo que a gente não se vê. Bora marcar um horário? — {{salao}}' },
 ];
 
@@ -58,11 +54,7 @@ const SEEDS = [
 // Fase 2), os valores vêm de `dados` pelo nome — ver montarParametrosWhatsapp.
 const PARAMETROS_CORPO_TEMPLATE = {
   agendamento_criado: (d) => [d.cliente, d.servico, d.profissional, d.data, d.hora],
-  agendamento_cancelado: (d) => [d.cliente, d.servico, d.data, d.hora],
   agendamento_concluido: (d) => [d.cliente, d.servico, d.profissional],
-  agendamento_falta: (d) => [d.cliente, d.servico, d.data],
-  agendamento_reagendado: (d) => [d.cliente, d.servico, d.profissional, d.data, d.hora],
-  lembrete_agendamento: (d) => [d.cliente, d.servico, d.profissional, d.data, d.hora],
   aniversario_cliente: (d) => [d.cliente, d.salao],
   cliente_inativo: (d) => [d.cliente, d.salao],
 };
@@ -122,10 +114,9 @@ async function garantirAutomacoesPadrao(pool, tenantId) {
   for (const seed of SEEDS) {
     if (jaTem.has(seed.gatilho)) continue;
     await pool.query(
-      `insert into automacoes (id, tenant_id, gatilho, nome, ativo, corpo, lembrete_horas_antes)
-       values ($1, $2, $3, $4, $5, $6, $7)`,
-      [crypto.randomUUID(), tenantId, seed.gatilho, seed.nome,
-       seed.ativo !== false, seed.corpo, seed.lembrete_horas_antes ?? null]
+      `insert into automacoes (id, tenant_id, gatilho, nome, ativo, corpo)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [crypto.randomUUID(), tenantId, seed.gatilho, seed.nome, seed.ativo !== false, seed.corpo]
     );
   }
 }
@@ -277,42 +268,6 @@ async function marcarDisparo(pool, automacaoId, chave) {
   );
 }
 
-// Lembrete: pra cada automação lembrete_agendamento ativa com template, busca
-// agendamentos confirmados cujo data_hora cai na janela [agora +
-// lembrete_horas_antes, +5min] e ainda não teve lembrete. Dedupe por
-// agendamento_id.
-async function processarLembretes(pool) {
-  const { rows: autos } = await pool.query(
-    `select a.*, t.nome as salao, t.meta_phone_number_id, t.meta_waba_id
-     from automacoes a join tenants t on t.id = a.tenant_id
-     where a.gatilho = 'lembrete_agendamento' and a.ativo = true
-       and a.whatsapp_template is not null and t.meta_phone_number_id is not null`
-  );
-  let enviados = 0;
-  for (const auto of autos) {
-    const { rows: ags } = await pool.query(
-      `select ag.id, ag.data_hora, c.telefone as cliente_telefone, c.nome as cliente, c.whatsapp_opt_out,
-              s.nome as servico, p.nome as profissional
-       from agendamentos ag
-       join clientes c on c.id = ag.cliente_id
-       join servicos s on s.id = ag.servico_id
-       join profissionais p on p.id = ag.profissional_id
-       where ag.tenant_id = $1 and ag.status = 'confirmado'
-         and ag.data_hora between now() + ($2 * interval '1 hour') and now() + ($2 * interval '1 hour') + interval '6 minutes'`,
-      [auto.tenant_id, auto.lembrete_horas_antes]
-    );
-    for (const ag of ags) {
-      if (await jaDisparou(pool, auto.id, ag.id)) continue;
-      const telefoneE164 = telefoneParaE164(ag.cliente_telefone);
-      if (!telefoneE164) { await marcarDisparo(pool, auto.id, ag.id); continue; }
-      await enviarComAuto(pool, auto, telefoneE164, !!ag.whatsapp_opt_out, dadosDoAgendamento(ag, auto.salao));
-      await marcarDisparo(pool, auto.id, ag.id);
-      enviados++;
-    }
-  }
-  return { enviados };
-}
-
 // Aniversário: clientes cujo dia/mês de data_nascimento == hoje (Brasília).
 // Dedupe por cliente_id + ano.
 async function processarAniversarios(pool) {
@@ -445,7 +400,6 @@ module.exports = {
   garantirAutomacoesPadrao,
   dispararAutomacoes,
   detectarOptOut,
-  processarLembretes,
   processarAniversarios,
   processarInativos,
   processarFilaWhatsapp,

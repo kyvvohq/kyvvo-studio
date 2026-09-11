@@ -6055,28 +6055,20 @@ async function conectarWhatsapp(code, wabaId, phoneNumberId) {
 
 // --- Automações -----------------------------------------------------------
 
+// Frase longa usada no <select> do formulário.
 const AUTOMACAO_GATILHO_LABEL = {
-  agendamento_criado: 'Quando um agendamento é criado',
-  agendamento_cancelado: 'Quando um agendamento é cancelado',
-  agendamento_concluido: 'Depois de um atendimento concluído',
-  agendamento_falta: 'Quando o cliente falta (no-show)',
-  agendamento_reagendado: 'Quando um agendamento é remarcado',
-  lembrete_agendamento: 'Lembrete antes do agendamento',
-  aniversario_cliente: 'No aniversário do cliente',
-  cliente_inativo: 'Cliente sem agendar há um tempo',
+  agendamento_criado: 'Confirmação de agenda — quando o agendamento é criado',
+  agendamento_concluido: 'Feedback do serviço — depois do atendimento concluído',
+  aniversario_cliente: 'Aniversário do cliente — no dia do aniversário',
+  cliente_inativo: 'Clientes inativos — sem agendar há um tempo',
 };
 
-// Rótulo curto (coluna "Gatilho" da tabela). O AUTOMACAO_GATILHO_LABEL acima
-// é a frase longa usada no <select> do formulário.
+// Rótulo curto (coluna "Gatilho" da tabela).
 const AUTOMACAO_GATILHO_CURTO = {
-  agendamento_criado: 'Agendamento criado',
-  agendamento_cancelado: 'Agendamento cancelado',
-  agendamento_concluido: 'Atendimento concluído',
-  agendamento_falta: 'Falta (no-show)',
-  agendamento_reagendado: 'Agendamento remarcado',
-  lembrete_agendamento: 'Lembrete de agendamento',
+  agendamento_criado: 'Confirmação de agenda',
+  agendamento_concluido: 'Feedback do serviço',
   aniversario_cliente: 'Aniversário do cliente',
-  cliente_inativo: 'Cliente inativo',
+  cliente_inativo: 'Clientes inativos',
 };
 const AUTOMACAO_GATILHOS_ORDEM = Object.keys(AUTOMACAO_GATILHO_CURTO);
 
@@ -6109,8 +6101,6 @@ async function renderAutomacoes() {
        </div>`
     : '';
 
-  const iconeWpp = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px">${ICON_PATHS['message-circle']}</svg>`;
-
   const filtrados = automacoesFiltroGatilho
     ? automacoesLista.filter((a) => a.gatilho === automacoesFiltroGatilho)
     : automacoesLista;
@@ -6118,8 +6108,7 @@ async function renderAutomacoes() {
   const linha = (a) => `
     <tr data-automacao="${a.id}">
       <td>${escapeHtml(a.nome)}${a.whatsapp_template ? '' : ' <span class="badge badge-status-inativo" title="Escolha um modelo aprovado pra esta automação disparar">sem modelo</span>'}</td>
-      <td>${AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho}${a.gatilho === 'lembrete_agendamento' && a.lembrete_horas_antes ? ` — ${a.lembrete_horas_antes}h antes` : ''}</td>
-      <td>${iconeWpp} WhatsApp</td>
+      <td>${AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho}</td>
       <td>
         ${a.removivel
           ? `<label class="toggle-linha"><span class="toggle-switch">
@@ -6153,7 +6142,7 @@ async function renderAutomacoes() {
     ${filtrados.length ? `
       <div class="tabela-wrapper">
         <table class="tabela-tenants tabela-automacoes">
-          <thead><tr><th>Nome</th><th>Gatilho</th><th>Canal</th><th>Ativa</th><th></th></tr></thead>
+          <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
           <tbody>${filtrados.map(linha).join('')}</tbody>
         </table>
       </div>` : '<div class="vazio">Nenhuma automação neste filtro.</div>'}
@@ -6206,14 +6195,6 @@ function abrirModalAutomacao(automacao) {
           ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${g === gatilhoInicial ? 'selected' : ''}>${AUTOMACAO_GATILHO_LABEL[g] || g}</option>`).join('')}
         </select>
 
-        <label for="automacao-canal">Canal</label>
-        <select id="automacao-canal" disabled><option>WhatsApp</option></select>
-
-        <div id="wrap-automacao-horas" ${gatilhoInicial === 'lembrete_agendamento' ? '' : 'hidden'}>
-          <label for="automacao-horas">Enviar quantas horas antes *</label>
-          <input type="number" id="automacao-horas" min="1" max="168" value="${editando && automacao.lembrete_horas_antes ? automacao.lembrete_horas_antes : 24}">
-        </div>
-
         <label for="automacao-template">Modelo aprovado (Meta)</label>
         <select id="automacao-template">${opcoesTemplateAutomacao(editando ? automacao.whatsapp_template : '')}</select>
         <div class="ajuda" style="color:var(--muted-strong);font-size:12px;margin-top:4px">A automação só dispara depois que um modelo aprovado é escolhido.</div>
@@ -6233,11 +6214,6 @@ function abrirModalAutomacao(automacao) {
   document.getElementById('btn-cancelar-automacao').addEventListener('click', fecharModal);
 
   const selGatilho = document.getElementById('automacao-gatilho');
-  const wrapHoras = document.getElementById('wrap-automacao-horas');
-  selGatilho.addEventListener('change', () => {
-    wrapHoras.hidden = selGatilho.value !== 'lembrete_agendamento';
-  });
-
   const form = document.getElementById('form-automacao');
   form.querySelectorAll('[data-obrigatorio]').forEach((campo) => {
     campo.addEventListener('input', () => campo.classList.remove('campo-invalido'));
@@ -6250,13 +6226,11 @@ function abrirModalAutomacao(automacao) {
     const invalido = validarObrigatorios(form);
     if (invalido) { erroEl.textContent = 'Preencha os campos obrigatórios destacados.'; invalido.focus(); return; }
 
-    const gatilho = selGatilho.value;
     const payload = {
       nome: document.getElementById('automacao-nome').value.trim(),
-      gatilho,
+      gatilho: selGatilho.value,
       corpo: document.getElementById('automacao-corpo').value.trim(),
       whatsapp_template: document.getElementById('automacao-template').value || null,
-      lembrete_horas_antes: gatilho === 'lembrete_agendamento' ? Number(document.getElementById('automacao-horas').value) : undefined,
     };
 
     const btn = document.getElementById('btn-salvar-automacao');
