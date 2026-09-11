@@ -8,10 +8,11 @@ function init(poolInstance) {
   pool = poolInstance;
 }
 
-// Garante que o tenant tenha ao menos 1 profissional. Tenants fora do plano
-// Custom nunca acessam o menu Profissionais (data-somente-plano-custom em
-// painel.html) — sem isso eles não teriam como criar o profissional exigido
-// por agendamentos.profissional_id (NOT NULL). Cria um profissional padrão
+// Garante que o tenant tenha ao menos 1 profissional — cobre o momento antes
+// do tenant cadastrar o primeiro de verdade (menu Profissionais, sem gate de
+// plano desde 2026-09-11: todo plano real permite 3+, ver painel.html), sem
+// o qual ele não teria como criar o profissional exigido por
+// agendamentos.profissional_id (NOT NULL). Cria um profissional padrão
 // nomeado com o responsável pelo tenant (nome do admin em usuarios), já
 // vinculado a todos os serviços existentes, e devolve `unico: true` quando
 // esse é o único profissional do tenant — usado por quem chama pra decidir
