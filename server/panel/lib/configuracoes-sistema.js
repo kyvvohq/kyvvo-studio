@@ -30,7 +30,11 @@ function init(poolInstance) {
 // Chaves ausentes na tabela (banco vazio/erro de leitura) mantêm o valor
 // atual em memória.
 async function carregar() {
-  const { rows } = await pool.query('SELECT chave, valor FROM configuracoes_sistema');
+  // configuracoes_sistema virou por produto (073) — o Studio só lê a
+  // própria linha. Sem o filtro, a query devolve 2 linhas por chave
+  // (studio + people) e Object.fromEntries ficaria com a que vier por
+  // último, ao acaso.
+  const { rows } = await pool.query("SELECT chave, valor FROM configuracoes_sistema WHERE produto = 'studio'");
   const valores = Object.fromEntries(rows.map((r) => [r.chave, r.valor]));
 
   if (valores.trial_dias != null) config.trialDias = parseInt(valores.trial_dias, 10);
