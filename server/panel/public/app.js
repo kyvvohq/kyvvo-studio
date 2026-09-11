@@ -367,8 +367,10 @@ let configuracao = { dias_funcionamento: [1, 2, 3, 4, 5, 6], formato_hora: '24h'
 
 // Filtros da tela Quadro (persistem entre navegação de dia — só resetam se
 // a página recarregar). '' = sem filtro (mostra tudo).
-let quadroFiltroProfissionalId = '';
-let quadroFiltroServicoId = '';
+// Sets (não string única) — mesmo padrão do filtro do Quadro no kyvvo-people
+// (botão + painel popover com checkboxes, multi-seleção).
+const quadroFiltroProfissionalIds = new Set();
+const quadroFiltroServicoIds = new Set();
 // Intervalo da linha de "agora" do Quadro — precisa ser limpo toda vez que
 // sai da tela (senão fica um setInterval fantasma rodando pra sempre depois
 // de trocar de menu) e recriado toda vez que entra nela de novo.
@@ -4889,6 +4891,46 @@ function renderSemanaCelula(diaISO, hora, itens, ativa) {
   `;
 }
 
+// Filtro botão + painel popover com checkboxes — mesmo padrão do
+// kyvvo-people (public/quadro.html: montarFiltroGenerico/alternarPainel).
+// `selecionados` é um Set mutado in-place (não reatribuído) — o mesmo objeto
+// segue vivo entre re-renders do Quadro (navegação de dia, troca de filtro).
+function montarFiltroQuadroGenerico(painelId, itens, selecionados, aoMudar) {
+  const painel = document.getElementById(painelId);
+  if (!painel) return;
+  painel.innerHTML = itens.map((item) => `
+    <label class="filtro-item">
+      <input type="checkbox" value="${item.id}" ${selecionados.has(item.id) ? 'checked' : ''}>
+      ${escapeHtml(item.nome)}
+    </label>
+  `).join('') || '<div class="filtro-item">Nada pra filtrar ainda</div>';
+
+  painel.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('change', () => {
+      if (input.checked) selecionados.add(input.value);
+      else selecionados.delete(input.value);
+      aoMudar();
+    });
+  });
+}
+function alternarPainelFiltroQuadro(painelId, outroPainelId) {
+  const painel = document.getElementById(painelId);
+  const outro = document.getElementById(outroPainelId);
+  if (outro) outro.hidden = true;
+  if (painel) painel.hidden = !painel.hidden;
+}
+// Fecha os painéis ao clicar fora — registrado uma única vez no carregamento
+// do script (renderQuadro roda de novo a cada navegação/filtro; um listener
+// por render empilharia handlers pra sempre). Guardado por `.closest('.filtro')`
+// pra não interferir em nenhum outro clique da tela.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.filtro')) return;
+  const painelProf = document.getElementById('painel-filtro-profissional');
+  const painelServ = document.getElementById('painel-filtro-servico');
+  if (painelProf) painelProf.hidden = true;
+  if (painelServ) painelServ.hidden = true;
+});
+
 // ---------- Quadro (kanban: colunas = profissionais, raias = horários) ----------
 // Só visualização por ora (clique no card abre o mesmo menu de ações do
 // resto da agenda — concluir/reagendar/encaixar/falta/cancelar); arrastar
@@ -4919,15 +4961,15 @@ async function renderQuadro() {
       </div>
       <button data-nav="1">Próximo →</button>
     </div>
-    <div class="clientes-filtros">
-      <select id="quadro-filtro-profissional">
-        <option value="">Todos os profissionais</option>
-        ${profs.profissionais.map((p) => `<option value="${p.id}" ${quadroFiltroProfissionalId === p.id ? 'selected' : ''}>${escapeHtml(p.nome)}</option>`).join('')}
-      </select>
-      <select id="quadro-filtro-servico">
-        <option value="">Todos os serviços</option>
-        ${servs.servicos.map((s) => `<option value="${s.id}" ${quadroFiltroServicoId === s.id ? 'selected' : ''}>${escapeHtml(s.nome)}</option>`).join('')}
-      </select>
+    <div class="filtros">
+      <div class="filtro">
+        <button class="btn btn-secundario" id="btn-filtro-profissional" type="button">Profissionais <span data-icon="chevron-down" data-size="14"></span></button>
+        <div class="filtro-painel" id="painel-filtro-profissional" hidden></div>
+      </div>
+      <div class="filtro">
+        <button class="btn btn-secundario" id="btn-filtro-servico" type="button">Serviços <span data-icon="chevron-down" data-size="14"></span></button>
+        <div class="filtro-painel" id="painel-filtro-servico" hidden></div>
+      </div>
     </div>
   `;
 
@@ -4935,11 +4977,11 @@ async function renderQuadro() {
   // menus de ação dos cards (concluir/reagendar/etc.) usam pra achar o
   // agendamento pelo id; os filtros abaixo só decidem o que aparece na grade.
   agendamentosAtuais = data.agendamentos;
-  const profissionaisFiltrados = quadroFiltroProfissionalId
-    ? profs.profissionais.filter((p) => p.id === quadroFiltroProfissionalId)
+  const profissionaisFiltrados = quadroFiltroProfissionalIds.size
+    ? profs.profissionais.filter((p) => quadroFiltroProfissionalIds.has(p.id))
     : profs.profissionais;
-  const agendamentosFiltrados = quadroFiltroServicoId
-    ? data.agendamentos.filter((ag) => ag.servico_id === quadroFiltroServicoId)
+  const agendamentosFiltrados = quadroFiltroServicoIds.size
+    ? data.agendamentos.filter((ag) => quadroFiltroServicoIds.has(ag.servico_id))
     : data.agendamentos;
   html += renderQuadroGrade(iso, profissionaisFiltrados, agendamentosFiltrados);
 
@@ -4954,13 +4996,16 @@ async function renderQuadro() {
     dataRef = proximoDiaAberto(dataRef, 1);
     renderQuadro();
   });
-  conteudo.querySelector('#quadro-filtro-profissional').addEventListener('change', (e) => {
-    quadroFiltroProfissionalId = e.target.value;
-    renderQuadro();
+
+  montarFiltroQuadroGenerico('painel-filtro-profissional', profs.profissionais, quadroFiltroProfissionalIds, renderQuadro);
+  montarFiltroQuadroGenerico('painel-filtro-servico', servs.servicos, quadroFiltroServicoIds, renderQuadro);
+  conteudo.querySelector('#btn-filtro-profissional').addEventListener('click', (e) => {
+    e.stopPropagation();
+    alternarPainelFiltroQuadro('painel-filtro-profissional', 'painel-filtro-servico');
   });
-  conteudo.querySelector('#quadro-filtro-servico').addEventListener('change', (e) => {
-    quadroFiltroServicoId = e.target.value;
-    renderQuadro();
+  conteudo.querySelector('#btn-filtro-servico').addEventListener('click', (e) => {
+    e.stopPropagation();
+    alternarPainelFiltroQuadro('painel-filtro-servico', 'painel-filtro-profissional');
   });
 
   // Linha vermelha de "agora" — só faz sentido no dia de hoje. Recalcula na

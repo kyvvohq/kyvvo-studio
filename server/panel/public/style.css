@@ -2219,6 +2219,28 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .clientes-filtros input[type="text"] { flex: 1; min-width: 220px; margin: 0; }
 .clientes-filtros select { width: auto; margin: 0; }
 
+/* Filtro botão + painel popover com checkboxes (Quadro) — mesmo padrão do
+   kyvvo-people (public/quadro.html), identidade única entre produtos. */
+.filtros { display: flex; gap: 10px; margin-bottom: 12px; }
+.filtro { position: relative; }
+.filtro-painel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(15, 17, 26, .12);
+  padding: 8px;
+  z-index: 60;
+}
+.filtro-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.filtro-item:hover { background: var(--surface-muted); }
+.filtro-item input { width: auto; }
+
 /* Pills de filtro por status (Todos/Ativos/Novos/Inativos) — lado a lado em
    4 colunas iguais (mesma largura), mesmo visual de .chip-modulo com um
    estado ativo/selecionado a mais. */
