@@ -96,6 +96,22 @@ jobs:
           source: "server/panel/**"
           target: "/opt/kyvvo/panel"
           strip_components: 2
+      # server/db/** nunca tinha saído do repo — migration de schema sempre
+      # dependeu de alguém rodar psql à mão na EC2 depois do deploy (achado
+      # 2026-09-10: 068/069/070 ficaram pra trás em produção por horas, a
+      # tela de Automações inteira devolvia 500). Copiado à parte (path
+      # diferente de server/panel/**) pra não misturar migration com código
+      # do painel; scripts/aplicar-migrations.js (que roda a seguir) espera
+      # achar os .sql em ../db a partir de si mesmo.
+      - name: Copiar migrations pra EC2
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ steps.sshkey.outputs.value }}
+          source: "server/db/**"
+          target: "/opt/kyvvo/panel/db"
+          strip_components: 2
       - name: Reiniciar container do painel
         uses: appleboy/ssh-action@v1.2.5
         with:
@@ -103,5 +119,14 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ steps.sshkey.outputs.value }}
           script: |
+            set -e
             sudo /opt/kyvvo/scripts/gen-env-from-ssm.sh
-            cd /opt/kyvvo && sudo docker compose up -d --force-recreate studio
+            cd /opt/kyvvo
+            # Migrations ANTES de recriar o container — com `set -e`, se
+            # essa rodada falhar o `up -d --force-recreate` seguinte não
+            # roda: nunca sobe código novo contra um schema que ele não
+            # espera. `run --rm` usa a mesma imagem/env_file/bind-mount do
+            # serviço studio (/opt/kyvvo/panel:/app), sem depender do
+            # container antigo estar de pé.
+            sudo docker compose run --rm studio node scripts/aplicar-migrations.js
+            sudo docker compose up -d --force-recreate studio

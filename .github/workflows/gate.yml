@@ -53,21 +53,15 @@ jobs:
         run: npm ci
         working-directory: server/panel
 
-      # server/db/ mistura migration de schema com fixture de dev. As fixtures
-      # abaixo assumem um tenant criado à mão em produção (UUID chumbado) e
-      # estouram FK quando rodam do zero — não são schema, ficam de fora do gate.
+      # Mesmo script que o deploy.yml usa em produção (deploy-panel ->
+      # scripts/aplicar-migrations.js, via `docker compose run`) — um script
+      # só pra "como aplicar migrations", testado aqui do zero a cada PR
+      # antes de chegar em produção. Fixtures de dev (006/017) ficam de fora
+      # (a lista está no próprio script, não duplicada aqui).
       - name: Aplicar migrations do zero, em ordem
         env:
-          PULAR: "006_massa_dados.sql 017_seed_petshop_demo.sql"
-        run: |
-          for f in $(ls server/db/*.sql | sort); do
-            base=$(basename "$f")
-            case " $PULAR " in
-              *" $base "*) echo "· pulando $base (fixture de dev, não é schema)"; continue ;;
-            esac
-            echo "→ $f"
-            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"
-          done
+          MIGRATIONS_DIR: server/db
+        run: node server/panel/scripts/aplicar-migrations.js
 
       - name: Testes unitários
         run: node --test server/panel/tests-unit/
