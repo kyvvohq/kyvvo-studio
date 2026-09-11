@@ -21,14 +21,31 @@ function tokenConfere(header) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// Consumo de IA (US68) — só linhas role='assistant' têm tokens (as únicas
+// que chamam a Anthropic). Custo estimado, cotação fixa aproximada.
+const IA_USD_ENTRADA_MI = 1.0; // Claude Haiku 4.5
+const IA_USD_SAIDA_MI = 5.0;
+const IA_USD_BRL = 5.3;
+function custoBRL(entrada, saida) {
+  const usd = (entrada / 1e6) * IA_USD_ENTRADA_MI + (saida / 1e6) * IA_USD_SAIDA_MI;
+  return Number((usd * IA_USD_BRL).toFixed(2));
+}
+
+function autorizado(request, reply) {
+  if (!process.env.ADMIN_ADAPTER_TOKEN) {
+    reply.code(503).send({ error: 'Adapter não configurado neste ambiente.' });
+    return false;
+  }
+  if (!tokenConfere(request.headers.authorization)) {
+    reply.code(401).send({ error: 'Não autorizado.' });
+    return false;
+  }
+  return true;
+}
+
 function registerAdminAdapterRoutes(fastify, pool) {
   fastify.get('/admin-adapter/tenants/:id', async (request, reply) => {
-    if (!process.env.ADMIN_ADAPTER_TOKEN) {
-      return reply.code(503).send({ error: 'Adapter não configurado neste ambiente.' });
-    }
-    if (!tokenConfere(request.headers.authorization)) {
-      return reply.code(401).send({ error: 'Não autorizado.' });
-    }
+    if (!autorizado(request, reply)) return reply;
 
     const { id } = request.params;
     const { rows: existe } = await pool.query('SELECT 1 FROM tenants WHERE id = $1', [id]);
@@ -59,6 +76,65 @@ function registerAdminAdapterRoutes(fastify, pool) {
         { chave: 'agendamentos_30d', rotulo: 'Agendamentos (30 dias)', valor: c.agendamentos_30d },
       ],
       ultima_atividade: c.ultimo_agendamento,
+    };
+  });
+
+  // Consumo de IA agregado (US68) — pro painel "IA" do Kyvvo Admin. Sem
+  // tenant = visão da plataforma inteira + quebra por tenant.
+  fastify.get('/admin-adapter/ia-uso', async (request, reply) => {
+    if (!autorizado(request, reply)) return reply;
+
+    const dias = Math.min(Math.max(parseInt(request.query.dias, 10) || 30, 1), 90);
+
+    const [{ rows: porDia }, { rows: porTenant }] = await Promise.all([
+      pool.query(
+        `SELECT (criado_em AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
+                count(*) FILTER (WHERE role = 'assistant')::int AS mensagens,
+                coalesce(sum(tokens_entrada), 0)::bigint AS tokens_entrada,
+                coalesce(sum(tokens_saida), 0)::bigint AS tokens_saida
+           FROM conversas_ia
+          WHERE criado_em >= now() - ($1 || ' days')::interval
+          GROUP BY 1 ORDER BY 1`,
+        [dias],
+      ),
+      pool.query(
+        `SELECT t.id AS tenant_id, t.nome AS tenant_nome,
+                count(*) FILTER (WHERE c.role = 'assistant')::int AS mensagens,
+                count(DISTINCT c.cliente_id)::int AS conversas,
+                coalesce(sum(c.tokens_entrada), 0)::bigint AS tokens_entrada,
+                coalesce(sum(c.tokens_saida), 0)::bigint AS tokens_saida
+           FROM conversas_ia c JOIN tenants t ON t.id = c.tenant_id
+          WHERE c.criado_em >= now() - ($1 || ' days')::interval
+          GROUP BY t.id, t.nome ORDER BY mensagens DESC`,
+        [dias],
+      ),
+    ]);
+
+    const somaEntrada = porDia.reduce((s, r) => s + Number(r.tokens_entrada), 0);
+    const somaSaida = porDia.reduce((s, r) => s + Number(r.tokens_saida), 0);
+    const totalMensagens = porDia.reduce((s, r) => s + Number(r.mensagens), 0);
+
+    return {
+      periodo: { dias },
+      resumo: {
+        mensagens: totalMensagens,
+        tenants_ativos: porTenant.length,
+        tokens_entrada: somaEntrada,
+        tokens_saida: somaSaida,
+        custo_brl: custoBRL(somaEntrada, somaSaida),
+      },
+      por_dia: porDia.map((r) => ({
+        dia: r.dia.toISOString().slice(0, 10),
+        mensagens: Number(r.mensagens),
+        custo_brl: custoBRL(Number(r.tokens_entrada), Number(r.tokens_saida)),
+      })),
+      por_tenant: porTenant.map((r) => ({
+        tenant_id: r.tenant_id,
+        tenant_nome: r.tenant_nome,
+        mensagens: Number(r.mensagens),
+        conversas: Number(r.conversas),
+        custo_brl: custoBRL(Number(r.tokens_entrada), Number(r.tokens_saida)),
+      })),
     };
   });
 }
