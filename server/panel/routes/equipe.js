@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { EMAIL_REGEX, SENHA_REGEX } = require('../lib/validadores');
 
+// Rede interna do compose — mesmo default de lib/platform.js.
+const PLATFORM_URL = process.env.PLATFORM_URL || 'http://platform:3003';
+
 function registerEquipeRoutes(fastify, pool) {
   const CONVITE_EXPIRACAO_DIAS = 7;
 
@@ -225,11 +228,34 @@ function registerEquipeRoutes(fastify, pool) {
       await client.query(`UPDATE convites_equipe SET status = 'aceito', aceito_em = now() WHERE id = $1`, [convite.id]);
       await client.query('COMMIT');
 
-      const token = fastify.jwt.sign(
-        { userId: usuarioRows[0].id, tenantId: convite.tenant_id, email: convite.email, tokenVersion: usuarioRows[0].token_version },
-        { expiresIn: '7d' }
-      );
-      return { token, nome, email: convite.email, role: convite.role, email_verified: true };
+      // Corte P3 — sessão é RS256, emitida só pelo kyvvo-platform. O membro
+      // acabou de definir a senha (em texto, ainda neste request), então
+      // logamos ele server-to-server em vez de assinar nosso próprio token
+      // — mesma UX de antes (já entra logado), sem @fastify/jwt aqui.
+      let token = null;
+      try {
+        const resp = await fetch(`${PLATFORM_URL}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: convite.email, senha }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (resp.ok) {
+          token = (await resp.json()).token || null;
+        }
+      } catch {
+        // platform indisponível — a conta já foi criada (COMMIT acima); o
+        // membro entra pela tela de login normalmente.
+      }
+
+      return {
+        token,
+        nome,
+        email: convite.email,
+        role: convite.role,
+        email_verified: true,
+        ...(token ? {} : { aviso: 'Conta criada. Faça login com seu e-mail e senha.' }),
+      };
     } catch (erro) {
       await client.query('ROLLBACK');
       // Corrida: o e-mail virou usuário em outro tenant entre a checagem e o
