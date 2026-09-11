@@ -11,6 +11,7 @@
 //   { produto, rotulo, metricas: [{ chave, rotulo, valor }], ultima_atividade }
 
 const crypto = require('crypto');
+const metaWhatsappService = require('../meta-whatsapp-service');
 
 function tokenConfere(header) {
   const esperado = process.env.ADMIN_ADAPTER_TOKEN;
@@ -136,6 +137,123 @@ function registerAdminAdapterRoutes(fastify, pool) {
         custo_brl: custoBRL(Number(r.tokens_entrada), Number(r.tokens_saida)),
       })),
     };
+  });
+
+  // ── Números prontos (US39.2) ──────────────────────────────────────────────
+  // Inventário de números Kyvvo pré-adquiridos, vincular a um salão e testar.
+  // Tudo é do Studio (tabela numeros_prontos, Meta Cloud API) — o Kyvvo Admin
+  // opera por este adapter. Auditoria fica do lado do platform.
+
+  fastify.get('/admin-adapter/numeros-prontos', async (request, reply) => {
+    if (!autorizado(request, reply)) return reply;
+    const { rows } = await pool.query(
+      `SELECT n.*, t.nome AS tenant_nome
+         FROM numeros_prontos n LEFT JOIN tenants t ON t.id = n.tenant_id
+        ORDER BY n.criado_em DESC`,
+    );
+    return { numeros: rows };
+  });
+
+  fastify.post('/admin-adapter/numeros-prontos', async (request, reply) => {
+    if (!autorizado(request, reply)) return reply;
+    const b = request.body || {};
+    if (!b.telefone || !b.meta_phone_number_id || !b.meta_waba_id) {
+      return reply.code(400).send({ error: 'Informe telefone, meta_phone_number_id e meta_waba_id.' });
+    }
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO numeros_prontos (telefone, meta_phone_number_id, meta_waba_id)
+         VALUES ($1, $2, $3) RETURNING *`,
+        [String(b.telefone).trim(), String(b.meta_phone_number_id).trim(), String(b.meta_waba_id).trim()],
+      );
+      reply.code(201);
+      return rows[0];
+    } catch (erro) {
+      if (erro.code === '23505') {
+        return reply.code(409).send({ error: 'Esse Phone Number ID já está cadastrado.' });
+      }
+      throw erro;
+    }
+  });
+
+  fastify.post('/admin-adapter/numeros-prontos/:id/vincular', async (request, reply) => {
+    if (!autorizado(request, reply)) return reply;
+    const { id } = request.params;
+    const tenantId = (request.body || {}).tenant_id;
+    if (!tenantId) return reply.code(400).send({ error: 'Informe tenant_id.' });
+
+    const { rows: numRows } = await pool.query('SELECT * FROM numeros_prontos WHERE id = $1', [id]);
+    const numero = numRows[0];
+    if (!numero) return reply.code(404).send({ error: 'Número não encontrado.' });
+    if (numero.status !== 'disponivel') {
+      return reply.code(409).send({ error: `Número não está disponível (status: ${numero.status}).` });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: tRows } = await client.query('SELECT id FROM tenants WHERE id = $1', [tenantId]);
+      if (!tRows[0]) {
+        await client.query('ROLLBACK');
+        return reply.code(404).send({ error: 'Salão (tenant) não encontrado.' });
+      }
+      await client.query(
+        `UPDATE numeros_prontos SET tenant_id = $2, status = 'em_configuracao', vinculado_em = now()
+         WHERE id = $1`,
+        [id, tenantId],
+      );
+      await client.query(
+        'UPDATE tenants SET meta_waba_id = $2, meta_phone_number_id = $3 WHERE id = $1',
+        [tenantId, numero.meta_waba_id, numero.meta_phone_number_id],
+      );
+      await client.query('COMMIT');
+    } catch (erro) {
+      await client.query('ROLLBACK');
+      if (erro.code === '23505') {
+        return reply.code(409).send({ error: 'Esse número já está conectado a outro salão.' });
+      }
+      throw erro;
+    } finally {
+      client.release();
+    }
+
+    const { rows } = await pool.query(
+      `SELECT n.*, t.nome AS tenant_nome FROM numeros_prontos n LEFT JOIN tenants t ON t.id = n.tenant_id WHERE n.id = $1`,
+      [id],
+    );
+    return rows[0];
+  });
+
+  fastify.post('/admin-adapter/numeros-prontos/:id/testar', async (request, reply) => {
+    if (!autorizado(request, reply)) return reply;
+    const { id } = request.params;
+    const numeroDestino = (request.body || {}).numero_destino;
+    if (!numeroDestino) return reply.code(400).send({ error: 'Informe numero_destino.' });
+
+    const { rows: numRows } = await pool.query('SELECT * FROM numeros_prontos WHERE id = $1', [id]);
+    const numero = numRows[0];
+    if (!numero) return reply.code(404).send({ error: 'Número não encontrado.' });
+    if (!numero.tenant_id) {
+      return reply.code(409).send({ error: 'Vincule o número a um salão antes de testar.' });
+    }
+
+    let status;
+    let resultado;
+    try {
+      await metaWhatsappService.enviarMensagemTeste(numero.meta_phone_number_id, numeroDestino);
+      status = 'ativo';
+      resultado = `Mensagem de teste enviada com sucesso para ${numeroDestino}.`;
+    } catch (erro) {
+      status = 'erro';
+      resultado = erro.message;
+    }
+    const { rows } = await pool.query(
+      `UPDATE numeros_prontos SET status = $2, testado_em = now(), teste_resultado = $3
+       WHERE id = $1 RETURNING *`,
+      [id, status, resultado],
+    );
+    if (status === 'erro') return reply.code(400).send({ error: resultado, numero: rows[0] });
+    return rows[0];
   });
 }
 
