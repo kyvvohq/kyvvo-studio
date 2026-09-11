@@ -53,10 +53,12 @@ function registerClientesRoutes(fastify, pool) {
               count(*) OVER()::int AS total_geral
        FROM clientes c
        LEFT JOIN LATERAL (
+         -- mesmo fix de GET /api/clientes/:id: sem "< now()" um agendamento
+         -- futuro confirmado virava "Último atendimento" na listagem.
          SELECT s.nome AS servico_nome, a.data_hora
          FROM agendamentos a
          JOIN servicos s ON s.id = a.servico_id
-         WHERE a.cliente_id = c.id AND a.status IN ('confirmado', 'concluido')
+         WHERE a.cliente_id = c.id AND a.status IN ('confirmado', 'concluido') AND a.data_hora < now()
          ORDER BY a.data_hora DESC
          LIMIT 1
        ) ultimo ON true
@@ -200,6 +202,12 @@ function registerClientesRoutes(fastify, pool) {
       [id, tenantId]
     );
 
+    // status IN ('confirmado','concluido') sem filtro de data trazia
+    // agendamentos FUTUROS confirmados pra dentro do histórico — como o
+    // ORDER BY é DESC, um agendamento futuro tem a maior data e virava
+    // historico[0] ("Último atendimento" no front), duplicando o que a query
+    // de proximoRows acima já mostra como "Próximo agendamento". `< now()`
+    // garante que só entra aqui o que já aconteceu de fato.
     const { rows: historico } = await pool.query(
       `SELECT a.id, a.data_hora, a.status, s.nome AS servico_nome,
               l.valor, l.forma_pagamento
@@ -207,6 +215,7 @@ function registerClientesRoutes(fastify, pool) {
        JOIN servicos s ON s.id = a.servico_id
        LEFT JOIN lancamentos_financeiros l ON l.agendamento_id = a.id
        WHERE a.cliente_id = $1 AND a.tenant_id = $2 AND a.status IN ('confirmado', 'concluido')
+         AND a.data_hora < now()
        ORDER BY a.data_hora DESC`,
       [id, tenantId]
     );

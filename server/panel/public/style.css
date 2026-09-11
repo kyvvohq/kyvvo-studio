@@ -4,7 +4,11 @@
    claro do Kyvvo People, modo único: nenhum data-theme é setado, então
    vale o :root (claro) do pacote. */
 
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+/* Fonte hardcoded aqui (em vez de var(--font-ui), como o resto do arquivo já
+   faz em boa parte das regras) fazia esse seletor global NUNCA acompanhar o
+   pacote — se o DS trocasse a fonte base numa versão nova, isso continuaria
+   "Inter" pra sempre. Mesmo padrão do kyvvo-people (public/shell.css). */
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-ui); }
 
 body {
   background: var(--bg);
@@ -19,7 +23,7 @@ body {
 }
 
 .logo, h1, h2, h3 {
-  font-family: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-display);
 }
 
 .center-screen {
@@ -1518,19 +1522,10 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
    pagamento" fora de um modal; reaproveita o mesmo formulário (Pix/Cartão)
    por dentro, com "Cancelar assinatura" logo abaixo. */
 .pagamento-detalhes { margin-bottom: 16px; }
-.pagamento-detalhes-toggle {
-  width: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: 1px solid var(--border-strong);
-  color: #a688ff;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.pagamento-detalhes-toggle:hover { background: var(--surface-muted); }
+/* Sem collapse — os campos de "Alterar forma de pagar" ficam direto na
+   página (era um toggle "▾" escondendo o formulário; ver
+   .pagamento-historico-titulo logo abaixo pro mesmo estilo de título). */
+.pagamento-detalhes-titulo { margin: 0 0 10px; font-size: 14px; }
 .pagamento-detalhes-conteudo {
   margin-top: 12px;
   padding: 16px;
