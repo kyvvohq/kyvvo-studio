@@ -111,7 +111,7 @@ const iaEngineLib = require('./lib/ia-engine');
 const { iniciarWorkerHandoff } = require('./lib/worker-handoff');
 const { registerWebhookWhatsappRoutes } = require('./routes/webhook-whatsapp');
 const { openapiConfig, transform: swaggerTransform } = require('./lib/swagger-config');
-const { contarHorariosLivresNoDia } = disponibilidadeLib;
+const { contarHorariosLivresNoDia, contarHorariosLivresPorProfissionalNoDia } = disponibilidadeLib;
 const { dataAtualBrasilia } = datetime;
 const { calcularBloqueioAssinatura, BLOQUEIO_MENSAGENS } = trialConta;
 const { registrarEventoTrialExpiradoUmaVez } = eventos;
@@ -516,22 +516,32 @@ async function start() {
       { rows: atendimentosRows },
       { rows: previstoRows },
       horariosLivresHoje,
-      horariosLivresAmanha,
+      horariosLivresAmanhaPorProfissional,
       { rows: semRetornoRows },
     ] = await Promise.all([
+      // Soma de todos os profissionais do tenant (não filtra por
+      // profissional_id) — validado 2026-09-17, já era o comportamento.
       pool.query(
         `SELECT count(*)::int AS total FROM agendamentos
          WHERE tenant_id = $1 AND status != 'cancelado'
            AND (data_hora AT TIME ZONE 'America/Sao_Paulo')::date = $2::date`,
         [tenantId, hoje]
       ),
+      // Soma dos lancamentos_financeiros 'previsto' do dia — já reflete
+      // qualquer atualização de preço de serviço feita DEPOIS do agendamento
+      // criado, porque PATCH /api/servicos/:id agora re-sincroniza os
+      // lançamentos futuros afetados (ver routes/servicos.js) em vez de
+      // deixar o valor travado no preço da hora da criação.
       pool.query(
         `SELECT COALESCE(SUM(valor) FILTER (WHERE status = 'previsto' AND data = $2), 0) AS previsto
          FROM lancamentos_financeiros WHERE tenant_id = $1 AND tipo = 'entrada'`,
         [tenantId, hoje]
       ),
+      // Também soma todos os profissionais — validado 2026-09-17.
       contarHorariosLivresNoDia(tenant, hoje),
-      contarHorariosLivresNoDia(tenant, amanha),
+      // Amanhã: detalhe por profissional + hora cheia (pedido explícito —
+      // ver contarHorariosLivresPorProfissionalNoDia).
+      contarHorariosLivresPorProfissionalNoDia(tenant, amanha),
       // "Sem retorno" exige que o cliente já tenha tido pelo menos 1
       // atendimento antes — cliente novo que nunca agendou não é "sem
       // retorno" (nunca teve retorno nenhum pra medir). Limiar configurável
@@ -548,6 +558,16 @@ async function start() {
 
     let atendimentoIa = null;
     if (tenant.tecnologia === 'ia') {
+      // "Conversas hoje" tem que ser a SOMA de "Não concluíram" +
+      // "Concluídos" (pedido explícito 2026-09-17) — antes conversas_hoje
+      // vinha de uma contagem independente (clientes distintos que mandaram
+      // mensagem) enquanto concluidos_hoje contava AGENDAMENTOS (não
+      // clientes distintos), então os 3 números podiam não bater (cliente
+      // com 2 agendamentos no dia inflava concluidos_hoje sem inflar
+      // conversas_hoje). Agora concluidos_hoje também conta clientes
+      // distintos (a CTE `agendados` já faz DISTINCT cliente_id) e
+      // conversas_hoje é sempre a soma dos outros dois, nunca uma medida à
+      // parte.
       const { rows } = await pool.query(
         `WITH conversas AS (
            SELECT DISTINCT cliente_id FROM conversas_ia
@@ -560,21 +580,20 @@ async function start() {
              AND (criado_em AT TIME ZONE 'America/Sao_Paulo')::date = $2::date
          )
          SELECT
-           (SELECT count(*) FROM conversas) AS conversas_hoje,
            (SELECT count(*) FROM (SELECT cliente_id FROM conversas EXCEPT SELECT cliente_id FROM agendados) t) AS nao_concluiram_hoje,
-           (SELECT count(*) FROM agendamentos
-             WHERE tenant_id = $1 AND origem = 'whatsapp' AND status != 'cancelado'
-               AND (criado_em AT TIME ZONE 'America/Sao_Paulo')::date = $2::date) AS concluidos_hoje,
+           (SELECT count(*) FROM agendados) AS concluidos_hoje,
            (SELECT COALESCE(SUM(s.duracao_minutos), 0) FROM agendamentos a JOIN servicos s ON s.id = a.servico_id
              WHERE a.tenant_id = $1 AND a.origem = 'whatsapp' AND a.status != 'cancelado'
                AND (a.criado_em AT TIME ZONE 'America/Sao_Paulo')::date = $2::date) AS minutos_economizados_hoje`,
         [tenantId, hoje]
       );
       const r = rows[0];
+      const naoConcluiramHoje = Number(r.nao_concluiram_hoje);
+      const concluidosHoje = Number(r.concluidos_hoje);
       atendimentoIa = {
-        conversas_hoje: Number(r.conversas_hoje),
-        nao_concluiram_hoje: Number(r.nao_concluiram_hoje),
-        concluidos_hoje: Number(r.concluidos_hoje),
+        conversas_hoje: naoConcluiramHoje + concluidosHoje,
+        nao_concluiram_hoje: naoConcluiramHoje,
+        concluidos_hoje: concluidosHoje,
         minutos_economizados_hoje: Number(r.minutos_economizados_hoje),
       };
     }
@@ -609,7 +628,11 @@ async function start() {
       previsto_hoje: Number(previstoRows[0].previsto),
       oportunidades: {
         clientes_sem_retorno: semRetornoRows[0].total,
-        horarios_livres_amanha: horariosLivresAmanha,
+        // Nunca mais hardcoded no texto do front — o front monta a frase
+        // "há mais de N dias" com esse número (pedido explícito 2026-09-17).
+        cliente_inativo_dias: tenant.cliente_inativo_dias,
+        horarios_livres_amanha: horariosLivresAmanhaPorProfissional.reduce((soma, p) => soma + p.livres, 0),
+        horarios_livres_amanha_por_profissional: horariosLivresAmanhaPorProfissional,
       },
       atendimento_ia: atendimentoIa,
       financeiro,

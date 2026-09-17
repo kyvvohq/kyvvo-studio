@@ -11,26 +11,42 @@ const { normalizarTelefoneCliente } = require('../lib/clientes');
 // clientes inteira a cada acesso.
 const CLIENTES_TAMANHOS_VALIDOS = new Set([10, 50, 100]);
 const CLIENTES_STATUS_VALIDOS = new Set(['todos', 'ativo', 'novo', 'inativo']);
-// Status derivado (não é uma coluna) — novo = cadastrado nos últimos 30 dias
-// (limiar fixo, não é o mesmo conceito do "inativo" abaixo); inativo = mais
-// antigo que isso E sem nenhum atendimento confirmado/concluído nos últimos
-// N dias, onde N é o `cliente_inativo_dias` configurável do tenant
-// (Preferências, default 30 — ver 065_tenants_cliente_inativo_dias.sql e
-// GET/PATCH /api/configuracao). Mesmo N usado pra "clientes sem retorno" no
-// dashboard Início (GET /api/inicio/resumo), reaproveitado aqui em vez de
-// inventar outra fonte pro mesmo número. Subquery correlacionada (em vez de
-// JOIN) porque essa string é injetada tanto no SELECT quanto no WHERE de
-// queries diferentes — um JOIN teria que ser repetido em cada uma.
+
+// Data do atendimento mais recente (confirmado/concluído) do cliente — usada
+// pelos predicados de ativo/inativo abaixo. `t` precisa estar no FROM/JOIN de
+// quem usa isso (cliente_inativo_dias/cliente_novo_dias vêm de lá).
+const CLIENTE_ULTIMO_ATENDIMENTO_SQL = `(
+  SELECT max(a2.data_hora) FROM agendamentos a2
+  WHERE a2.cliente_id = c.id AND a2.status IN ('confirmado', 'concluido')
+)`;
+
+// Predicados independentes (não é um CASE de bucket único) — cada quadro da
+// tela Clientes (Ativos/Novos/Para retornar/Todos) tem seu próprio critério,
+// podem se sobrepor (ex.: cliente pode ser "novo" E "ativo" ao mesmo tempo).
+// N = cliente_inativo_dias/cliente_novo_dias, configuráveis por tenant em
+// Preferências (065_tenants_cliente_inativo_dias.sql,
+// 075_tenants_cliente_novo_dias.sql) — nunca mais hardcoded.
+// - ativo: já teve atendimento e o mais recente foi há MENOS de N dias.
+// - inativo ("Para retornar"): já teve atendimento e o mais recente foi há
+//   N dias OU MAIS. Cliente que nunca teve nenhum atendimento não entra
+//   aqui nem em "ativo" (não há "retorno" pra medir).
+// - novo: cadastrado há no máximo N dias (por data de criação, não de
+//   atendimento).
+const CLIENTE_PREDICADOS_STATUS = {
+  ativo: `${CLIENTE_ULTIMO_ATENDIMENTO_SQL} IS NOT NULL AND ${CLIENTE_ULTIMO_ATENDIMENTO_SQL} > now() - make_interval(days => t.cliente_inativo_dias)`,
+  inativo: `${CLIENTE_ULTIMO_ATENDIMENTO_SQL} IS NOT NULL AND ${CLIENTE_ULTIMO_ATENDIMENTO_SQL} <= now() - make_interval(days => t.cliente_inativo_dias)`,
+  novo: `c.criado_em >= now() - make_interval(days => t.cliente_novo_dias)`,
+  todos: 'true',
+};
+
+// Badge de status por linha (tabela) — mutuamente exclusivo, prioridade
+// novo > inativo > ativo; quem nunca teve atendimento e não é "novo" cai em
+// "inativo" por padrão (mais perto da realidade pro selo da tela do que
+// inventar um 5º rótulo pra um caso raro).
 const CLIENTE_STATUS_SQL = `CASE
-  WHEN c.criado_em >= now() - interval '30 days' THEN 'novo'
-  WHEN NOT EXISTS (
-    SELECT 1 FROM agendamentos a2
-    WHERE a2.cliente_id = c.id AND a2.status IN ('confirmado', 'concluido')
-      AND a2.data_hora >= now() - make_interval(days => (
-        SELECT t.cliente_inativo_dias FROM tenants t WHERE t.id = c.tenant_id
-      ))
-  ) THEN 'inativo'
-  ELSE 'ativo'
+  WHEN ${CLIENTE_PREDICADOS_STATUS.novo} THEN 'novo'
+  WHEN ${CLIENTE_PREDICADOS_STATUS.ativo} THEN 'ativo'
+  ELSE 'inativo'
 END`;
 
 function registerClientesRoutes(fastify, pool) {
@@ -43,6 +59,10 @@ function registerClientesRoutes(fastify, pool) {
     const pagina = Math.max(1, parseInt(request.query.pagina, 10) || 1);
     const offset = (pagina - 1) * tamanho;
     const ordenacaoSQL = ordem === 'desc' ? 'c.nome DESC NULLS LAST, c.telefone ASC' : 'c.nome ASC NULLS LAST, c.telefone ASC';
+    // Fragmento fixo (não é o `$3` do usuário) — escolhido a partir de um
+    // objeto interno já validado contra CLIENTES_STATUS_VALIDOS acima, sem
+    // risco de injeção; SQL não parametriza "qual predicado usar", só valor.
+    const predicadoStatus = CLIENTE_PREDICADOS_STATUS[status];
 
     const { rows } = await pool.query(
       `SELECT c.id, c.nome, c.telefone,
@@ -52,6 +72,7 @@ function registerClientesRoutes(fastify, pool) {
               ${CLIENTE_STATUS_SQL} AS status,
               count(*) OVER()::int AS total_geral
        FROM clientes c
+       JOIN tenants t ON t.id = c.tenant_id
        LEFT JOIN LATERAL (
          -- mesmo fix de GET /api/clientes/:id: sem "< now()" um agendamento
          -- futuro confirmado virava "Último atendimento" na listagem.
@@ -78,18 +99,25 @@ function registerClientesRoutes(fastify, pool) {
        ) gasto ON true
        WHERE c.tenant_id = $1 AND c.excluido_em IS NULL
          AND ($2 = '' OR c.nome ILIKE '%' || $2 || '%' OR c.telefone ILIKE '%' || $2 || '%' OR c.email ILIKE '%' || $2 || '%')
-         AND ($3 = 'todos' OR ${CLIENTE_STATUS_SQL} = $3)
+         AND (${predicadoStatus})
        ORDER BY ${ordenacaoSQL}
-       LIMIT $4 OFFSET $5`,
-      [tenantId, busca, status, tamanho, offset]
+       LIMIT $3 OFFSET $4`,
+      [tenantId, busca, tamanho, offset]
     );
 
+    // Contagem de cada quadro clicável da tela (Ativos/Novos/Para retornar/
+    // Todos) — mesmos predicados usados no filtro acima, sem depender do
+    // `status` pedido nesta chamada (o front pede os 4 números de uma vez,
+    // sempre, pra mostrar nos cards mesmo quando outro quadro está
+    // selecionado).
     const { rows: kpiRows } = await pool.query(
       `SELECT
          count(*)::int AS total,
-         count(*) FILTER (WHERE criado_em >= date_trunc('month', now()))::int AS novos_mes,
-         count(*) FILTER (WHERE ${CLIENTE_STATUS_SQL} = 'inativo')::int AS para_retornar
+         count(*) FILTER (WHERE ${CLIENTE_PREDICADOS_STATUS.ativo})::int AS ativos,
+         count(*) FILTER (WHERE ${CLIENTE_PREDICADOS_STATUS.novo})::int AS novos,
+         count(*) FILTER (WHERE ${CLIENTE_PREDICADOS_STATUS.inativo})::int AS para_retornar
        FROM clientes c
+       JOIN tenants t ON t.id = c.tenant_id
        WHERE c.tenant_id = $1 AND c.excluido_em IS NULL`,
       [tenantId]
     );

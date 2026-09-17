@@ -9,7 +9,7 @@ function registerConfiguracaoRoutes(fastify, pool) {
     const { rows } = await pool.query(
       `SELECT dias_funcionamento, formato_hora, horario_abertura, horario_fechamento, segmento,
               horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, tecnologia, plano,
-              cliente_inativo_dias
+              cliente_inativo_dias, cliente_novo_dias
        FROM tenants WHERE id = $1`,
       [tenantId]
     );
@@ -30,7 +30,7 @@ function registerConfiguracaoRoutes(fastify, pool) {
     const {
       diasFuncionamento, formatoHora, horarioAbertura, horarioFechamento,
       horarioAlmocoAtivo, horarioAlmocoInicio, horarioAlmocoFim,
-      clienteInativoDias,
+      clienteInativoDias, clienteNovoDias,
     } = request.body || {};
 
     if (formatoHora && !['24h', '12h'].includes(formatoHora)) {
@@ -42,6 +42,11 @@ function registerConfiguracaoRoutes(fastify, pool) {
     // mesmo padrão já usado pros horários abaixo.
     if (clienteInativoDias !== undefined && (!Number.isInteger(clienteInativoDias) || clienteInativoDias < 1 || clienteInativoDias > 365)) {
       return reply.code(400).send({ error: 'clienteInativoDias deve ser um número inteiro entre 1 e 365' });
+    }
+    // Limiar de "cliente novo" (Preferências) — mesmo padrão/validação do
+    // clienteInativoDias acima (CHECK em 075_tenants_cliente_novo_dias.sql).
+    if (clienteNovoDias !== undefined && (!Number.isInteger(clienteNovoDias) || clienteNovoDias < 1 || clienteNovoDias > 365)) {
+      return reply.code(400).send({ error: 'clienteNovoDias deve ser um número inteiro entre 1 e 365' });
     }
     if (diasFuncionamento && (!Array.isArray(diasFuncionamento) || diasFuncionamento.some((d) => d < 0 || d > 6))) {
       return reply.code(400).send({ error: 'diasFuncionamento deve ser uma lista de números de 0 a 6' });
@@ -145,16 +150,17 @@ function registerConfiguracaoRoutes(fastify, pool) {
            horario_almoco_inicio = CASE WHEN $6 = false THEN null ELSE COALESCE($7, horario_almoco_inicio) END,
            horario_almoco_fim = CASE WHEN $6 = false THEN null ELSE COALESCE($8, horario_almoco_fim) END,
            cliente_inativo_dias = COALESCE($9, cliente_inativo_dias),
+           cliente_novo_dias = COALESCE($10, cliente_novo_dias),
            -- US56 — qualquer salvamento nesta tela conta como "horário
            -- revisado" pro checklist de onboarding, mesmo que o tenant só
            -- confirme os valores padrão sem alterar nada.
            onboarding_horario_revisado = true
          WHERE id = $1
          RETURNING dias_funcionamento, formato_hora, horario_abertura, horario_fechamento,
-                   horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, cliente_inativo_dias`,
+                   horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, cliente_inativo_dias, cliente_novo_dias`,
         [
           tenantId, diasFuncionamento ? JSON.stringify(diasFuncionamento) : null, formatoHora, horarioAbertura, horarioFechamento,
-          horarioAlmocoAtivo ?? null, horarioAlmocoInicio, horarioAlmocoFim, clienteInativoDias ?? null,
+          horarioAlmocoAtivo ?? null, horarioAlmocoInicio, horarioAlmocoFim, clienteInativoDias ?? null, clienteNovoDias ?? null,
         ]
       );
       await client.query('COMMIT');

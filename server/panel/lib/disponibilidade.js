@@ -140,10 +140,65 @@ async function contarHorariosLivresNoDia(tenant, dataISO) {
   return total;
 }
 
+// Horários livres por profissional, em "hora cheia" (janelas de 60min, não
+// os 30min de IA_DURACAO_PADRAO_MINUTOS usados no resto deste arquivo) —
+// usado pela Oportunidade "horários livres amanhã" do Início: pedido
+// explícito de contar hora cheia (ex.: livre das 14h às 16h = 2 horários
+// livres, não 4 blocos de 30min) e mostrar o total por profissional, não só
+// um agregado. Mesma checagem de expediente/almoço/conflito/bloqueio de
+// contarHorariosLivresNoDia, só que devolve o detalhe em vez de somar tudo
+// num número só (quem quiser o total soma o array).
+const DURACAO_HORA_CHEIA_MINUTOS = 60;
+async function contarHorariosLivresPorProfissionalNoDia(tenant, dataISO) {
+  const { rows: profissionais } = await pool.query(
+    'SELECT id, nome FROM profissionais WHERE tenant_id = $1 ORDER BY nome',
+    [tenant.id]
+  );
+  if (!profissionais.length) return [];
+
+  const { rows: agendamentosDia } = await pool.query(
+    `SELECT profissional_id, data_hora FROM agendamentos
+     WHERE tenant_id = $1 AND status = 'confirmado'
+       AND (data_hora AT TIME ZONE 'America/Sao_Paulo')::date = $2::date`,
+    [tenant.id, dataISO]
+  );
+  const ocupadosPorProfissional = new Map();
+  for (const ag of agendamentosDia) {
+    const lista = ocupadosPorProfissional.get(ag.profissional_id) || [];
+    lista.push(new Date(ag.data_hora).getTime());
+    ocupadosPorProfissional.set(ag.profissional_id, lista);
+  }
+
+  const aberturaMinutos = horarioParaMinutos(tenant.horario_abertura);
+  const fechamentoMinutos = horarioParaMinutos(tenant.horario_fechamento);
+  const resultado = [];
+  for (const prof of profissionais) {
+    let livres = 0;
+    for (let minutos = aberturaMinutos; minutos < fechamentoMinutos; minutos += DURACAO_HORA_CHEIA_MINUTOS) {
+      const hh = String(Math.floor(minutos / 60)).padStart(2, '0');
+      const mm = String(minutos % 60).padStart(2, '0');
+      const candidatoISO = `${dataISO}T${hh}:${mm}:00-03:00`;
+      const candidatoMs = new Date(candidatoISO).getTime();
+      if (candidatoMs <= Date.now()) continue;
+      const { valido } = dentroDoHorarioFuncionamento(tenant, candidatoISO, DURACAO_HORA_CHEIA_MINUTOS);
+      if (!valido) continue;
+      const ocupados = ocupadosPorProfissional.get(prof.id) || [];
+      if (ocupados.some((ts) => Math.abs(ts - candidatoMs) < DURACAO_HORA_CHEIA_MINUTOS * 60000)) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const bloqueio = await buscarBloqueioConflitante(tenant.id, prof.id, candidatoISO, DURACAO_HORA_CHEIA_MINUTOS);
+      if (bloqueio) continue;
+      livres++;
+    }
+    resultado.push({ profissional_id: prof.id, profissional_nome: prof.nome, livres });
+  }
+  return resultado;
+}
+
 module.exports = {
   init,
   calcularDisponibilidadeIA,
   contarHorariosLivresNoDia,
+  contarHorariosLivresPorProfissionalNoDia,
   IA_DIAS_DISPONIBILIDADE,
   IA_DURACAO_PADRAO_MINUTOS,
 };

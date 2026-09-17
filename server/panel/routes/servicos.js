@@ -1,6 +1,7 @@
 // CRUD de Serviços (US17/ST17.1) — extraído de index.js (fase 2 da
 // modularização).
 const { garantirProfissionalPadrao } = require('../lib/profissionais');
+const { sincronizarLancamentoFinanceiro } = require('../lib/financeiro');
 
 // Descrição curta do serviço (US60/CA02) — limite pra não virar um texto
 // longo dentro do card da listagem.
@@ -27,7 +28,14 @@ function registerServicosRoutes(fastify, pool) {
     if (!Number.isFinite(duracaoMinutos) || duracaoMinutos <= 0) {
       return reply.code(400).send({ error: 'Campo "duracao_minutos" deve ser um número maior que zero' });
     }
-    if (preco !== undefined && preco !== null && (!Number.isFinite(preco) || preco < 0)) {
+    // Preço passou a ser obrigatório na criação (pedido explícito
+    // 2026-09-17) — antes era opcional e um serviço sem preço nunca gerava
+    // lançamento financeiro automático (ver sincronizarLancamentoFinanceiro),
+    // o que tornava "previsto"/faturamento silenciosamente incompletos.
+    if (preco === undefined || preco === null) {
+      return reply.code(400).send({ error: 'Campo "preco" é obrigatório' });
+    }
+    if (!Number.isFinite(preco) || preco < 0) {
       return reply.code(400).send({ error: 'Campo "preco" deve ser um número maior ou igual a zero' });
     }
     if (descricao && descricao.length > DESCRICAO_SERVICO_MAX) {
@@ -93,6 +101,27 @@ function registerServicosRoutes(fastify, pool) {
     if (!rows[0]) {
       return reply.code(404).send({ error: 'Serviço não encontrado' });
     }
+
+    // "Previsto" do dashboard Início (GET /api/inicio/resumo) soma
+    // lancamentos_financeiros.valor — sem isso, mudar nome/preço aqui nunca
+    // alcançava agendamentos futuros já criados: o lançamento ficava travado
+    // no preço da hora da criação pra sempre (achado 2026-09-17). Só
+    // agendamentos ainda não concluídos/cancelados ('confirmado' ==
+    // lancamento 'previsto') — os já concluídos são histórico, não mexe.
+    if (nome !== undefined || preco !== undefined) {
+      const { rows: agsAfetados } = await pool.query(
+        `SELECT id, data_hora FROM agendamentos WHERE tenant_id = $1 AND servico_id = $2 AND status = 'confirmado'`,
+        [tenantId, id]
+      );
+      for (const ag of agsAfetados) {
+        // eslint-disable-next-line no-await-in-loop
+        await sincronizarLancamentoFinanceiro(pool, {
+          tenantId, agendamentoId: ag.id, servicoNome: rows[0].nome, servicoPreco: rows[0].preco,
+          dataHora: ag.data_hora, statusAgendamento: 'confirmado', formaPagamento: null,
+        });
+      }
+    }
+
     return rows[0];
   });
 

@@ -410,12 +410,6 @@ let abaCadastro = 'servicos';
 let dataRef = new Date();
 let configuracao = { dias_funcionamento: [1, 2, 3, 4, 5, 6], formato_hora: '24h' };
 
-// Filtros da tela Quadro (persistem entre navegação de dia — só resetam se
-// a página recarregar). '' = sem filtro (mostra tudo).
-// Sets (não string única) — mesmo padrão do filtro do Quadro no kyvvo-people
-// (botão + painel popover com checkboxes, multi-seleção).
-const quadroFiltroProfissionalIds = new Set();
-const quadroFiltroServicoIds = new Set();
 // Intervalo da linha de "agora" do Quadro — precisa ser limpo toda vez que
 // sai da tela (senão fica um setInterval fantasma rodando pra sempre depois
 // de trocar de menu) e recriado toda vez que entra nela de novo.
@@ -1759,17 +1753,6 @@ conteudo.addEventListener('click', (e) => {
     return;
   }
 
-  // Paginação (3 por página) da lista de Próximos atendimentos do Início —
-  // reusa a lista já carregada em memória, sem precisar rebuscar a API.
-  const paginaInicioBtn = e.target.closest('[data-inicio-pagina]');
-  if (paginaInicioBtn) {
-    if (paginaInicioBtn.dataset.inicioPagina === 'anterior') inicioPaginaAtendimentos--;
-    else inicioPaginaAtendimentos++;
-    const corpo = document.getElementById('inicio-secao-proximos-corpo');
-    if (corpo) corpo.innerHTML = renderInicioProximosCorpo();
-    return;
-  }
-
   // US71 — abas Mês/Semana/Dia do Financeiro.
   const tabFinanceiro = e.target.closest('[data-financeiro-aba]');
   if (tabFinanceiro) {
@@ -3072,8 +3055,8 @@ function abrirModalServico(servico) {
         <input type="text" id="servico-nome" data-obrigatorio value="${editando ? servico.nome : ''}">
         <label for="servico-duracao">Duração (minutos) *</label>
         <input type="number" id="servico-duracao" data-obrigatorio min="1" value="${editando ? servico.duracao_minutos : ''}">
-        <label for="servico-preco">Preço em R$ (opcional)</label>
-        <input type="number" id="servico-preco" min="0" step="0.01" value="${editando && servico.preco != null ? servico.preco : ''}">
+        <label for="servico-preco">Preço em R$ *</label>
+        <input type="number" id="servico-preco" data-obrigatorio min="0" step="0.01" value="${editando && servico.preco != null ? servico.preco : ''}">
         <label for="servico-descricao">Descrição curta (opcional)</label>
         <textarea id="servico-descricao" rows="2" maxlength="280" placeholder="Ex: inclui lavagem e finalização">${editando && servico.descricao ? servico.descricao : ''}</textarea>
         <label for="servico-profissional-preferencial"${contaStatus && contaStatus.mostrar_profissional ? '' : ' hidden style="display:none"'}>Profissional preferencial (opcional)</label>
@@ -3246,8 +3229,14 @@ async function abrirModalProfissional(profissional) {
         <div class="modal-erro" id="profissional-erro"></div>
         <label for="profissional-nome">Nome *</label>
         <input type="text" id="profissional-nome" data-obrigatorio value="${editando ? profissional.nome : ''}">
+        <label for="profissional-email">E-mail</label>
+        <input type="email" id="profissional-email" value="${editando ? (profissional.email || '') : ''}">
+        <label for="profissional-telefone">Telefone</label>
+        <input type="text" id="profissional-telefone" value="${editando ? (profissional.telefone || '') : ''}" placeholder="(00) 00000-0000">
+        <label for="profissional-pix">Chave Pix</label>
+        <input type="text" id="profissional-pix" maxlength="77" value="${editando ? (profissional.pix || '') : ''}">
         <label>Serviços atendidos</label>
-        <div class="dias-grid" id="profissional-servicos">${checkboxesServicos}</div>
+        <div class="profissional-servicos-lista" id="profissional-servicos">${checkboxesServicos}</div>
         <div class="modal-acoes">
           <button type="button" class="btn-secundario" id="btn-cancelar-profissional">Cancelar</button>
           <button type="submit" class="btn-primario" id="btn-salvar-profissional">${editando ? 'Salvar' : 'Criar'}</button>
@@ -3281,6 +3270,9 @@ async function abrirModalProfissional(profissional) {
     const servicosSelecionados = Array.from(document.querySelectorAll('#profissional-servicos input:checked')).map((el) => el.value);
     const payload = {
       nome: document.getElementById('profissional-nome').value.trim(),
+      email: document.getElementById('profissional-email').value.trim(),
+      telefone: document.getElementById('profissional-telefone').value.trim(),
+      pix: document.getElementById('profissional-pix').value.trim(),
       servicos: servicosSelecionados,
     };
 
@@ -3536,13 +3528,26 @@ let clientesFiltro = { busca: '', status: 'todos', pagina: 1, tamanho: 10 };
 let clientesFiltroDebounce;
 let clientesCampoFocado = null;
 
-const CLIENTES_STATUS_PILLS = [
-  ['todos', 'Todos'],
-  ['ativo', 'Ativos'],
-  ['novo', 'Novos'],
-  ['inativo', 'Inativos'],
-];
 const CLIENTES_STATUS_LABEL = { ativo: 'Ativo', novo: 'Novo', inativo: 'Inativo' };
+
+// Cards clicáveis (substituem os pills Todos/Ativos/Novos/Inativos) — cada
+// um já é o próprio filtro, com a contagem embaixo do título. `chave` bate
+// com CLIENTES_STATUS_VALIDOS/CLIENTE_PREDICADOS_STATUS do backend.
+const CLIENTES_KPI_CARDS = [
+  ['ativo', 'Clientes ativos', 'ativos'],
+  ['novo', 'Novos clientes', 'novos'],
+  ['inativo', 'Para retornar', 'para_retornar'],
+  ['todos', 'Todos os clientes', 'total'],
+];
+
+function clientesKpiCard(chave, label, valor, ativo) {
+  return `
+    <button type="button" class="financeiro-resumo-card clientes-kpi-card${ativo ? ' clientes-kpi-card-ativo' : ''}" data-clientes-status="${chave}">
+      <div class="financeiro-resumo-label">${label}</div>
+      <div>${Number(valor).toLocaleString('pt-BR')}</div>
+    </button>
+  `;
+}
 
 function renderClienteLinha(c) {
   return `
@@ -3585,14 +3590,8 @@ async function renderClientes() {
       <input type="text" id="clientes-filtro-busca" placeholder="Buscar por nome, telefone ou e-mail" value="${clientesFiltro.busca}">
     </div>
 
-    <div class="clientes-status-pills">
-      ${CLIENTES_STATUS_PILLS.map(([valor, label]) => `<button type="button" class="chip-status${clientesFiltro.status === valor ? ' chip-status-ativo' : ''}" data-clientes-status="${valor}">${label}</button>`).join('')}
-    </div>
-
-    <div class="inicio-cards" style="grid-template-columns:repeat(3,1fr)">
-      ${inicioCard('Clientes', data.kpis.total.toLocaleString('pt-BR'))}
-      ${inicioCard('Novos este mês', data.kpis.novos_mes.toLocaleString('pt-BR'))}
-      ${inicioCard('Para retornar', data.kpis.para_retornar.toLocaleString('pt-BR'))}
+    <div class="inicio-cards" style="grid-template-columns:repeat(4,1fr)">
+      ${CLIENTES_KPI_CARDS.map(([chave, label, kpiKey]) => clientesKpiCard(chave, label, data.kpis[kpiKey], clientesFiltro.status === chave)).join('')}
     </div>
   `;
 
@@ -3821,6 +3820,13 @@ function abrirModalBloqueio() {
         <input type="time" id="bloqueio-hora-inicio" data-obrigatorio>
         <label for="bloqueio-hora-fim">Hora de fim *</label>
         <input type="time" id="bloqueio-hora-fim" data-obrigatorio>
+        <label class="toggle-linha">
+          <span class="toggle-switch">
+            <input type="checkbox" id="bloqueio-dia-todo">
+            <span class="toggle-switch-trilho"></span>
+          </span>
+          Dia todo
+        </label>
         <div class="campo-aviso" id="bloqueio-horario-aviso"></div>
         <label for="bloqueio-profissional"${mostrarProfissional ? '' : ' hidden style="display:none"'}>Profissional (opcional)</label>
         <select id="bloqueio-profissional"${mostrarProfissional ? '' : ' hidden style="display:none"'}><option value="">Toda a agenda</option></select>
@@ -3854,6 +3860,7 @@ function abrirModalBloqueio() {
   const horaInicioEl = document.getElementById('bloqueio-hora-inicio');
   const horaFimEl = document.getElementById('bloqueio-hora-fim');
   const horarioAvisoEl = document.getElementById('bloqueio-horario-aviso');
+  const diaTodoEl = document.getElementById('bloqueio-dia-todo');
 
   function atualizarHabilitacaoHorario() {
     // Fim nunca pode ficar antes do início — ajusta o mínimo permitido e
@@ -3865,20 +3872,31 @@ function abrirModalBloqueio() {
     }
 
     const mesmoDia = periodoInicioEl.value && periodoInicioEl.value === periodoFimEl.value;
+    // "Dia todo" (pedido explícito 2026-09-17) desabilita a hora igual um
+    // período de vários dias já fazia — antes só dava pra bloquear o dia
+    // inteiro criando um período multi-dia (mesmo início e fim), sem opção
+    // explícita pra um único dia.
+    const usaHorario = mesmoDia && !diaTodoEl.checked;
     [horaInicioEl, horaFimEl].forEach((campo) => {
-      campo.disabled = !mesmoDia;
+      campo.disabled = !usaHorario;
       campo.classList.remove('campo-invalido');
-      if (mesmoDia) {
+      if (usaHorario) {
         campo.setAttribute('data-obrigatorio', '');
       } else {
         campo.removeAttribute('data-obrigatorio');
         campo.value = '';
       }
     });
-    horarioAvisoEl.textContent = mesmoDia ? '' : 'Período de mais de um dia — o bloqueio vale o dia inteiro, sem horário específico.';
+    diaTodoEl.disabled = !mesmoDia;
+    horarioAvisoEl.textContent = usaHorario
+      ? ''
+      : mesmoDia
+        ? 'Bloqueia o dia inteiro, sem horário específico.'
+        : 'Período de mais de um dia — o bloqueio vale o dia inteiro, sem horário específico.';
   }
   periodoInicioEl.addEventListener('change', atualizarHabilitacaoHorario);
   periodoFimEl.addEventListener('change', atualizarHabilitacaoHorario);
+  diaTodoEl.addEventListener('change', atualizarHabilitacaoHorario);
   atualizarHabilitacaoHorario();
 
   const form = document.getElementById('form-bloqueio');
@@ -3899,11 +3917,12 @@ function abrirModalBloqueio() {
 
     // Ancorado em Brasília (-03:00), mesmo padrão do resto do sistema —
     // nunca deixar o fuso do navegador do usuário influenciar o horário.
-    // Período de mais de um dia ignora os campos de hora (desabilitados,
-    // ver atualizarHabilitacaoHorario) e cobre o dia inteiro em cada ponta.
-    const mesmoDiaAoSalvar = periodoInicioEl.value === periodoFimEl.value;
-    const horaInicio = mesmoDiaAoSalvar ? `${horaInicioEl.value}:00` : '00:00:00';
-    const horaFim = mesmoDiaAoSalvar ? `${horaFimEl.value}:00` : '23:59:59';
+    // Período de mais de um dia OU "Dia todo" marcado ignora os campos de
+    // hora (desabilitados, ver atualizarHabilitacaoHorario) e cobre o dia
+    // inteiro em cada ponta.
+    const usaHorarioAoSalvar = periodoInicioEl.value === periodoFimEl.value && !diaTodoEl.checked;
+    const horaInicio = usaHorarioAoSalvar ? `${horaInicioEl.value}:00` : '00:00:00';
+    const horaFim = usaHorarioAoSalvar ? `${horaFimEl.value}:00` : '23:59:59';
     const inicioISO = new Date(`${periodoInicioEl.value}T${horaInicio}-03:00`).toISOString();
     const fimISO = new Date(`${periodoFimEl.value}T${horaFim}-03:00`).toISOString();
 
@@ -4408,42 +4427,55 @@ function mostrarModalOnboarding(status) {
 // disparados em verificarStatusConta() pra toda tela) — não duplica mais
 // isso aqui dentro do conteúdo do Início.
 let inicioProximosAtuais = [];
-let inicioPaginaAtendimentos = 0;
-const INICIO_ATENDIMENTOS_POR_PAGINA = 3;
 
+function renderInicioAtendimentoItem(ag) {
+  return `
+    <div class="inicio-atendimento-item" data-id="${ag.id}">
+      <div class="inicio-atendimento-info">
+        <strong>${formatarHora(ag.data_hora)}</strong>
+        <span>${ag.cliente || ag.cliente_telefone}</span>
+        <span class="inicio-atendimento-servico">${ag.servico}</span>
+      </div>
+      <div class="inicio-atendimento-acoes">
+        <button class="btn-secundario" data-cliente-id="${ag.cliente_id}">Cliente</button>
+        <button class="btn-secundario" data-acao-inicio-conversa="${ag.cliente_telefone}">Conversa</button>
+      </div>
+    </div>
+  `;
+}
+
+// Próximos 3 atendimentos POR PROFISSIONAL, em colunas lado a lado (pedido
+// explícito 2026-09-17 — antes era uma lista única paginada, sem separar
+// por quem vai atender). `inicioProximosAtuais` já vem ordenado por
+// data_hora (mesma ordem da API de agendamentos), então só agrupar e cortar
+// nos 3 primeiros de cada profissional preserva "os PRÓXIMOS 3".
 function renderInicioProximosCorpo() {
-  const totalPaginas = Math.max(1, Math.ceil(inicioProximosAtuais.length / INICIO_ATENDIMENTOS_POR_PAGINA));
-  if (inicioPaginaAtendimentos >= totalPaginas) inicioPaginaAtendimentos = totalPaginas - 1;
-  const inicioIdx = inicioPaginaAtendimentos * INICIO_ATENDIMENTOS_POR_PAGINA;
-  const pagina = inicioProximosAtuais.slice(inicioIdx, inicioIdx + INICIO_ATENDIMENTOS_POR_PAGINA);
-
-  if (!pagina.length) {
+  if (!inicioProximosAtuais.length) {
     return '<div class="vazio">Nenhum agendamento para o restante de hoje.</div>';
   }
 
+  const colunasPorProfissional = new Map();
+  for (const ag of inicioProximosAtuais) {
+    const chave = ag.profissional_id || 'sem-profissional';
+    if (!colunasPorProfissional.has(chave)) {
+      colunasPorProfissional.set(chave, { nome: ag.profissional || 'Sem profissional', itens: [] });
+    }
+    const coluna = colunasPorProfissional.get(chave);
+    if (coluna.itens.length < 3) coluna.itens.push(ag);
+  }
+  const colunas = [...colunasPorProfissional.values()];
+
   return `
-    <div class="inicio-atendimentos-lista">
-      ${pagina.map((ag) => `
-        <div class="inicio-atendimento-item" data-id="${ag.id}">
-          <div class="inicio-atendimento-info">
-            <strong>${formatarHora(ag.data_hora)}</strong>
-            <span>${ag.cliente || ag.cliente_telefone}</span>
-            <span class="inicio-atendimento-servico">${ag.servico}</span>
-          </div>
-          <div class="inicio-atendimento-acoes">
-            <button class="btn-secundario" data-cliente-id="${ag.cliente_id}">Cliente</button>
-            <button class="btn-secundario" data-acao-inicio-conversa="${ag.cliente_telefone}">Conversa</button>
+    <div class="inicio-proximos-colunas" style="grid-template-columns:repeat(${colunas.length},1fr)">
+      ${colunas.map((coluna) => `
+        <div class="inicio-proximos-coluna">
+          <div class="inicio-proximos-coluna-titulo">${escapeHtml(coluna.nome)}</div>
+          <div class="inicio-atendimentos-lista">
+            ${coluna.itens.map(renderInicioAtendimentoItem).join('')}
           </div>
         </div>
       `).join('')}
     </div>
-    ${totalPaginas > 1 ? `
-      <div class="inicio-paginacao">
-        <button class="btn-secundario" data-inicio-pagina="anterior" ${inicioPaginaAtendimentos === 0 ? 'disabled' : ''}>← Anterior</button>
-        <span>${inicioPaginaAtendimentos + 1} de ${totalPaginas}</span>
-        <button class="btn-secundario" data-inicio-pagina="proxima" ${inicioPaginaAtendimentos >= totalPaginas - 1 ? 'disabled' : ''}>Próximo →</button>
-      </div>
-    ` : ''}
   `;
 }
 
@@ -4469,7 +4501,6 @@ async function renderInicio() {
   const proximos = data.agendamentos.filter((ag) => ag.status !== 'cancelado' && new Date(ag.data_hora).getTime() >= agora);
   agendamentosAtuais = proximos;
   inicioProximosAtuais = proximos;
-  inicioPaginaAtendimentos = 0;
 
   let html = `
     <div class="inicio-cabecalho">
@@ -4508,16 +4539,27 @@ async function renderInicio() {
     `;
   }
 
+  // Detalhe por profissional dos horários livres de amanhã (hora cheia) —
+  // só mostra a lista quando há mais de 1 profissional (com 1 só, o total
+  // já diz tudo).
+  const porProfissionalAmanha = resumo.oportunidades.horarios_livres_amanha_por_profissional || [];
+  const detalheHorariosAmanha = porProfissionalAmanha.length > 1
+    ? `<div class="inicio-oportunidade-detalhe">${porProfissionalAmanha.map((p) => `${escapeHtml(p.profissional_nome)}: ${p.livres}`).join(' · ')}</div>`
+    : '';
+
   html += `
     <section class="inicio-secao">
       <h3 class="inicio-secao-titulo">Oportunidades</h3>
       <div class="inicio-oportunidade-item">
-        <span>${resumo.oportunidades.clientes_sem_retorno} clientes sem retorno há mais de 30 dias</span>
-        <button class="btn-secundario" data-acao-atalho-inicio="clientes">Ver clientes</button>
+        <span>${resumo.oportunidades.clientes_sem_retorno} clientes sem retorno há mais de ${resumo.oportunidades.cliente_inativo_dias} dias</span>
+        <button class="btn-secundario btn-pequeno" data-acao-atalho-inicio="clientes">Ver clientes</button>
       </div>
       <div class="inicio-oportunidade-item">
-        <span>${resumo.oportunidades.horarios_livres_amanha} horários livres amanhã</span>
-        <button class="btn-secundario" data-acao-atalho-inicio="agendamento">Preencher agenda</button>
+        <div>
+          <span>${resumo.oportunidades.horarios_livres_amanha} horários livres amanhã</span>
+          ${detalheHorariosAmanha}
+        </div>
+        <button class="btn-secundario btn-pequeno" data-acao-atalho-inicio="agendamento">Preencher agenda</button>
       </div>
     </section>
   `;
@@ -4729,21 +4771,6 @@ async function renderDia() {
 
   html += renderDiaGrade(iso, agsVisiveis);
 
-  const resumo = resumoGradeDia(agsVisiveis);
-  const intervaloMin = minutosIntervaloAlmoco();
-  const intervaloLabel = intervaloMin >= 60 && intervaloMin % 60 === 0
-    ? `${intervaloMin / 60}h de intervalo`
-    : intervaloMin > 0 ? `${intervaloMin}min de intervalo` : '';
-  html += `
-    <div class="grade-resumo">
-      <span>${resumo.livres} ${resumo.livres === 1 ? 'horário livre' : 'horários livres'}</span>
-      <span class="grade-resumo-separador">·</span>
-      <span>${resumo.agendados} ${resumo.agendados === 1 ? 'marcado' : 'marcados'}</span>
-      ${intervaloLabel ? `<span class="grade-resumo-separador">·</span><span>${intervaloLabel}</span>` : ''}
-      <span class="grade-resumo-total">${formatarPreco(resumo.previsto)} previstos</span>
-    </div>
-  `;
-
   conteudo.innerHTML = html;
   conteudo.querySelectorAll('[data-nav]').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -4936,46 +4963,6 @@ function renderSemanaCelula(diaISO, hora, itens, ativa) {
   `;
 }
 
-// Filtro botão + painel popover com checkboxes — mesmo padrão do
-// kyvvo-people (public/quadro.html: montarFiltroGenerico/alternarPainel).
-// `selecionados` é um Set mutado in-place (não reatribuído) — o mesmo objeto
-// segue vivo entre re-renders do Quadro (navegação de dia, troca de filtro).
-function montarFiltroQuadroGenerico(painelId, itens, selecionados, aoMudar) {
-  const painel = document.getElementById(painelId);
-  if (!painel) return;
-  painel.innerHTML = itens.map((item) => `
-    <label class="filtro-item">
-      <input type="checkbox" value="${item.id}" ${selecionados.has(item.id) ? 'checked' : ''}>
-      ${escapeHtml(item.nome)}
-    </label>
-  `).join('') || '<div class="filtro-item">Nada pra filtrar ainda</div>';
-
-  painel.querySelectorAll('input').forEach((input) => {
-    input.addEventListener('change', () => {
-      if (input.checked) selecionados.add(input.value);
-      else selecionados.delete(input.value);
-      aoMudar();
-    });
-  });
-}
-function alternarPainelFiltroQuadro(painelId, outroPainelId) {
-  const painel = document.getElementById(painelId);
-  const outro = document.getElementById(outroPainelId);
-  if (outro) outro.hidden = true;
-  if (painel) painel.hidden = !painel.hidden;
-}
-// Fecha os painéis ao clicar fora — registrado uma única vez no carregamento
-// do script (renderQuadro roda de novo a cada navegação/filtro; um listener
-// por render empilharia handlers pra sempre). Guardado por `.closest('.filtro')`
-// pra não interferir em nenhum outro clique da tela.
-document.addEventListener('click', (e) => {
-  if (e.target.closest('.filtro')) return;
-  const painelProf = document.getElementById('painel-filtro-profissional');
-  const painelServ = document.getElementById('painel-filtro-servico');
-  if (painelProf) painelProf.hidden = true;
-  if (painelServ) painelServ.hidden = true;
-});
-
 // ---------- Quadro (kanban: colunas = profissionais, raias = horários) ----------
 // Só visualização por ora (clique no card abre o mesmo menu de ações do
 // resto da agenda — concluir/reagendar/encaixar/falta/cancelar); arrastar
@@ -4988,12 +4975,11 @@ async function renderQuadro() {
 
   const iso = formatarDataISO(dataRef);
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  const [data, profs, servs] = await Promise.all([
+  const [data, profs] = await Promise.all([
     api(`/api/agendamentos?view=dia&data=${iso}`),
     api('/api/profissionais'),
-    api('/api/servicos'),
   ]);
-  if (!data || !profs || !servs) return;
+  if (!data || !profs) return;
 
   const dataLabel = dataRef.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
 
@@ -5006,29 +4992,14 @@ async function renderQuadro() {
       </div>
       <button data-nav="1">Próximo →</button>
     </div>
-    <div class="filtros">
-      <div class="filtro">
-        <button class="btn btn-secundario" id="btn-filtro-profissional" type="button">Profissionais <span data-icon="chevron-down" data-size="14"></span></button>
-        <div class="filtro-painel" id="painel-filtro-profissional" hidden></div>
-      </div>
-      <div class="filtro">
-        <button class="btn btn-secundario" id="btn-filtro-servico" type="button">Serviços <span data-icon="chevron-down" data-size="14"></span></button>
-        <div class="filtro-painel" id="painel-filtro-servico" hidden></div>
-      </div>
-    </div>
   `;
 
-  // agendamentosAtuais fica com a lista INTEIRA (não filtrada) — é o que os
-  // menus de ação dos cards (concluir/reagendar/etc.) usam pra achar o
-  // agendamento pelo id; os filtros abaixo só decidem o que aparece na grade.
+  // agendamentosAtuais fica com a lista INTEIRA — é o que os menus de ação
+  // dos cards (concluir/reagendar/etc.) usam pra achar o agendamento pelo
+  // id. Sem filtro de profissional/serviço (removido — pedido explícito):
+  // o Quadro sempre mostra todos os profissionais e todos os agendamentos.
   agendamentosAtuais = data.agendamentos;
-  const profissionaisFiltrados = quadroFiltroProfissionalIds.size
-    ? profs.profissionais.filter((p) => quadroFiltroProfissionalIds.has(p.id))
-    : profs.profissionais;
-  const agendamentosFiltrados = quadroFiltroServicoIds.size
-    ? data.agendamentos.filter((ag) => quadroFiltroServicoIds.has(ag.servico_id))
-    : data.agendamentos;
-  html += renderQuadroGrade(iso, profissionaisFiltrados, agendamentosFiltrados);
+  html += renderQuadroGrade(iso, profs.profissionais, data.agendamentos);
 
   conteudo.innerHTML = html;
   conteudo.querySelector('[data-nav="-1"]').addEventListener('click', () => {
@@ -5040,17 +5011,6 @@ async function renderQuadro() {
     dataRef.setDate(dataRef.getDate() + 1);
     dataRef = proximoDiaAberto(dataRef, 1);
     renderQuadro();
-  });
-
-  montarFiltroQuadroGenerico('painel-filtro-profissional', profs.profissionais, quadroFiltroProfissionalIds, renderQuadro);
-  montarFiltroQuadroGenerico('painel-filtro-servico', servs.servicos, quadroFiltroServicoIds, renderQuadro);
-  conteudo.querySelector('#btn-filtro-profissional').addEventListener('click', (e) => {
-    e.stopPropagation();
-    alternarPainelFiltroQuadro('painel-filtro-profissional', 'painel-filtro-servico');
-  });
-  conteudo.querySelector('#btn-filtro-servico').addEventListener('click', (e) => {
-    e.stopPropagation();
-    alternarPainelFiltroQuadro('painel-filtro-servico', 'painel-filtro-profissional');
   });
 
   // Linha vermelha de "agora" — só faz sentido no dia de hoje. Recalcula na
@@ -6452,6 +6412,7 @@ async function renderConfiguracao() {
   const almocoInicio = (configuracao.horario_almoco_inicio || '12:00').slice(0, 5);
   const almocoFim = (configuracao.horario_almoco_fim || '13:00').slice(0, 5);
   const clienteInativoDias = configuracao.cliente_inativo_dias || 30;
+  const clienteNovoDias = configuracao.cliente_novo_dias || 30;
 
   const toggleDias = NOMES_DIAS.map((nome, idx) => `
     <label class="dia-toggle-cel">
@@ -6502,7 +6463,11 @@ async function renderConfiguracao() {
 
       <label for="config-cliente-inativo-dias" style="margin-top:16px">Considerar cliente inativo após quantos dias sem retorno?</label>
       <input type="number" id="config-cliente-inativo-dias" min="1" max="365" step="1" value="${clienteInativoDias}" style="max-width:120px">
-      <div class="modal-texto">Usado na tela Clientes (filtro "Inativo") e no card "Clientes sem retorno" do Início.</div>
+      <div class="modal-texto">Usado na tela Clientes (quadro "Para retornar") e no card "Clientes sem retorno" do Início.</div>
+
+      <label for="config-cliente-novo-dias" style="margin-top:16px">Considerar cliente Novo até quantos dias?</label>
+      <input type="number" id="config-cliente-novo-dias" min="1" max="365" step="1" value="${clienteNovoDias}" style="max-width:120px">
+      <div class="modal-texto">Usado na tela Clientes (quadro "Novos clientes") — contado a partir da data de cadastro.</div>
 
       <button type="submit" id="btn-salvar-config">Salvar</button>
     </form>
@@ -6554,11 +6519,16 @@ async function renderConfiguracao() {
       mostrarToast('Informe um número de dias entre 1 e 365 pra considerar cliente inativo.', 'erro');
       return;
     }
+    const clienteNovoDias = parseInt(document.getElementById('config-cliente-novo-dias').value, 10);
+    if (!Number.isInteger(clienteNovoDias) || clienteNovoDias < 1 || clienteNovoDias > 365) {
+      mostrarToast('Informe um número de dias entre 1 e 365 pra considerar cliente novo.', 'erro');
+      return;
+    }
 
     const payload = {
       diasFuncionamento, horarioAbertura, horarioFechamento,
       horarioAlmocoAtivo, horarioAlmocoInicio, horarioAlmocoFim,
-      clienteInativoDias,
+      clienteInativoDias, clienteNovoDias,
     };
 
     // Só avisa/confirma quando algum dia que ANTES estava marcado foi
