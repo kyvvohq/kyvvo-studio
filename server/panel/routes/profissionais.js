@@ -24,12 +24,12 @@ function registerProfissionaisRoutes(fastify, pool) {
     const { tenantId } = request.user;
     await garantirProfissionalPadrao(tenantId);
     const { rows } = await pool.query(
-      `SELECT p.id, p.nome,
+      `SELECT p.id, p.nome, p.email, p.telefone, p.pix,
               COALESCE(array_agg(ps.servico_id) FILTER (WHERE ps.servico_id IS NOT NULL), '{}') AS servicos
        FROM profissionais p
        LEFT JOIN profissionais_servicos ps ON ps.profissional_id = p.id
        WHERE p.tenant_id = $1
-       GROUP BY p.id, p.nome
+       GROUP BY p.id, p.nome, p.email, p.telefone, p.pix
        ORDER BY p.nome`,
       [tenantId]
     );
@@ -38,10 +38,15 @@ function registerProfissionaisRoutes(fastify, pool) {
 
   fastify.post('/api/profissionais', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { tenantId } = request.user;
-    const { nome, servicos } = request.body || {};
+    const { nome, servicos, email, telefone, pix } = request.body || {};
 
     if (!nome || !nome.trim()) {
       return reply.code(400).send({ error: 'Campo "nome" é obrigatório' });
+    }
+    // Mesmo limite da coluna (076_profissionais_contato_pix.sql) — validado
+    // aqui também pra devolver erro claro em vez de estourar exceção de SQL.
+    if (pix && pix.length > 77) {
+      return reply.code(400).send({ error: 'Campo "pix" deve ter no máximo 77 caracteres' });
     }
 
     // Trava de limite do plano — conta quantos profissionais o tenant já tem
@@ -74,8 +79,9 @@ function registerProfissionaisRoutes(fastify, pool) {
     try {
       await client.query('BEGIN');
       const { rows } = await client.query(
-        'INSERT INTO profissionais (tenant_id, nome) VALUES ($1, $2) RETURNING id, nome',
-        [tenantId, nome.trim()]
+        `INSERT INTO profissionais (tenant_id, nome, email, telefone, pix)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, nome, email, telefone, pix`,
+        [tenantId, nome.trim(), email ? email.trim() : null, telefone ? telefone.trim() : null, pix ? pix.trim() : null]
       );
       await definirServicosDoProfissional(client, tenantId, rows[0].id, servicos);
       await client.query('COMMIT');
@@ -92,20 +98,32 @@ function registerProfissionaisRoutes(fastify, pool) {
   fastify.patch('/api/profissionais/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { tenantId } = request.user;
     const { id } = request.params;
-    const { nome, servicos } = request.body || {};
+    const { nome, servicos, email, telefone, pix } = request.body || {};
 
     if (nome !== undefined && !nome.trim()) {
       return reply.code(400).send({ error: 'Campo "nome" não pode ficar vazio' });
+    }
+    if (pix && pix.length > 77) {
+      return reply.code(400).send({ error: 'Campo "pix" deve ter no máximo 77 caracteres' });
     }
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const { rows } = await client.query(
-        `UPDATE profissionais SET nome = COALESCE($3, nome)
+        `UPDATE profissionais SET
+           nome = COALESCE($3, nome),
+           email = CASE WHEN $4 THEN $5 ELSE email END,
+           telefone = CASE WHEN $6 THEN $7 ELSE telefone END,
+           pix = CASE WHEN $8 THEN $9 ELSE pix END
          WHERE id = $1 AND tenant_id = $2
-         RETURNING id, nome`,
-        [id, tenantId, nome ? nome.trim() : null]
+         RETURNING id, nome, email, telefone, pix`,
+        [
+          id, tenantId, nome ? nome.trim() : null,
+          email !== undefined, email ? email.trim() : null,
+          telefone !== undefined, telefone ? telefone.trim() : null,
+          pix !== undefined, pix ? pix.trim() : null,
+        ]
       );
       if (!rows[0]) {
         await client.query('ROLLBACK');
