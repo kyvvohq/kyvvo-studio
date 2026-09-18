@@ -37,13 +37,25 @@ function registerAutomacoesRoutes(fastify, pool) {
   fastify.get('/api/automacoes/templates-whatsapp', { preHandler: [fastify.authenticate] }, async (request) => {
     const { tenantId } = request.user;
     const { rows } = await pool.query(
-      'SELECT meta_waba_id FROM tenants WHERE id = $1',
+      'SELECT meta_waba_id, meta_phone_number_id FROM tenants WHERE id = $1',
       [tenantId]
     );
     const wabaId = rows[0] && rows[0].meta_waba_id;
-    if (!wabaId) return { templates: [] };
-    const templates = await listarTemplates({ wabaId });
-    return { templates };
+    // `conectado` separa "WhatsApp não conectado" de "conectado mas sem
+    // modelo na lista" — a tela só pode mandar o cliente conectar o WhatsApp
+    // no primeiro caso (antes qualquer lista vazia mostrava esse aviso, mesmo
+    // com o número ativo e os modelos aprovados, achado 2026-09-11).
+    const conectado = !!(wabaId || (rows[0] && rows[0].meta_phone_number_id));
+    if (!wabaId) return { templates: [], conectado };
+    try {
+      const templates = await listarTemplates({ wabaId });
+      return { templates, conectado };
+    } catch (erro) {
+      // Falha na Graph API não pode virar 500 nem o aviso errado de "conecte
+      // o WhatsApp" — a tela mostra que não conseguiu carregar os modelos.
+      fastify.log.error({ erro: erro.message, tenantId }, 'Falha ao listar templates do WhatsApp (automações)');
+      return { templates: [], conectado, erro: true };
+    }
   });
 
   // Cria uma automação nova (botão "+ Nova automação").
