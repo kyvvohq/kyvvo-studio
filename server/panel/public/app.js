@@ -6207,15 +6207,20 @@ async function renderAutomacoes() {
   if (!dados) return;
   const automacoesLista = dados.automacoes || [];
   automacoesTemplatesCache = (dadosTemplates && dadosTemplates.templates) || [];
-  const semWhatsapp = !automacoesTemplatesCache.length;
-
-  const aviso = semWhatsapp
-    ? `<div class="pagamento-plano-card" style="margin-bottom:16px">
-         <p style="margin:0">As automações enviam por <strong>WhatsApp</strong> usando <strong>modelos aprovados na Meta</strong>.
-         Conecte o WhatsApp do seu negócio em <a href="#" id="link-ir-whatsapp">Configurações → WhatsApp</a>;
-         os modelos de disparo aprovados na conta aparecem aqui pra você escolher em cada automação.</p>
-       </div>`
-    : '';
+  // Três estados distintos (antes qualquer lista vazia mostrava "conecte o
+  // WhatsApp", mesmo com o número ativo): sem WhatsApp conectado, conectado
+  // mas sem modelo aprovado na lista, ou erro ao buscar na Meta.
+  const conectado = !!(dadosTemplates && dadosTemplates.conectado);
+  let aviso = '';
+  if (!conectado) {
+    aviso = `<div class="pagamento-plano-card" style="margin-bottom:16px">
+         <p style="margin:0">Pra as automações dispararem, conecte o WhatsApp do seu negócio em <a href="#" id="link-ir-whatsapp">Configurações → WhatsApp</a>.</p>
+       </div>`;
+  } else if (dadosTemplates && dadosTemplates.erro) {
+    aviso = '<div class="pagamento-plano-card" style="margin-bottom:16px"><p style="margin:0">Não consegui carregar os modelos aprovados na Meta agora. Tente de novo em instantes.</p></div>';
+  } else if (!automacoesTemplatesCache.length) {
+    aviso = '<div class="pagamento-plano-card" style="margin-bottom:16px"><p style="margin:0">Nenhum modelo de disparo aprovado foi encontrado na conta do WhatsApp conectada.</p></div>';
+  }
 
   const filtrados = automacoesFiltroGatilho
     ? automacoesLista.filter((a) => a.gatilho === automacoesFiltroGatilho)
@@ -6223,45 +6228,49 @@ async function renderAutomacoes() {
 
   const linha = (a) => `
     <tr data-automacao="${a.id}">
-      <td>${escapeHtml(a.nome)}${a.whatsapp_template ? '' : ' <span class="badge badge-status-inativo" title="Escolha um modelo aprovado pra esta automação disparar">sem modelo</span>'}</td>
-      <td>${AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho}</td>
+      <td class="col-nome">${escapeHtml(a.nome)}${a.whatsapp_template ? '' : ' <span class="badge-sem-modelo" title="Escolha um modelo aprovado pra esta automação disparar">sem modelo</span>'}</td>
+      <td class="col-contexto">${AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho}</td>
       <td>
         ${a.removivel
           ? `<label class="toggle-linha"><span class="toggle-switch">
                <input type="checkbox" class="auto-toggle" ${a.ativo ? 'checked' : ''}>
                <span class="toggle-switch-trilho"></span>
              </span></label>`
-          : '<span class="badge badge-status-ativo">Obrigatória</span>'}
+          : '<span class="badge-obrigatoria">Obrigatória — sempre ativa</span>'}
       </td>
       <td>
-        <button class="btn-secundario btn-tabela" data-auto-editar="${a.id}">Editar</button>
-        <button class="btn-secundario btn-tabela" data-auto-duplicar="${a.id}">Duplicar</button>
-        ${a.removivel ? `<button class="btn-secundario btn-tabela acao-perigo" data-auto-excluir="${a.id}">Excluir</button>` : ''}
+        <div class="automacoes-acoes">
+          <button type="button" data-auto-editar="${a.id}">Editar</button>
+          <button type="button" data-auto-duplicar="${a.id}">Duplicar</button>
+          ${a.removivel ? `<button type="button" class="perigo" data-auto-excluir="${a.id}">Excluir</button>` : ''}
+        </div>
       </td>
     </tr>`;
 
   conteudo.innerHTML = `
-    <div class="nav-periodo">
-      <strong>Automações</strong>
+    <div class="automacoes-cabecalho">
+      <div>
+        <h1>Automações</h1>
+        <p>Mensagens automáticas de WhatsApp disparadas por evento da agenda. Valem pra todo o salão; pode ter mais de uma por gatilho.</p>
+      </div>
       <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
     </div>
-    <p style="color:var(--muted-strong);font-size:13px;margin:-4px 0 16px">
-      Mensagens automáticas de WhatsApp disparadas por evento da agenda. Valem pra todo o salão; pode ter mais de uma por gatilho.
-    </p>
     ${aviso}
-    <div class="clientes-filtros">
-      <select id="filtro-gatilho-auto">
-        <option value="">Todos os gatilhos</option>
-        ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
-      </select>
+    <div class="automacoes-card">
+      <div class="automacoes-filtros">
+        <select id="filtro-gatilho-auto">
+          <option value="">Todos os gatilhos</option>
+          ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
+        </select>
+      </div>
+      ${filtrados.length ? `
+        <div class="tabela-wrapper" style="margin-bottom:0">
+          <table class="tabela-automacoes">
+            <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
+            <tbody>${filtrados.map(linha).join('')}</tbody>
+          </table>
+        </div>` : '<div class="automacoes-vazio">Nenhuma automação neste filtro.</div>'}
     </div>
-    ${filtrados.length ? `
-      <div class="tabela-wrapper">
-        <table class="tabela-tenants tabela-automacoes">
-          <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
-          <tbody>${filtrados.map(linha).join('')}</tbody>
-        </table>
-      </div>` : '<div class="vazio">Nenhuma automação neste filtro.</div>'}
   `;
 
   const linkWpp = document.getElementById('link-ir-whatsapp');
