@@ -45,8 +45,6 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public-studio')));
-// Tokens do design system, servidos crus de node_modules (não há bundler).
-app.use('/ds', express.static(path.join(__dirname, 'node_modules', '@kyvvohq', 'design-system')));
 
 // Conexão com PostgreSQL
 const pool = new Pool({
