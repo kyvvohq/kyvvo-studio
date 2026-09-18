@@ -9,7 +9,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@kyvvohq/design-system": "^2.5.0",
     "@sentry/node": "^10.69.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",

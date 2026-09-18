@@ -137,9 +137,10 @@ Other decorators: `fastify.requireModulo('financeiro')` (checks `tenant_modulos`
 
 ## External services & sibling repos
 
-- `@kyvvohq/design-system` — tokens + components from GitHub Packages, served raw
-  at `/ds/` straight out of `node_modules` (no bundler). See `docs/design-system.md`;
-  brand accent `--accent:#7c5cfc`, do not change `--muted:#7484a5` without
+- `kyvvohq/kyvvo-design-system` — tokens + components, consumed in real time: nginx
+  serves `/ds/` straight from `/opt/kyvvo/design-system/`, synced on every push to that
+  repo's main (NOT an npm dependency of this app anymore, and this app has no `/ds/`
+  route). See `docs/design-system.md`; brand accent `--accent:#7c5cfc`, do not change `--muted:#7484a5` without
   re-checking WCAG contrast.
 - `@kyvvohq/platform-client` → the `kyvvo-platform` service, the emerging auth
   authority (P3 cutover in progress; token verification is the first piece).

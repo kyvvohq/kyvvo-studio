@@ -28,7 +28,7 @@ O institucional (`kyvvo.com.br`) ficou em `kyvvohq/kyvvo`; o bot em
 |---|---|
 | Backend (painel + admin) | Node.js + Fastify + PostgreSQL |
 | Landing | Node.js + Express |
-| Design System | `@kyvvohq/design-system` (tokens + componentes, GitHub Packages) |
+| Design System | `kyvvo-design-system` (tokens + componentes; servido em tempo real pelo nginx em `/ds/`, não é dependência npm) |
 | Pagamentos | Asaas (Pix recorrente + cartão, tokenização server-side) |
 | E-mail | Resend |
 | Testes | Playwright (`server/panel/tests/`), `node --test` (`tests-unit/`) |
