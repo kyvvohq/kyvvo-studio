@@ -138,6 +138,17 @@ async function registrarEnvioWhatsapp(pool, tenantId, telefoneE164) {
   );
 }
 
+// Histórico pro admin (US: aba WhatsApp > Disparos, Studio+People) — só
+// desfechos finais (enviado/erro/bloqueado), nunca "enfileirado" (ver
+// comentário da migration 078): evita contar a mesma tentativa duas vezes.
+async function registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status }) {
+  await pool.query(
+    `insert into whatsapp_disparos (id, tenant_id, telefone_e164, template_nome, gatilho, status)
+     values ($1, $2, $3, $4, $5, $6)`,
+    [crypto.randomUUID(), tenantId, telefoneE164, templateNome || null, gatilho || null, status]
+  );
+}
+
 async function enfileirarWhatsapp(pool, { tenantId, telefoneE164, templateNome, parametrosCorpo, parametroBotao }) {
   await pool.query(
     `insert into whatsapp_fila (id, tenant_id, telefone_e164, template_nome, parametros_corpo, parametro_botao)
@@ -164,8 +175,8 @@ async function enviarOuEnfileirar(pool, {
   tenantId, telefoneE164, optOut, gatilho, templateNome, parametrosCorpo, parametroBotao, phoneNumberId, wabaId,
 }) {
   if (!telefoneE164 || !templateNome) return;
-  if (optOut) return;
-  if (await enviadoRecentemente(pool, telefoneE164)) return;
+  if (optOut) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_optout' }); return; }
+  if (await enviadoRecentemente(pool, telefoneE164)) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_24h' }); return; }
 
   const instantaneo = gatilho === 'agendamento_criado' || (await estaNoHorarioComercial());
   if (!instantaneo) {
@@ -175,7 +186,12 @@ async function enviarOuEnfileirar(pool, {
   const enviado = await enviarTemplate({
     to: telefoneE164, templateName: templateNome, parametrosCorpo, parametroBotao, phoneNumberId,
   });
-  if (enviado) await registrarEnvioWhatsapp(pool, tenantId, telefoneE164);
+  if (enviado) {
+    await registrarEnvioWhatsapp(pool, tenantId, telefoneE164);
+    await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'enviado' });
+  } else {
+    await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'erro' });
+  }
 }
 
 // Resolve TODAS as automações ativas do gatilho (com template escolhido) + o
@@ -377,6 +393,7 @@ async function processarFilaWhatsapp(pool) {
     try {
       if (item.whatsapp_opt_out || !item.meta_phone_number_id) {
         await pool.query('update whatsapp_fila set processado_em = now() where id = $1', [item.id]);
+        if (item.whatsapp_opt_out) await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'bloqueado_optout' });
         continue;
       }
       if (await enviadoRecentemente(pool, item.telefone_e164)) continue; // tenta na próxima rodada
@@ -387,7 +404,13 @@ async function processarFilaWhatsapp(pool) {
         phoneNumberId: item.meta_phone_number_id,
       });
       await pool.query('update whatsapp_fila set processado_em = now() where id = $1', [item.id]);
-      if (enviado) { await registrarEnvioWhatsapp(pool, item.tenant_id, item.telefone_e164); processados++; }
+      if (enviado) {
+        await registrarEnvioWhatsapp(pool, item.tenant_id, item.telefone_e164);
+        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'enviado' });
+        processados++;
+      } else {
+        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'erro' });
+      }
     } catch (err) {
       console.error(`[automacoes] falha no item ${item.id} da fila: ${err.message}`);
     }
@@ -409,4 +432,5 @@ module.exports = {
   telefoneParaE164,
   formatarDataHora,
   dadosDoAgendamento,
+  registrarDisparo,
 };

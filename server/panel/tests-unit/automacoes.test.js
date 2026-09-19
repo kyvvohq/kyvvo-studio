@@ -2,7 +2,7 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   renderizar, montarParametrosWhatsapp, telefoneParaE164, formatarDataHora,
-  dadosDoAgendamento, detectarOptOut, SEEDS,
+  dadosDoAgendamento, detectarOptOut, SEEDS, registrarDisparo,
 } = require('../lib/automacoes');
 const { dentroDoHorario } = require('../lib/horario-comercial');
 
@@ -121,5 +121,30 @@ describe('dentroDoHorario (copiado do People)', () => {
   });
   test('sem config (admin nunca respondeu) -> sempre dentro', () => {
     assert.equal(dentroDoHorario(new Date('2026-03-15T23:00:00Z'), null), true);
+  });
+});
+
+describe('registrarDisparo (histórico pro admin — US WhatsApp > Disparos)', () => {
+  test('grava tenant/telefone/template/gatilho/status em whatsapp_disparos', async () => {
+    const chamadas = [];
+    const pool = { query: async (sql, params) => { chamadas.push({ sql, params }); return { rows: [] }; } };
+    await registrarDisparo(pool, { tenantId: 't1', telefoneE164: '+5534999998888', templateNome: 'lembrete_agendamento', gatilho: 'agendamento_criado', status: 'enviado' });
+    assert.equal(chamadas.length, 1);
+    assert.match(chamadas[0].sql, /insert into whatsapp_disparos/);
+    const [, tenantId, telefone, template, gatilho, status] = chamadas[0].params;
+    assert.equal(tenantId, 't1');
+    assert.equal(telefone, '+5534999998888');
+    assert.equal(template, 'lembrete_agendamento');
+    assert.equal(gatilho, 'agendamento_criado');
+    assert.equal(status, 'enviado');
+  });
+
+  test('template/gatilho ausentes viram null em vez de undefined (constraint do banco não aceita undefined)', async () => {
+    const chamadas = [];
+    const pool = { query: async (sql, params) => { chamadas.push({ sql, params }); return { rows: [] }; } };
+    await registrarDisparo(pool, { tenantId: 't1', telefoneE164: '+5534999998888', status: 'bloqueado_optout' });
+    const [, , , template, gatilho] = chamadas[0].params;
+    assert.equal(template, null);
+    assert.equal(gatilho, null);
   });
 });
