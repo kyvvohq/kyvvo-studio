@@ -475,6 +475,13 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .tab.active { background: var(--accent); color: white; }
 
+/* .ds-aba (componente de abas do @kyvvohq/design-system, v2.7.0) não reseta
+   width/margin — herda o `button { width: 100%; margin-top: 24px }` global
+   deste arquivo (pensado pra botão de formulário) e cada aba vira uma barra
+   full-width empilhada. Mesmo padrão de override já usado em
+   .btn-novo-agendamento logo abaixo. Cobre Automações/Pagamentos/Financeiro. */
+.ds-aba { width: auto; margin-top: 0; }
+
 .btn-novo-agendamento {
   width: auto;
   margin: 0 0 0 auto;
