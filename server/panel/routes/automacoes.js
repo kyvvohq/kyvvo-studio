@@ -8,6 +8,7 @@
 // referência editável.
 const crypto = require('crypto');
 const { garantirAutomacoesPadrao } = require('../lib/automacoes');
+const planosCatalogo = require('../lib/planos');
 const { listarTemplates } = require('@kyvvohq/whatsapp');
 
 // Mesmos valores do CHECK em db/070_automacoes_4_gatilhos.sql.
@@ -162,6 +163,35 @@ function registerAutomacoesRoutes(fastify, pool) {
     }
     await pool.query('DELETE FROM automacoes WHERE id = $1 AND tenant_id = $2', [request.params.id, tenantId]);
     return { ok: true };
+  });
+
+  // Relatório de disparos do próprio tenant (pedido do Bruno, 2026-09-20:
+  // o cliente também precisa ver o que a Kyvvo já mostra no admin — uso do
+  // mês vs. limite do plano + histórico). Sempre escopado por tenantId do
+  // token, nunca recebe id de fora — um tenant nunca vê disparo de outro.
+  fastify.get('/api/automacoes/disparos', { preHandler: [fastify.authenticate] }, async (request) => {
+    const { tenantId } = request.user;
+    const { rows: disparos } = await pool.query(
+      `select telefone_e164, template_nome, gatilho, status, criado_em
+       from whatsapp_disparos where tenant_id = $1 order by criado_em desc limit 200`,
+      [tenantId]
+    );
+    const total = disparos.length;
+    const realizados = disparos.filter((d) => d.status === 'enviado').length;
+
+    const { rows: tRows } = await pool.query('select plano from tenants where id = $1', [tenantId]);
+    const planoChave = tRows[0] ? tRows[0].plano : null;
+    let limitePlano = null;
+    if (planoChave) {
+      const plano = planosCatalogo.obterPlano(planoChave);
+      if (plano) {
+        const inicioDoMes = new Date(); inicioDoMes.setDate(1); inicioDoMes.setHours(0, 0, 0, 0);
+        const usadoMesAtual = disparos.filter((d) => d.status === 'enviado' && new Date(d.criado_em) >= inicioDoMes).length;
+        limitePlano = { planoNome: plano.nome, limite: plano.limite_disparos, usadoMesAtual };
+      }
+    }
+
+    return { total, realizados, disparos, limitePlano };
   });
 }
 

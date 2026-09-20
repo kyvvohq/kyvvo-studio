@@ -6190,6 +6190,71 @@ const AUTOMACAO_GATILHOS_ORDEM = Object.keys(AUTOMACAO_GATILHO_CURTO);
 
 let automacoesFiltroGatilho = '';
 let automacoesTemplatesCache = [];
+let automacoesHistoricoAberto = false;
+
+// Relatório de disparos do próprio tenant (pedido do Bruno, 2026-09-20) —
+// mesmos rótulos/status do log que o admin da Kyvvo já vê, só filtrado pro
+// salão logado.
+const STATUS_DISPARO_LABEL = {
+  enviado: 'Enviado',
+  erro: 'Erro no envio',
+  bloqueado_optout: 'Bloqueado (opt-out)',
+  bloqueado_24h: 'Bloqueado (24h)',
+  bloqueado_limite_plano: 'Bloqueado (limite do plano)',
+};
+function badgeStatusDisparo(status) {
+  const classe = status === 'enviado' ? 'badge-status-ativo' : 'badge-status-inativo';
+  return `<span class="badge ${classe}">${escapeHtml(STATUS_DISPARO_LABEL[status] || status)}</span>`;
+}
+function formatarDataHoraDisparo(iso) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+}
+function renderLinhaDisparo(d) {
+  return `
+    <tr>
+      <td>${formatarDataHoraDisparo(d.criado_em)}</td>
+      <td>${escapeHtml(d.telefone_e164 || '—')}</td>
+      <td>${escapeHtml(d.template_nome || '—')}</td>
+      <td>${badgeStatusDisparo(d.status)}</td>
+    </tr>
+  `;
+}
+function renderResumoDisparos(dados) {
+  if (!dados) return '';
+  const limite = dados.limitePlano;
+  let cardLimite = '';
+  if (limite) {
+    if (limite.limite == null) {
+      cardLimite = `<div class="pagamento-plano-card" style="margin-bottom:16px"><p style="margin:0">Seu plano (${escapeHtml(limite.planoNome)}) não tem limite de disparos de WhatsApp.</p></div>`;
+    } else {
+      const estourou = limite.usadoMesAtual >= limite.limite;
+      cardLimite = `
+        <div class="pagamento-plano-card" style="margin-bottom:16px${estourou ? ';border-color:#F04438' : ''}">
+          <p style="margin:0 0 4px;font-weight:600">Disparos de WhatsApp este mês (plano ${escapeHtml(limite.planoNome)})</p>
+          <p style="margin:0;font-size:20px;font-weight:700${estourou ? ';color:#F04438' : ''}">${limite.usadoMesAtual} / ${limite.limite}</p>
+          ${estourou ? '<p style="margin:6px 0 0;font-size:13px;color:#F04438">Limite atingido — as automações pararam de enviar até o mês virar. Fale com a Kyvvo pra ajustar seu plano.</p>' : ''}
+        </div>
+      `;
+    }
+  }
+  return `
+    ${cardLimite}
+    <div class="automacoes-card" style="margin-bottom:16px">
+      <button type="button" id="btn-toggle-historico-disparos" class="btn-secundario">
+        ${automacoesHistoricoAberto ? 'Ocultar' : 'Ver'} histórico de disparos (${dados.total})
+      </button>
+      ${automacoesHistoricoAberto ? `
+        <div class="tabela-wrapper" style="margin-top:12px">
+          <table class="tabela-automacoes">
+            <thead><tr><th>Data/hora</th><th>Número</th><th>Modelo</th><th>Status</th></tr></thead>
+            <tbody>${dados.disparos.length ? dados.disparos.map(renderLinhaDisparo).join('') : '<tr><td colspan="4">Nenhum disparo ainda.</td></tr>'}</tbody>
+          </table>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
 
 function opcoesTemplateAutomacao(selecionado) {
   return `<option value="">— escolher modelo —</option>` + automacoesTemplatesCache.map((t) => `
@@ -6200,9 +6265,10 @@ function opcoesTemplateAutomacao(selecionado) {
 
 async function renderAutomacoes() {
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  const [dados, dadosTemplates] = await Promise.all([
+  const [dados, dadosTemplates, dadosDisparos] = await Promise.all([
     api('/api/automacoes'),
     api('/api/automacoes/templates-whatsapp'),
+    api('/api/automacoes/disparos'),
   ]);
   if (!dados) return;
   const automacoesLista = dados.automacoes || [];
@@ -6256,6 +6322,7 @@ async function renderAutomacoes() {
       <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
     </div>
     ${aviso}
+    ${renderResumoDisparos(dadosDisparos)}
     <div class="automacoes-card">
       <div class="automacoes-filtros">
         <select id="filtro-gatilho-auto">
@@ -6279,6 +6346,11 @@ async function renderAutomacoes() {
   document.getElementById('btn-nova-automacao').addEventListener('click', () => abrirModalAutomacao(null));
   document.getElementById('filtro-gatilho-auto').addEventListener('change', (e) => {
     automacoesFiltroGatilho = e.target.value;
+    renderAutomacoes();
+  });
+  const btnToggleHistorico = document.getElementById('btn-toggle-historico-disparos');
+  if (btnToggleHistorico) btnToggleHistorico.addEventListener('click', () => {
+    automacoesHistoricoAberto = !automacoesHistoricoAberto;
     renderAutomacoes();
   });
 
