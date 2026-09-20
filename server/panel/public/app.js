@@ -1761,14 +1761,6 @@ conteudo.addEventListener('click', (e) => {
     return;
   }
 
-  // Abas Planos/Cobrança/Histórico de "Plano e cobrança".
-  const tabPagamentos = e.target.closest('[data-pagamentos-aba]');
-  if (tabPagamentos) {
-    abaPagamentosAtiva = tabPagamentos.dataset.pagamentosAba;
-    renderPagamentos();
-    return;
-  }
-
   // Pills de filtro por tipo (Todas/Receitas/Despesas) nas Movimentações.
   const tipoLancamentoBtn = e.target.closest('[data-financeiro-filtro-tipo]');
   if (tipoLancamentoBtn) {
@@ -1953,12 +1945,18 @@ function abrirFinanceiroComFiltro(periodo, referencia) {
   selecionarMenu('modulo:financeiro');
 }
 
+// Visual do componente data-ds-abas (@kyvvohq/design-system v2.7.0), mas sem
+// o atributo data-ds-abas em si: Dia/Semana/Mês buscam dados diferentes por
+// aba (não são 3 painéis estáticos do mesmo fetch, como Automações/
+// Pagamentos), então o clique continua no handler delegado de sempre
+// (data-financeiro-aba, mais abaixo) recarregando a tela inteira — só o
+// estilo da lista de abas vem do DS.
 function tabsFinanceiroHtml() {
   const abas = [['dia', 'Dia'], ['semana', 'Semana'], ['mes', 'Mês']];
   return `
-    <div class="subtabs-financeiro" role="tablist" data-testid="tabs-financeiro">
+    <div class="ds-abas-lista" role="tablist" data-testid="tabs-financeiro">
       ${abas.map(([chave, rotulo]) => `
-        <div class="tab ${abaFinanceiroAtiva === chave ? 'active' : ''}" role="tab" aria-selected="${abaFinanceiroAtiva === chave}" data-financeiro-aba="${chave}">${rotulo}</div>
+        <button type="button" class="ds-aba${abaFinanceiroAtiva === chave ? ' active' : ''}" role="tab" aria-selected="${abaFinanceiroAtiva === chave ? 'true' : 'false'}" data-financeiro-aba="${chave}">${rotulo}</button>
       `).join('')}
     </div>
   `;
@@ -2578,11 +2576,13 @@ function formatarMeioHistorico(meio) {
   return meio || '—';
 }
 
-// "Plano e cobrança" em 3 abas (Planos / Cobrança / Histórico) — mesmo
-// padrão de abas do Financeiro (abaFinanceiroAtiva/data-financeiro-aba):
-// a lógica condicional por status (trial com/sem pagamento agendado, sem
-// meio cadastrado, ativo/inadimplente/suspenso/cancelado) é a mesma de
-// sempre, só reorganizada em qual das 3 strings de HTML cada pedaço cai.
+// "Plano e cobrança" em 3 abas (Planos / Cobrança / Histórico), componente
+// data-ds-abas do @kyvvohq/design-system (v2.7.0) — as 3 vêm do mesmo fetch,
+// então os 3 painéis nascem prontos no DOM e a troca é só show/hide via DS,
+// sem re-render. A lógica condicional por status (trial com/sem pagamento
+// agendado, sem meio cadastrado, ativo/inadimplente/suspenso/cancelado) é a
+// mesma de sempre, só reorganizada em qual das 3 strings de HTML cada pedaço
+// cai.
 let abaPagamentosAtiva = 'planos';
 
 async function renderPagamentos() {
@@ -2725,18 +2725,25 @@ async function renderPagamentos() {
   planosHtml += renderListaPlanosDisponiveis(planosDisponiveis, dados.plano_slug);
   if (!historicoHtml) historicoHtml = '<p class="modal-texto">Sem cobranças registradas ainda.</p>';
 
-  const abas = { planos: planosHtml, cobranca: cobrancaHtml, historico: historicoHtml };
   const html = `
     <div class="nav-periodo"><strong>Plano e cobrança</strong></div>
-    <div class="subtabs-financeiro" role="tablist" data-testid="tabs-pagamentos">
-      <div class="tab ${abaPagamentosAtiva === 'planos' ? 'active' : ''}" role="tab" aria-selected="${abaPagamentosAtiva === 'planos'}" data-pagamentos-aba="planos">Planos</div>
-      <div class="tab ${abaPagamentosAtiva === 'cobranca' ? 'active' : ''}" role="tab" aria-selected="${abaPagamentosAtiva === 'cobranca'}" data-pagamentos-aba="cobranca">Cobrança</div>
-      <div class="tab ${abaPagamentosAtiva === 'historico' ? 'active' : ''}" role="tab" aria-selected="${abaPagamentosAtiva === 'historico'}" data-pagamentos-aba="historico">Histórico</div>
+    <div class="ds-abas" data-ds-abas>
+      <div class="ds-abas-lista">
+        <button type="button" class="ds-aba" id="aba-pagamentos-planos" aria-controls="painel-pagamentos-planos" aria-selected="${abaPagamentosAtiva === 'planos' ? 'true' : 'false'}">Planos</button>
+        <button type="button" class="ds-aba" id="aba-pagamentos-cobranca" aria-controls="painel-pagamentos-cobranca" aria-selected="${abaPagamentosAtiva === 'cobranca' ? 'true' : 'false'}">Cobrança</button>
+        <button type="button" class="ds-aba" id="aba-pagamentos-historico" aria-controls="painel-pagamentos-historico" aria-selected="${abaPagamentosAtiva === 'historico' ? 'true' : 'false'}">Histórico</button>
+      </div>
+      <div class="ds-abas-painel" id="painel-pagamentos-planos" aria-labelledby="aba-pagamentos-planos" ${abaPagamentosAtiva === 'planos' ? '' : 'hidden'}>${planosHtml}</div>
+      <div class="ds-abas-painel" id="painel-pagamentos-cobranca" aria-labelledby="aba-pagamentos-cobranca" ${abaPagamentosAtiva === 'cobranca' ? '' : 'hidden'}>${cobrancaHtml}</div>
+      <div class="ds-abas-painel" id="painel-pagamentos-historico" aria-labelledby="aba-pagamentos-historico" ${abaPagamentosAtiva === 'historico' ? '' : 'hidden'}>${historicoHtml}</div>
     </div>
-    ${abas[abaPagamentosAtiva]}
   `;
 
   conteudo.innerHTML = html;
+  conteudo.querySelector('.ds-abas').addEventListener('ds-abas-alterar', (e) => {
+    abaPagamentosAtiva = e.detail.id === 'painel-pagamentos-cobranca' ? 'cobranca'
+      : e.detail.id === 'painel-pagamentos-historico' ? 'historico' : 'planos';
+  });
   const btnCadastrar = document.getElementById('btn-cadastrar-pagamento');
   if (btnCadastrar) btnCadastrar.addEventListener('click', () => abrirModalPagamento(dados));
   const btnReativar = document.getElementById('btn-reativar-pagamento');
@@ -6314,40 +6321,40 @@ async function renderAutomacoes() {
         <h1>Automações</h1>
         <p>Mensagens automáticas de WhatsApp disparadas por evento da agenda. Valem pra todo o salão; pode ter mais de uma por gatilho.</p>
       </div>
-      ${automacoesAbaAtiva === 'lista' ? '<button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>' : ''}
+      <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
     </div>
-    <div class="tabs" style="display:flex;gap:8px;margin-bottom:16px">
-      <div class="tab ${automacoesAbaAtiva === 'lista' ? 'active' : ''}" data-automacoes-aba="lista">Automações</div>
-      <div class="tab ${automacoesAbaAtiva === 'disparos' ? 'active' : ''}" data-automacoes-aba="disparos">Disparos${dadosDisparos ? ` (${dadosDisparos.total})` : ''}</div>
-    </div>
-    ${automacoesAbaAtiva === 'disparos' ? renderAbaDisparos(dadosDisparos) : `
-      ${aviso}
-      <div class="automacoes-card">
-        <div class="automacoes-filtros">
-          <select id="filtro-gatilho-auto">
-            <option value="">Todos os gatilhos</option>
-            ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
-          </select>
-        </div>
-        ${filtrados.length ? `
-          <div class="tabela-wrapper" style="margin-bottom:0">
-            <table class="tabela-automacoes">
-              <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
-              <tbody>${filtrados.map(linha).join('')}</tbody>
-            </table>
-          </div>` : '<div class="automacoes-vazio">Nenhuma automação neste filtro.</div>'}
+    <div class="ds-abas" data-ds-abas>
+      <div class="ds-abas-lista">
+        <button type="button" class="ds-aba" id="aba-automacoes-lista" aria-controls="painel-automacoes-lista" aria-selected="${automacoesAbaAtiva === 'lista' ? 'true' : 'false'}">Automações</button>
+        <button type="button" class="ds-aba" id="aba-automacoes-disparos" aria-controls="painel-automacoes-disparos" aria-selected="${automacoesAbaAtiva === 'disparos' ? 'true' : 'false'}">Disparos${dadosDisparos ? ` <span class="ds-aba-contagem">${dadosDisparos.total}</span>` : ''}</button>
       </div>
-    `}
+      <div class="ds-abas-painel" id="painel-automacoes-lista" aria-labelledby="aba-automacoes-lista" ${automacoesAbaAtiva === 'lista' ? '' : 'hidden'}>
+        ${aviso}
+        <div class="automacoes-card">
+          <div class="automacoes-filtros">
+            <select id="filtro-gatilho-auto">
+              <option value="">Todos os gatilhos</option>
+              ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
+            </select>
+          </div>
+          ${filtrados.length ? `
+            <div class="tabela-wrapper" style="margin-bottom:0">
+              <table class="tabela-automacoes">
+                <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
+                <tbody>${filtrados.map(linha).join('')}</tbody>
+              </table>
+            </div>` : '<div class="automacoes-vazio">Nenhuma automação neste filtro.</div>'}
+        </div>
+      </div>
+      <div class="ds-abas-painel" id="painel-automacoes-disparos" aria-labelledby="aba-automacoes-disparos" ${automacoesAbaAtiva === 'disparos' ? '' : 'hidden'}>
+        ${renderAbaDisparos(dadosDisparos)}
+      </div>
+    </div>
   `;
 
-  conteudo.querySelectorAll('[data-automacoes-aba]').forEach((tab) => {
-    tab.addEventListener('click', () => {
-      automacoesAbaAtiva = tab.dataset.automacoesAba;
-      renderAutomacoes();
-    });
+  conteudo.querySelector('.ds-abas').addEventListener('ds-abas-alterar', (e) => {
+    automacoesAbaAtiva = e.detail.id === 'painel-automacoes-disparos' ? 'disparos' : 'lista';
   });
-
-  if (automacoesAbaAtiva !== 'lista') return;
 
   const linkWpp = document.getElementById('link-ir-whatsapp');
   if (linkWpp) linkWpp.addEventListener('click', (e) => { e.preventDefault(); selecionarMenu('whatsapp'); });
