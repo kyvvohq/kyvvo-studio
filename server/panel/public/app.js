@@ -6190,7 +6190,7 @@ const AUTOMACAO_GATILHOS_ORDEM = Object.keys(AUTOMACAO_GATILHO_CURTO);
 
 let automacoesFiltroGatilho = '';
 let automacoesTemplatesCache = [];
-let automacoesHistoricoAberto = false;
+let automacoesAbaAtiva = 'lista';
 
 // Relatório de disparos do próprio tenant (pedido do Bruno, 2026-09-20) —
 // mesmos rótulos/status do log que o admin da Kyvvo já vê, só filtrado pro
@@ -6220,8 +6220,8 @@ function renderLinhaDisparo(d) {
     </tr>
   `;
 }
-function renderResumoDisparos(dados) {
-  if (!dados) return '';
+function renderAbaDisparos(dados) {
+  if (!dados) return '<div class="vazio">Carregando...</div>';
   const limite = dados.limitePlano;
   let cardLimite = '';
   if (limite) {
@@ -6240,18 +6240,13 @@ function renderResumoDisparos(dados) {
   }
   return `
     ${cardLimite}
-    <div class="automacoes-card" style="margin-bottom:16px">
-      <button type="button" id="btn-toggle-historico-disparos" class="btn-secundario">
-        ${automacoesHistoricoAberto ? 'Ocultar' : 'Ver'} histórico de disparos (${dados.total})
-      </button>
-      ${automacoesHistoricoAberto ? `
-        <div class="tabela-wrapper" style="margin-top:12px">
-          <table class="tabela-automacoes">
-            <thead><tr><th>Data/hora</th><th>Número</th><th>Modelo</th><th>Status</th></tr></thead>
-            <tbody>${dados.disparos.length ? dados.disparos.map(renderLinhaDisparo).join('') : '<tr><td colspan="4">Nenhum disparo ainda.</td></tr>'}</tbody>
-          </table>
-        </div>
-      ` : ''}
+    <div class="automacoes-card">
+      <div class="tabela-wrapper" style="margin-bottom:0">
+        <table class="tabela-automacoes">
+          <thead><tr><th>Data/hora</th><th>Número</th><th>Modelo</th><th>Status</th></tr></thead>
+          <tbody>${dados.disparos.length ? dados.disparos.map(renderLinhaDisparo).join('') : '<tr><td colspan="4">Nenhum disparo ainda.</td></tr>'}</tbody>
+        </table>
+      </div>
     </div>
   `;
 }
@@ -6319,26 +6314,40 @@ async function renderAutomacoes() {
         <h1>Automações</h1>
         <p>Mensagens automáticas de WhatsApp disparadas por evento da agenda. Valem pra todo o salão; pode ter mais de uma por gatilho.</p>
       </div>
-      <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
+      ${automacoesAbaAtiva === 'lista' ? '<button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>' : ''}
     </div>
-    ${aviso}
-    ${renderResumoDisparos(dadosDisparos)}
-    <div class="automacoes-card">
-      <div class="automacoes-filtros">
-        <select id="filtro-gatilho-auto">
-          <option value="">Todos os gatilhos</option>
-          ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
-        </select>
+    <div class="tabs" style="display:flex;gap:8px;margin-bottom:16px">
+      <div class="tab ${automacoesAbaAtiva === 'lista' ? 'active' : ''}" data-automacoes-aba="lista">Automações</div>
+      <div class="tab ${automacoesAbaAtiva === 'disparos' ? 'active' : ''}" data-automacoes-aba="disparos">Disparos${dadosDisparos ? ` (${dadosDisparos.total})` : ''}</div>
+    </div>
+    ${automacoesAbaAtiva === 'disparos' ? renderAbaDisparos(dadosDisparos) : `
+      ${aviso}
+      <div class="automacoes-card">
+        <div class="automacoes-filtros">
+          <select id="filtro-gatilho-auto">
+            <option value="">Todos os gatilhos</option>
+            ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
+          </select>
+        </div>
+        ${filtrados.length ? `
+          <div class="tabela-wrapper" style="margin-bottom:0">
+            <table class="tabela-automacoes">
+              <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
+              <tbody>${filtrados.map(linha).join('')}</tbody>
+            </table>
+          </div>` : '<div class="automacoes-vazio">Nenhuma automação neste filtro.</div>'}
       </div>
-      ${filtrados.length ? `
-        <div class="tabela-wrapper" style="margin-bottom:0">
-          <table class="tabela-automacoes">
-            <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
-            <tbody>${filtrados.map(linha).join('')}</tbody>
-          </table>
-        </div>` : '<div class="automacoes-vazio">Nenhuma automação neste filtro.</div>'}
-    </div>
+    `}
   `;
+
+  conteudo.querySelectorAll('[data-automacoes-aba]').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      automacoesAbaAtiva = tab.dataset.automacoesAba;
+      renderAutomacoes();
+    });
+  });
+
+  if (automacoesAbaAtiva !== 'lista') return;
 
   const linkWpp = document.getElementById('link-ir-whatsapp');
   if (linkWpp) linkWpp.addEventListener('click', (e) => { e.preventDefault(); selecionarMenu('whatsapp'); });
@@ -6346,11 +6355,6 @@ async function renderAutomacoes() {
   document.getElementById('btn-nova-automacao').addEventListener('click', () => abrirModalAutomacao(null));
   document.getElementById('filtro-gatilho-auto').addEventListener('change', (e) => {
     automacoesFiltroGatilho = e.target.value;
-    renderAutomacoes();
-  });
-  const btnToggleHistorico = document.getElementById('btn-toggle-historico-disparos');
-  if (btnToggleHistorico) btnToggleHistorico.addEventListener('click', () => {
-    automacoesHistoricoAberto = !automacoesHistoricoAberto;
     renderAutomacoes();
   });
 
