@@ -75,7 +75,7 @@ function registerPublicoRoutes(fastify, pool) {
   // direto como identificador — não tem uma tela de marketing com slug.
   fastify.get('/api/planos/people', async () => {
     const { rows } = await pool.query(
-      `SELECT chave, nome, descricao, preco_mensal
+      `SELECT chave, nome, descricao, preco_mensal, limite_disparos
          FROM planos
         WHERE ativo = true AND produto = 'people'
         ORDER BY preco_mensal ASC`
