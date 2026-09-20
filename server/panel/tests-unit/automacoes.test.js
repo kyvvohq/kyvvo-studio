@@ -2,9 +2,10 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   renderizar, montarParametrosWhatsapp, telefoneParaE164, formatarDataHora,
-  dadosDoAgendamento, detectarOptOut, SEEDS, registrarDisparo,
+  dadosDoAgendamento, detectarOptOut, SEEDS, registrarDisparo, limiteDoPlanoExcedido,
 } = require('../lib/automacoes');
 const { dentroDoHorario } = require('../lib/horario-comercial');
+const planosCatalogo = require('../lib/planos');
 
 describe('renderizar', () => {
   test('substitui {{var}} pelos dados, vazio quando ausente', () => {
@@ -146,5 +147,36 @@ describe('registrarDisparo (histórico pro admin — US WhatsApp > Disparos)', (
     const [, , , template, gatilho] = chamadas[0].params;
     assert.equal(template, null);
     assert.equal(gatilho, null);
+  });
+});
+
+describe('limiteDoPlanoExcedido (trava de limite do plano — US WhatsApp > Disparos)', () => {
+  test('sem planoChave (trial/sem plano escolhido): nunca trava', async () => {
+    const pool = { query: async () => { throw new Error('não deveria consultar o banco'); } };
+    assert.equal(await limiteDoPlanoExcedido(pool, 't1', null), false);
+  });
+
+  test('plano sem limite_disparos definido (null): nunca trava', async () => {
+    planosCatalogo.obterPlano = () => ({ chave: 'starter', limite_disparos: null });
+    const pool = { query: async () => { throw new Error('não deveria consultar o banco'); } };
+    assert.equal(await limiteDoPlanoExcedido(pool, 't1', 'starter'), false);
+  });
+
+  test('plano com limite: abaixo do limite não trava', async () => {
+    planosCatalogo.obterPlano = () => ({ chave: 'starter', limite_disparos: 100 });
+    const pool = { query: async () => ({ rows: [{ total: 99 }] }) };
+    assert.equal(await limiteDoPlanoExcedido(pool, 't1', 'starter'), false);
+  });
+
+  test('plano com limite: no limite exato já trava (>=, não >)', async () => {
+    planosCatalogo.obterPlano = () => ({ chave: 'starter', limite_disparos: 100 });
+    const pool = { query: async () => ({ rows: [{ total: 100 }] }) };
+    assert.equal(await limiteDoPlanoExcedido(pool, 't1', 'starter'), true);
+  });
+
+  test('só conta status=enviado do mês corrente — a query em si é responsável por isso, aqui só confirma que a contagem retornada decide o resultado', async () => {
+    planosCatalogo.obterPlano = () => ({ chave: 'starter', limite_disparos: 10 });
+    const pool = { query: async (sql) => { assert.match(sql, /status = 'enviado'/); assert.match(sql, /date_trunc\('month', now\(\)\)/); return { rows: [{ total: 11 }] }; } };
+    assert.equal(await limiteDoPlanoExcedido(pool, 't1', 'starter'), true);
   });
 });

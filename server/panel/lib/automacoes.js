@@ -23,6 +23,7 @@
 // ar nunca pode derrubar a rota (ou o worker) que chamou.
 const crypto = require('crypto');
 const { estaNoHorarioComercial } = require('./horario-comercial');
+const planosCatalogo = require('./planos');
 
 // Lazy: os testes unitários exercitam só as funções puras (renderizar,
 // montarParametrosWhatsapp, telefoneParaE164...) sem precisar do pacote
@@ -138,6 +139,25 @@ async function registrarEnvioWhatsapp(pool, tenantId, telefoneE164) {
   );
 }
 
+// Trava de limite do plano (pedido do Bruno, 2026-09-19): cada plano tem um
+// `limite_disparos` (editável no admin, Produtos > Studio > Editar plano) —
+// até agora só era texto de marketing na página pública, nunca foi
+// verificado de verdade. Mês corrente = calendário (dia 1 até agora), não
+// "30 dias corridos" — é como o número aparece anunciado ("até N
+// disparos/mês"). `limite_disparos` nulo (a maioria dos planos hoje) =
+// sem trava, igual ao "ilimitado" já mostrado no admin.
+async function limiteDoPlanoExcedido(pool, tenantId, planoChave) {
+  if (!planoChave) return false;
+  const plano = planosCatalogo.obterPlano(planoChave);
+  if (!plano || plano.limite_disparos == null) return false;
+  const { rows } = await pool.query(
+    `select count(*)::int as total from whatsapp_disparos
+     where tenant_id = $1 and status = 'enviado' and criado_em >= date_trunc('month', now())`,
+    [tenantId]
+  );
+  return rows[0].total >= plano.limite_disparos;
+}
+
 // Histórico pro admin (US: aba WhatsApp > Disparos, Studio+People) — só
 // desfechos finais (enviado/erro/bloqueado), nunca "enfileirado" (ver
 // comentário da migration 078): evita contar a mesma tentativa duas vezes.
@@ -172,11 +192,12 @@ function detectarOptOut(texto) {
 // agendamento_criado sai na hora mesmo fora do horário (pedido do Bruno no
 // People — a confirmação não pode atrasar); o resto respeita o horário.
 async function enviarOuEnfileirar(pool, {
-  tenantId, telefoneE164, optOut, gatilho, templateNome, parametrosCorpo, parametroBotao, phoneNumberId, wabaId,
+  tenantId, telefoneE164, optOut, gatilho, templateNome, parametrosCorpo, parametroBotao, phoneNumberId, wabaId, planoChave,
 }) {
   if (!telefoneE164 || !templateNome) return;
   if (optOut) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_optout' }); return; }
   if (await enviadoRecentemente(pool, telefoneE164)) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_24h' }); return; }
+  if (await limiteDoPlanoExcedido(pool, tenantId, planoChave)) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_limite_plano' }); return; }
 
   const instantaneo = gatilho === 'agendamento_criado' || (await estaNoHorarioComercial());
   if (!instantaneo) {
@@ -209,7 +230,7 @@ async function dispararGatilho(pool, { tenantId, gatilho, telefoneE164, optOut, 
   if (!autos.length) return false;
 
   const { rows: tRows } = await pool.query(
-    'select nome, meta_phone_number_id, meta_waba_id from tenants where id = $1',
+    'select nome, meta_phone_number_id, meta_waba_id, plano from tenants where id = $1',
     [tenantId]
   );
   const tenant = tRows[0];
@@ -222,7 +243,7 @@ async function dispararGatilho(pool, { tenantId, gatilho, telefoneE164, optOut, 
     await enviarOuEnfileirar(pool, {
       tenantId, telefoneE164, optOut, gatilho,
       templateNome: automacao.whatsapp_template, parametrosCorpo, parametroBotao,
-      phoneNumberId: tenant.meta_phone_number_id, wabaId: tenant.meta_waba_id,
+      phoneNumberId: tenant.meta_phone_number_id, wabaId: tenant.meta_waba_id, planoChave: tenant.plano,
     });
   }
   return true;
@@ -288,7 +309,7 @@ async function marcarDisparo(pool, automacaoId, chave) {
 // Dedupe por cliente_id + ano.
 async function processarAniversarios(pool) {
   const { rows: autos } = await pool.query(
-    `select a.*, t.nome as salao, t.meta_phone_number_id, t.meta_waba_id
+    `select a.*, t.nome as salao, t.meta_phone_number_id, t.meta_waba_id, t.plano
      from automacoes a join tenants t on t.id = a.tenant_id
      where a.gatilho = 'aniversario_cliente' and a.ativo = true
        and a.whatsapp_template is not null and t.meta_phone_number_id is not null`
@@ -321,7 +342,7 @@ async function processarAniversarios(pool) {
 // por mês por cliente).
 async function processarInativos(pool) {
   const { rows: autos } = await pool.query(
-    `select a.*, t.nome as salao, t.cliente_inativo_dias, t.meta_phone_number_id, t.meta_waba_id
+    `select a.*, t.nome as salao, t.cliente_inativo_dias, t.meta_phone_number_id, t.meta_waba_id, t.plano
      from automacoes a join tenants t on t.id = a.tenant_id
      where a.gatilho = 'cliente_inativo' and a.ativo = true
        and a.whatsapp_template is not null and t.meta_phone_number_id is not null`
@@ -368,7 +389,7 @@ async function enviarComAuto(pool, auto, telefoneE164, optOut, dados) {
     await enviarOuEnfileirar(pool, {
       tenantId: auto.tenant_id, telefoneE164, optOut, gatilho: auto.gatilho,
       templateNome: auto.whatsapp_template, parametrosCorpo, parametroBotao,
-      phoneNumberId: auto.meta_phone_number_id, wabaId: auto.meta_waba_id,
+      phoneNumberId: auto.meta_phone_number_id, wabaId: auto.meta_waba_id, planoChave: auto.plano,
     });
   } catch (err) {
     console.error(`[automacoes] envio ${auto.gatilho} falhou: ${err.message}`);
@@ -381,7 +402,7 @@ async function processarFilaWhatsapp(pool) {
   if (!(await estaNoHorarioComercial())) return { processados: 0 };
 
   const { rows: pendentes } = await pool.query(
-    `select f.*, c.whatsapp_opt_out, t.meta_phone_number_id
+    `select f.*, c.whatsapp_opt_out, t.meta_phone_number_id, t.plano
      from whatsapp_fila f
      left join clientes c on c.tenant_id = f.tenant_id and c.telefone = replace(f.telefone_e164, '+', '')
      left join tenants t on t.id = f.tenant_id
@@ -397,6 +418,11 @@ async function processarFilaWhatsapp(pool) {
         continue;
       }
       if (await enviadoRecentemente(pool, item.telefone_e164)) continue; // tenta na próxima rodada
+      if (await limiteDoPlanoExcedido(pool, item.tenant_id, item.plano)) {
+        await pool.query('update whatsapp_fila set processado_em = now() where id = $1', [item.id]);
+        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'bloqueado_limite_plano' });
+        continue;
+      }
 
       const enviado = await enviarTemplate({
         to: item.telefone_e164, templateName: item.template_nome,
@@ -433,4 +459,5 @@ module.exports = {
   formatarDataHora,
   dadosDoAgendamento,
   registrarDisparo,
+  limiteDoPlanoExcedido,
 };
