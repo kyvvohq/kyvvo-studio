@@ -393,7 +393,8 @@ function atualizarSaudacao() {
 }
 
 const conteudo = document.getElementById('conteudo');
-const menuEl = document.querySelector('.menu');
+const menuNav = document.getElementById('painel-sidebar');
+const menuEl = menuNav.querySelector('.ds-menu-lista');
 const subtabsEl = document.getElementById('subtabs');
 const subtabsCadastroEl = document.getElementById('subtabs-cadastro');
 // Só as abas da barra da Agenda (Dia/Semana/Mês) — escopado pra não pegar
@@ -423,7 +424,7 @@ async function carregarConfiguracao() {
 // Cabeçalhos de grupo expansível da sidebar (Agenda, Configurações) —
 // genérico via data-submenu em vez de um par de consts fixo por grupo, pra
 // suportar quantos grupos a sidebar precisar sem repetir a mesma lógica.
-const gruposMenu = Array.from(document.querySelectorAll('.menu-item-grupo[data-submenu]')).map((toggle) => ({
+const gruposMenu = Array.from(document.querySelectorAll('.ds-menu-grupo-botao[data-submenu]')).map((toggle) => ({
   toggle,
   submenu: document.getElementById(toggle.dataset.submenu),
 }));
@@ -431,7 +432,7 @@ const gruposMenu = Array.from(document.querySelectorAll('.menu-item-grupo[data-s
 // ---------- Ícones do menu (Lucide inline, sem CDN) ----------
 // Mesmo dialeto do shell do Kyvvo People (span[data-icon] -> <svg>). Os
 // paths ficam aqui e não em cada HTML pra não duplicar; o SVG usa
-// currentColor, então hover/active do .menu-item já pinta o ícone junto.
+// currentColor, então hover/active do .ds-menu-link já pinta o ícone junto.
 const ICON_PATHS = {
   'layout-dashboard': '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   'calendar-days': '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
@@ -465,13 +466,15 @@ function svgIcone(nome) {
   return svg;
 }
 
-// Prefixa o ícone em cada .menu-item / .menu-item-grupo que tenha data-icon
-// e ainda não tenha um SVG. Idempotente — pode rodar de novo depois que o
-// menu dinâmico (por módulo) inserir itens novos.
+// Prefixa o ícone dentro do .ds-menu-icone de cada .ds-menu-link/
+// .ds-menu-grupo-botao que tenha data-icon e ainda não tenha um SVG.
+// Idempotente — pode rodar de novo depois que o menu dinâmico (por módulo)
+// inserir itens novos.
 function injetarIconesMenu() {
-  document.querySelectorAll('.menu-item[data-icon], .menu-item-grupo[data-icon]').forEach((item) => {
-    if (item.querySelector('svg.menu-icon')) return;
-    item.insertBefore(svgIcone(item.dataset.icon), item.firstChild);
+  document.querySelectorAll('.ds-menu-link[data-icon], .ds-menu-grupo-botao[data-icon]').forEach((item) => {
+    const alvo = item.querySelector('.ds-menu-icone');
+    if (!alvo || alvo.querySelector('svg.menu-icon')) return;
+    alvo.appendChild(svgIcone(item.dataset.icon));
   });
 }
 injetarIconesMenu();
@@ -577,9 +580,19 @@ function selecionarMenu(novoMenu, { atualizarUrl = true } = {}) {
     abaCadastro = novoMenu;
     novoMenu = 'cadastro';
   }
-  menuEl.querySelectorAll('.menu-item').forEach((i) => i.classList.remove('active'));
-  const itemSidebar = menuEl.querySelector(`.menu-item[data-menu="${novoMenu}"]`);
-  if (itemSidebar) itemSidebar.classList.add('active');
+  // "active" ao lado de ds-menu-*-ativo é compatibilidade com os specs do
+  // Playwright (.menu-item[data-menu=...] + toHaveClass(/active/)), escritos
+  // antes da padronização pro componente do DS — não vale reescrever ~19
+  // arquivos de teste só por causa do nome da classe.
+  menuEl.querySelectorAll('.ds-menu-link, .ds-menu-sublink').forEach((i) => {
+    i.classList.remove('ds-menu-link-ativo', 'ds-menu-sublink-ativo', 'active');
+    i.removeAttribute('aria-current');
+  });
+  const itemSidebar = menuEl.querySelector(`.ds-menu-link[data-menu="${novoMenu}"], .ds-menu-sublink[data-menu="${novoMenu}"]`);
+  if (itemSidebar) {
+    itemSidebar.classList.add(itemSidebar.classList.contains('ds-menu-sublink') ? 'ds-menu-sublink-ativo' : 'ds-menu-link-ativo', 'active');
+    itemSidebar.setAttribute('aria-current', 'page');
+  }
   // Destaca o cabeçalho do grupo (hoje só Configurações — Agenda foi
   // promovida de submenu a item fixo) quando um item de dentro do submenu
   // fica ativo — senão nada na sidebar aparece realçado enquanto uma dessas
@@ -593,10 +606,7 @@ function selecionarMenu(novoMenu, { atualizarUrl = true } = {}) {
     // Navegação direta por URL (ex.: carregar /bloqueios) pula o clique no
     // cabeçalho do grupo que normalmente abre o submenu — sem isso, o item
     // ficava "active" escondido dentro de um submenu ainda fechado.
-    if (dentroDoGrupo) {
-      submenu.classList.add('aberto');
-      toggle.classList.add('expandido');
-    }
+    if (dentroDoGrupo) toggle.setAttribute('aria-expanded', 'true');
   });
   menuAtual = novoMenu;
   subtabsEl.style.display = menuAtual === 'agendamento' ? 'flex' : 'none';
@@ -624,41 +634,30 @@ function ativarMenuItem(item) {
   selecionarMenu(item.dataset.menu);
 }
 
-menuEl.querySelectorAll('.menu-item').forEach((item) => {
+menuEl.querySelectorAll('.ds-menu-link, .ds-menu-sublink').forEach((item) => {
   item.addEventListener('click', () => ativarMenuItem(item));
 });
 
-// Cabeçalhos de grupo (hoje só Configurações) não são item de menu com tela
-// própria — por isso usam a classe .menu-item-grupo (fora do .menu-item
-// genérico acima) e só expandem/recolhem o submenu, sem chamar ativarMenuItem.
-gruposMenu.forEach(({ toggle, submenu }) => {
-  toggle.addEventListener('click', () => {
-    submenu.classList.toggle('aberto');
-    toggle.classList.toggle('expandido');
-  });
-});
+// Cabeçalhos de grupo (hoje só Configurações) não têm tela própria — só
+// expandem/recolhem o submenu. O clique em si (toggle de aria-expanded, e
+// reabrir o menu recolhido pra caber o submenu) já é tratado pelo próprio
+// components.js do DS (listener delegado em .ds-menu-grupo-botao); não
+// precisa de handler aqui.
 
 // Logo no cabeçalho (saiu da sidebar) — sempre volta pro Início, sem reload
 // de página, reaproveitando o mesmo caminho de navegação dos itens de menu.
 const topbarLogo = document.getElementById('topbar-logo');
 if (topbarLogo) topbarLogo.addEventListener('click', () => selecionarMenu('inicio'));
 
-// Ocultar/exibir a sidebar — estado persistido em localStorage pra
-// sobreviver a reload. O botão de alternar fica no topbar (fora da
-// sidebar), então continua acessível mesmo com o menu oculto.
-const painelSidebar = document.getElementById('painel-sidebar');
-const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
-function aplicarSidebarOculta(oculta) {
-  painelSidebar.classList.toggle('sidebar-oculta', oculta);
-  btnToggleSidebar.textContent = oculta ? '>' : '<';
-  btnToggleSidebar.setAttribute('aria-label', oculta ? 'Exibir menu' : 'Ocultar menu');
-  btnToggleSidebar.title = oculta ? 'Exibir menu' : 'Ocultar menu';
+// Recolher/expandir a sidebar (só ícones ↔ 248px) — componente data-ds-menu
+// do @kyvvohq/design-system (v2.6.0) cuida do clique/estado visual; aqui só
+// aplicamos o estado salvo antes do DS hidratar (evita flash) e persistimos
+// a escolha em localStorage via o evento que ele dispara.
+if (localStorage.getItem('kyvvo_sidebar_oculta') === '1') {
+  menuNav.setAttribute('data-ds-menu-recolhido', '');
 }
-aplicarSidebarOculta(localStorage.getItem('kyvvo_sidebar_oculta') === '1');
-btnToggleSidebar.addEventListener('click', () => {
-  const oculta = !painelSidebar.classList.contains('sidebar-oculta');
-  aplicarSidebarOculta(oculta);
-  localStorage.setItem('kyvvo_sidebar_oculta', oculta ? '1' : '0');
+menuNav.addEventListener('ds-menu-alternar', (e) => {
+  localStorage.setItem('kyvvo_sidebar_oculta', e.detail.recolhido ? '1' : '0');
 });
 
 // ---------- User menu (avatar + dropdown) ----------
@@ -751,13 +750,17 @@ async function carregarModulosNoMenu() {
   resultado.modulos
     .filter((m) => m.key !== 'agenda_inteligente')
     .forEach((m) => {
-      const item = document.createElement('div');
-      item.className = 'menu-item';
+      const li = document.createElement('li');
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'ds-menu-link menu-item';
       item.dataset.menu = `modulo:${m.key}`;
       item.dataset.icon = ICONE_MODULO[m.key] || 'layout-dashboard';
-      item.textContent = m.nome;
+      item.innerHTML = '<span class="ds-menu-icone"></span><span class="ds-menu-rotulo"></span>';
+      item.querySelector('.ds-menu-rotulo').textContent = m.nome;
       item.addEventListener('click', () => ativarMenuItem(item));
-      ancora.parentNode.insertBefore(item, ancora);
+      li.appendChild(item);
+      ancora.parentNode.insertBefore(li, ancora);
     });
   injetarIconesMenu();
 }
