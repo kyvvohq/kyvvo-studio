@@ -2951,7 +2951,7 @@ async function render() {
   // grade de horários e, principalmente, pras colunas da Semana caberem sem
   // scroll horizontal — as demais telas (Perfil, Fatura, Serviços...)
   // continuam nos 720px padrão, estreitos de propósito pra formulário.
-  conteudo.classList.toggle('conteudo-largo', menuAtual === 'inicio' || menuAtual === 'quadro' || menuAtual === 'agendamento' || menuAtual === 'clientes' || menuAtual === 'modulo:dashboards');
+  conteudo.classList.toggle('conteudo-largo', menuAtual === 'inicio' || menuAtual === 'quadro' || menuAtual === 'agendamento' || menuAtual === 'clientes' || menuAtual === 'modulo:dashboards' || menuAtual === 'automacoes');
 
   if (menuAtual === 'inicio') return renderInicio();
   if (menuAtual === 'quadro') return renderQuadro();
@@ -6239,10 +6239,13 @@ function renderAbaDisparos(dados) {
       cardLimite = `<div class="pagamento-plano-card" style="margin-bottom:16px"><p style="margin:0">Seu plano (${escapeHtml(limite.planoNome)}) não tem limite de disparos de WhatsApp.</p></div>`;
     } else {
       const estourou = limite.usadoMesAtual >= limite.limite;
+      const pct = Math.min(100, Math.round((limite.usadoMesAtual / limite.limite) * 100));
+      const corBarra = estourou ? 'automacoes-limite-vermelha' : pct >= 70 ? 'automacoes-limite-amarela' : 'automacoes-limite-verde';
       cardLimite = `
         <div class="pagamento-plano-card" style="margin-bottom:16px${estourou ? ';border-color:#F04438' : ''}">
           <p style="margin:0 0 4px;font-weight:600">Disparos de WhatsApp este mês (plano ${escapeHtml(limite.planoNome)})</p>
           <p style="margin:0;font-size:20px;font-weight:700${estourou ? ';color:#F04438' : ''}">${limite.usadoMesAtual} / ${limite.limite}</p>
+          <div class="automacoes-limite-barra"><div class="automacoes-limite-preenchido ${corBarra}" style="width:${pct}%"></div></div>
           ${estourou ? '<p style="margin:6px 0 0;font-size:13px;color:#F04438">Limite atingido — as automações pararam de enviar até o mês virar. Fale com a Kyvvo pra ajustar seu plano.</p>' : ''}
         </div>
       `;
@@ -6320,11 +6323,7 @@ async function renderAutomacoes() {
 
   conteudo.innerHTML = `
     <div class="automacoes-cabecalho">
-      <div>
-        <h1>Automações</h1>
-        <p>Mensagens automáticas de WhatsApp disparadas por evento da agenda. Valem pra todo o salão; pode ter mais de uma por gatilho.</p>
-      </div>
-      <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
+      <h1>Automações</h1>
     </div>
     <div class="ds-abas" data-ds-abas>
       <div class="ds-abas-lista">
@@ -6339,6 +6338,7 @@ async function renderAutomacoes() {
               <option value="">Todos os gatilhos</option>
               ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
             </select>
+            <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
           </div>
           ${filtrados.length ? `
             <div class="tabela-wrapper" style="margin-bottom:0">
