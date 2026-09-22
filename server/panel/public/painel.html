@@ -58,28 +58,36 @@
   <button type="button" class="cobranca-banner-fechar" id="cobranca-banner-fechar" aria-label="Fechar aviso">×</button>
 </div>
 <div class="painel-shell">
-  <aside class="painel-sidebar" id="painel-sidebar">
-    <nav class="menu">
-      <div class="menu-item active" data-menu="inicio" data-icon="layout-dashboard">Início</div>
-      <div class="menu-item" data-menu="quadro" data-icon="kanban">Quadro</div>
-      <div class="menu-item" data-menu="agendamento" data-icon="calendar-days">Agenda</div>
-      <div class="menu-item" data-menu="clientes" data-icon="users">Clientes</div>
-      <div id="menu-modulos-anchor"></div>
-      <div class="menu-item-grupo" id="menu-config-toggle" data-submenu="menu-config-submenu" data-icon="settings">
-        <span>Configurações</span>
-        <span class="menu-chevron" aria-hidden="true"></span>
-      </div>
-      <div class="menu-submenu" id="menu-config-submenu">
-        <div class="menu-item" data-menu="cadastro" data-icon="clipboard-list">Cadastro</div>
-        <div class="menu-item" data-menu="empresa" data-somente-admin data-icon="building-2">Meu negócio</div>
-        <div class="menu-item" data-menu="configuracao" data-somente-admin data-icon="sliders-horizontal">Preferências</div>
-        <div class="menu-item" data-menu="whatsapp" data-icon="message-circle">WhatsApp</div>
-        <div class="menu-item" data-menu="automacoes" data-somente-admin data-icon="zap">Automações</div>
-        <div class="menu-item" data-menu="pagamentos" data-somente-admin data-icon="credit-card">Plano e cobrança</div>
-      </div>
-    </nav>
-  </aside>
-  <button class="btn-toggle-sidebar" id="btn-toggle-sidebar" aria-label="Ocultar menu" title="Ocultar menu">&lt;</button>
+  <nav class="ds-menu" data-ds-menu id="painel-sidebar">
+    <div class="ds-menu-topo">
+      <span class="ds-menu-marca"><img class="js-logo-kyvvo" src="/ds/logo.svg" alt="Kyvvo"></span>
+      <button type="button" class="ds-menu-toggle" id="btn-toggle-sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+    </div>
+    <ul class="ds-menu-lista">
+      <li><button type="button" class="ds-menu-link menu-item" data-menu="inicio" data-icon="layout-dashboard"><span class="ds-menu-icone"></span><span class="ds-menu-rotulo">Início</span></button></li>
+      <li><button type="button" class="ds-menu-link menu-item" data-menu="quadro" data-icon="kanban"><span class="ds-menu-icone"></span><span class="ds-menu-rotulo">Quadro</span></button></li>
+      <li><button type="button" class="ds-menu-link menu-item" data-menu="agendamento" data-icon="calendar-days"><span class="ds-menu-icone"></span><span class="ds-menu-rotulo">Agenda</span></button></li>
+      <li><button type="button" class="ds-menu-link menu-item" data-menu="clientes" data-icon="users"><span class="ds-menu-icone"></span><span class="ds-menu-rotulo">Clientes</span></button></li>
+      <li id="menu-modulos-anchor" hidden></li>
+      <li class="ds-menu-grupo">
+        <button type="button" class="ds-menu-grupo-botao" id="menu-config-toggle" data-submenu="menu-config-submenu" data-icon="settings" aria-expanded="false">
+          <span class="ds-menu-icone"></span>
+          <span class="ds-menu-rotulo">Configurações</span>
+          <span class="ds-menu-seta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
+        </button>
+        <ul class="ds-menu-sub" id="menu-config-submenu">
+          <li><button type="button" class="ds-menu-sublink menu-item" data-menu="cadastro">Cadastro</button></li>
+          <li><button type="button" class="ds-menu-sublink menu-item" data-menu="empresa" data-somente-admin>Meu negócio</button></li>
+          <li><button type="button" class="ds-menu-sublink menu-item" data-menu="configuracao" data-somente-admin>Preferências</button></li>
+          <li><button type="button" class="ds-menu-sublink menu-item" data-menu="whatsapp">WhatsApp</button></li>
+          <li><button type="button" class="ds-menu-sublink menu-item" data-menu="automacoes" data-somente-admin>Automações</button></li>
+          <li><button type="button" class="ds-menu-sublink menu-item" data-menu="pagamentos" data-somente-admin>Plano e cobrança</button></li>
+        </ul>
+      </li>
+    </ul>
+  </nav>
   <div class="painel-main">
     <div class="subtabs" id="subtabs" style="display: none;">
       <div class="tab active" data-tab="dia">Dia</div>

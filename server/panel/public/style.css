@@ -253,37 +253,6 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
    arquivo inteiro via .js-logo-kyvvo, ver aplicarLogo() no app.js. */
 .topbar-logo-img { height: 22px; width: auto; display: block; }
 
-/* Alça de ocultar/exibir a sidebar — fica encostada na borda direita da
-   sidebar (não mais no topbar), como uma "aba" entre ela e o conteúdo.
-   Elemento irmão da sidebar (não filho — ver painel.html), pra continuar
-   visível/clicável mesmo com `.painel-sidebar.sidebar-oculta { display:none }`.
-   Reposiciona pra encostar na borda esquerda da tela via :has() quando a
-   sidebar está oculta, sem precisar de mais uma classe controlada por JS. */
-.btn-toggle-sidebar {
-  position: absolute;
-  top: calc(var(--space-5) + 22px);
-  left: calc(var(--space-5) + 264px - 11px);
-  width: 22px;
-  height: 22px;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--card);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-full);
-  color: var(--muted-strong);
-  font-size: 12px;
-  line-height: 1;
-  cursor: pointer;
-  z-index: 5;
-}
-.btn-toggle-sidebar:hover { background: var(--surface-muted); color: var(--text); }
-.painel-shell:has(.painel-sidebar.sidebar-oculta) .btn-toggle-sidebar {
-  left: 0;
-}
-
 /* .topbar-nav-link — desde a US53 o admin não usa mais nav no topbar (virou
    sidebar, como o painel do tenant); a classe sobrevive só pro link "←
    Voltar para lista" dentro do detalhe do tenant (tenant-detalhe.js). */
@@ -303,9 +272,9 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-top: 4px;
 }
 
-/* Menu lateral — compartilhado entre o painel do tenant e todas as páginas
-   admin (US53); .topbar/.conteudo continuam as mesmas classes de sempre, só
-   aninhadas dentro deste wrapper em vez de mudar as regras delas. */
+/* Menu lateral: componente data-ds-menu do @kyvvohq/design-system (v2.6.0,
+   ver components.css) — o .ds-menu já é a "sidebar" (largura, fundo, borda),
+   sem wrapper próprio (era .painel-sidebar antes da padronização). */
 .painel-shell {
   flex: 1;
   display: flex;
@@ -316,23 +285,6 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   align-items: flex-start;
 }
 
-/* Sidebar em cartão (padrão Kyvvo People). */
-.painel-sidebar {
-  width: 264px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 18px 14px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-
-/* Opção de ocultar o menu — o botão (.btn-toggle-sidebar) é irmão da
-   sidebar, não filho, pra continuar acessível mesmo com o menu escondido. */
-.painel-sidebar.sidebar-oculta { display: none; }
-
 .painel-main {
   flex: 1;
   display: flex;
@@ -340,121 +292,42 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   min-width: 0;
 }
 
-.menu {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
+/* Item que agrupa um submenu (hoje só Configurações) fica destacado quando um
+   filho está ativo — o DS não cobre esse caso (só o link/sublink ativo em
+   si), então isso continua sendo do produto. */
+.ds-menu-grupo-botao.tem-filho-ativo { color: var(--accent-strong); background: var(--accent-tint); font-weight: 600; }
 
-.menu-item {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  height: 40px;
-  padding: 0 12px;
-  cursor: pointer;
-  color: var(--muted-strong);
-  font-size: 14px;
-  font-weight: 500;
-  text-decoration: none;
-  border-radius: var(--radius-md);
-}
-
-/* Ícone do item de menu (DS: "Item de menu / Padrão", 18x18, lucide) —
-   currentColor herda a cor do próprio .menu-item, então o estado
-   hover/active já pinta o ícone junto sem regra extra. */
-.menu-icon { width: 18px; height: 18px; flex-shrink: 0; }
-
-.menu-item:hover { color: var(--text); background: var(--surface-muted); }
-
-.menu-item.active {
-  color: var(--accent-strong);
-  background: var(--accent-tint);
-  font-weight: 600;
-}
-
-/* Cabeçalho de seção da área admin (Visão geral/Clientes/Operação/Sistema) —
-   só um rótulo separador, sem clique/hover: ao contrário de
-   .menu-item-grupo (que agrupa filhos colapsáveis), aqui os links de cada
-   seção continuam sempre visíveis, é puramente organização visual. */
-.menu-secao-titulo {
-  padding: 16px 14px 4px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--muted);
-}
-
-.menu-secao-titulo:first-child { padding-top: 4px; }
-
-/* Cabeçalho de grupo "Cadastros" (PR10) — visual quase igual a .menu-item,
-   mas fora dela de propósito (sem data-menu, sem tela própria) pra não
-   entrar no loop genérico de clique/`active` dos itens de menu. */
-.menu-item-grupo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 12px;
-  cursor: pointer;
-  color: var(--muted-strong);
-  font-size: 14px;
-  font-weight: 500;
-  border-radius: var(--radius-md);
-}
-
-.menu-item-grupo:hover { color: var(--text); background: var(--surface-muted); }
-.menu-item-grupo.tem-filho-ativo { color: var(--accent-strong); background: var(--accent-tint); font-weight: 600; }
-
-/* Ícone antes do texto, glifo trocado de verdade via ::before (não rotação
-   de triângulo): ">" recolhido / "⌵" expandido — pedido explícito do
-   Bruno. Convenção reaproveitada em qualquer expansor do painel (não só
-   o menu lateral): quem controla o estado só alterna `.expandido` no
-   elemento pai do `.menu-chevron` (ver "Alterar forma de pagar" em
-   pagamentos). */
-.menu-chevron { font-size: 13px; line-height: 1; width: 12px; text-align: center; display: inline-block; }
-.menu-chevron::before { content: '>'; }
-.expandido .menu-chevron::before { content: '⌵'; }
-
-/* No cabeçalho de grupo o ícone vem antes do rótulo (injetado pelo app.js,
-   como nos .menu-item) e o chevron é empurrado pra direita. */
-.menu-item-grupo .menu-chevron { margin-left: auto; }
-
-.menu-submenu {
-  display: none;
-  flex-direction: column;
-  gap: 2px;
-  padding-left: 14px;
-}
-
-.menu-submenu.aberto { display: flex; }
+/* Módulos dinâmicos por tenant (Financeiro, Kyvvo CRM, Kyvvo People,
+   Relatórios) entram como <li> antes desta âncora — ver
+   carregarModulosNoMenu() no app.js. A própria âncora nunca aparece. */
+#menu-modulos-anchor { display: none; }
 
 @media (max-width: 860px) {
-  .painel-shell { flex-direction: column; }
-  .painel-sidebar {
+  .painel-shell { flex-direction: column; padding: var(--space-3); gap: var(--space-3); }
+  .ds-menu {
     width: 100%;
     flex-direction: row;
     align-items: center;
+    border-right: none;
     border-bottom: 1px solid var(--border);
-    padding: 12px 16px;
+    padding: var(--space-2) var(--space-3);
     overflow-x: auto;
   }
-  /* Nesse breakpoint a sidebar vira uma barra horizontal (não uma coluna à
-     esquerda) — a alça de ocultar, pensada pra "encostar" na borda direita
-     de uma sidebar vertical, não faz sentido aqui. */
-  .btn-toggle-sidebar { display: none; }
-  .menu { flex-direction: row; gap: 4px; }
-  /* Nessa barra horizontal os rótulos de seção não cabem sem virar ruído
-     entre os links — a área admin só é usada em desktop na prática, então
-     esconder aqui é o suficiente (não vale o esforço de um menu mobile
-     dedicado por seção pra uma tela interna da equipe). */
-  .menu-secao-titulo { display: none; }
-  .menu-item { border-left: none; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0; white-space: nowrap; }
-  .menu-item.active { border-left-color: transparent; border-bottom-color: var(--accent); }
-  .menu-item-grupo { border-left: none; border-bottom: 2px solid transparent; border-radius: 8px 8px 0 0; white-space: nowrap; }
-  .menu-item-grupo.tem-filho-ativo { border-left-color: transparent; border-bottom-color: var(--accent); }
-  .menu-submenu.aberto { flex-direction: row; padding-left: 0; }
+  .ds-menu-topo { display: none; }
+  .ds-menu-lista { flex-direction: row; gap: 4px; }
+  .ds-menu-grupo { position: relative; }
+  .ds-menu-sub {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 5;
+    margin-top: 4px;
+    padding: var(--space-2);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
 }
 
 .subtabs {
