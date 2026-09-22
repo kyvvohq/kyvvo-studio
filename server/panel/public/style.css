@@ -294,8 +294,17 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Item que agrupa um submenu (hoje só Configurações) fica destacado quando um
    filho está ativo — o DS não cobre esse caso (só o link/sublink ativo em
-   si), então isso continua sendo do produto. */
+   si), então isso continua sendo do produto. Precisa da classe .ds-menu-link
+   também no HTML (components.css não estiliza .ds-menu-grupo-botao sozinho,
+   só os estados aria-expanded/aria-selected) — sem ela herda o `button {
+   width:100%; margin-top:24px; background:var(--accent) }` global. */
 .ds-menu-grupo-botao.tem-filho-ativo { color: var(--accent-strong); background: var(--accent-tint); font-weight: 600; }
+
+/* .ds-menu-sublink como <button> (Configurações > Cadastro/Meu negócio/...):
+   o componente do DS estiliza cor/padding, mas não reseta background/border/
+   width — pensado pra funcionar como <a>, que não tem esses defaults do
+   navegador. Sem isso herda o mesmo button {} global acima. */
+.ds-menu-sublink { background: transparent; border: 0; width: 100%; margin: 0; text-align: left; font: inherit; cursor: pointer; }
 
 /* Módulos dinâmicos por tenant (Financeiro, Kyvvo CRM, Kyvvo People,
    Relatórios) entram como <li> antes desta âncora — ver
