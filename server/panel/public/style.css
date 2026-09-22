@@ -3288,9 +3288,7 @@ button.loading::after {
   flex-wrap: wrap;
   margin-bottom: 24px;
 }
-.automacoes-cabecalho h1 { font-size: 26px; font-weight: 700; margin: 0 0 4px; color: var(--text); }
-.automacoes-cabecalho p { margin: 0; font-size: 13.5px; color: var(--muted); }
-.automacoes-cabecalho .btn-novo-agendamento { flex-shrink: 0; }
+.automacoes-cabecalho h1 { font-size: 26px; font-weight: 700; margin: 0; color: var(--text); }
 
 .automacoes-card {
   background: var(--card);
@@ -3298,8 +3296,23 @@ button.loading::after {
   border-radius: var(--radius-md);
   overflow: hidden;
 }
-.automacoes-filtros { padding: 14px 16px; border-bottom: 1px solid var(--border); }
-.automacoes-filtros select { width: 100%; height: 36px; margin: 0; }
+.automacoes-filtros {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.automacoes-filtros select { width: auto; flex: 0 1 320px; margin: 0; }
+.automacoes-filtros .btn-novo-agendamento { margin: 0; flex-shrink: 0; }
+
+.automacoes-limite-barra { margin-top: 10px; background: var(--border); border-radius: 100px; height: 8px; overflow: hidden; }
+.automacoes-limite-preenchido { height: 100%; border-radius: 100px; transition: width 0.3s ease; }
+.automacoes-limite-verde { background: var(--success); }
+.automacoes-limite-amarela { background: var(--warning); }
+.automacoes-limite-vermelha { background: var(--danger); }
 
 .automacoes-card table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .automacoes-card th {
