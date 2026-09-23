@@ -172,8 +172,11 @@ function registerAutomacoesRoutes(fastify, pool) {
   fastify.get('/api/automacoes/disparos', { preHandler: [fastify.authenticate] }, async (request) => {
     const { tenantId } = request.user;
     const { rows: disparos } = await pool.query(
-      `select telefone_e164, template_nome, gatilho, status, criado_em
-       from whatsapp_disparos where tenant_id = $1 order by criado_em desc limit 200`,
+      `select d.telefone_e164, d.template_nome, d.gatilho, d.status, d.criado_em, d.mensagem_texto,
+              c.nome as cliente_nome
+       from whatsapp_disparos d
+       left join clientes c on c.tenant_id = d.tenant_id and c.telefone = replace(d.telefone_e164, '+', '')
+       where d.tenant_id = $1 order by d.criado_em desc limit 200`,
       [tenantId]
     );
     const total = disparos.length;

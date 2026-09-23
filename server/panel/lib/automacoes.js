@@ -161,20 +161,36 @@ async function limiteDoPlanoExcedido(pool, tenantId, planoChave) {
 // Histórico pro admin (US: aba WhatsApp > Disparos, Studio+People) — só
 // desfechos finais (enviado/erro/bloqueado), nunca "enfileirado" (ver
 // comentário da migration 078): evita contar a mesma tentativa duas vezes.
-async function registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status }) {
+async function registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status, mensagemTexto }) {
   await pool.query(
-    `insert into whatsapp_disparos (id, tenant_id, telefone_e164, template_nome, gatilho, status)
-     values ($1, $2, $3, $4, $5, $6)`,
-    [crypto.randomUUID(), tenantId, telefoneE164, templateNome || null, gatilho || null, status]
+    `insert into whatsapp_disparos (id, tenant_id, telefone_e164, template_nome, gatilho, status, mensagem_texto)
+     values ($1, $2, $3, $4, $5, $6, $7)`,
+    [crypto.randomUUID(), tenantId, telefoneE164, templateNome || null, gatilho || null, status, mensagemTexto || null]
   );
 }
 
-async function enfileirarWhatsapp(pool, { tenantId, telefoneE164, templateNome, parametrosCorpo, parametroBotao }) {
+async function enfileirarWhatsapp(pool, { tenantId, telefoneE164, templateNome, parametrosCorpo, parametroBotao, mensagemTexto }) {
   await pool.query(
-    `insert into whatsapp_fila (id, tenant_id, telefone_e164, template_nome, parametros_corpo, parametro_botao)
-     values ($1, $2, $3, $4, $5, $6)`,
-    [crypto.randomUUID(), tenantId, telefoneE164, templateNome, JSON.stringify(parametrosCorpo), parametroBotao || null]
+    `insert into whatsapp_fila (id, tenant_id, telefone_e164, template_nome, parametros_corpo, parametro_botao, mensagem_texto)
+     values ($1, $2, $3, $4, $5, $6, $7)`,
+    [crypto.randomUUID(), tenantId, telefoneE164, templateNome, JSON.stringify(parametrosCorpo), parametroBotao || null, mensagemTexto || null]
   );
+}
+
+// Reconstrói o texto final de um template (corpo aprovado na Meta, com
+// placeholders {{nome_do_parametro}} nomeados ou {{1}}/{{2}}... posicionais)
+// pra exibir na tela de Disparos — a Meta só recebe os parâmetros separados
+// (enviarTemplate), nunca o texto já montado, então isso precisa ser
+// refeito no nosso lado no momento do disparo (não dá pra recuperar depois,
+// se o template mudar). `parametrosCorpo` é o mesmo array que já vai pro
+// enviarTemplate: `[{nome?, valor, nomeado}]`.
+function renderizarCorpoTemplate(corpo, parametrosCorpo) {
+  if (!corpo) return '';
+  if (!parametrosCorpo || !parametrosCorpo.length) return corpo;
+  if (parametrosCorpo[0].nomeado) {
+    return parametrosCorpo.reduce((texto, p) => texto.split(`{{${p.nome}}}`).join(String(p.valor)), corpo);
+  }
+  return parametrosCorpo.reduce((texto, p, i) => texto.split(`{{${i + 1}}}`).join(String(p.valor)), corpo);
 }
 
 // Match exato (mensagem inteira, sem acento, minúscula) — não substring, pra
@@ -192,16 +208,17 @@ function detectarOptOut(texto) {
 // agendamento_criado sai na hora mesmo fora do horário (pedido do Bruno no
 // People — a confirmação não pode atrasar); o resto respeita o horário.
 async function enviarOuEnfileirar(pool, {
-  tenantId, telefoneE164, optOut, gatilho, templateNome, parametrosCorpo, parametroBotao, phoneNumberId, wabaId, planoChave,
+  tenantId, telefoneE164, optOut, gatilho, templateNome, parametrosCorpo, parametroBotao, phoneNumberId, wabaId, planoChave, corpoTemplate,
 }) {
   if (!telefoneE164 || !templateNome) return;
-  if (optOut) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_optout' }); return; }
-  if (await enviadoRecentemente(pool, telefoneE164)) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_24h' }); return; }
-  if (await limiteDoPlanoExcedido(pool, tenantId, planoChave)) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_limite_plano' }); return; }
+  const mensagemTexto = renderizarCorpoTemplate(corpoTemplate, parametrosCorpo);
+  if (optOut) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_optout', mensagemTexto }); return; }
+  if (await enviadoRecentemente(pool, telefoneE164)) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_24h', mensagemTexto }); return; }
+  if (await limiteDoPlanoExcedido(pool, tenantId, planoChave)) { await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'bloqueado_limite_plano', mensagemTexto }); return; }
 
   const instantaneo = gatilho === 'agendamento_criado' || (await estaNoHorarioComercial());
   if (!instantaneo) {
-    await enfileirarWhatsapp(pool, { tenantId, telefoneE164, templateNome, parametrosCorpo, parametroBotao });
+    await enfileirarWhatsapp(pool, { tenantId, telefoneE164, templateNome, parametrosCorpo, parametroBotao, mensagemTexto });
     return;
   }
   const enviado = await enviarTemplate({
@@ -209,9 +226,9 @@ async function enviarOuEnfileirar(pool, {
   });
   if (enviado) {
     await registrarEnvioWhatsapp(pool, tenantId, telefoneE164);
-    await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'enviado' });
+    await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'enviado', mensagemTexto });
   } else {
-    await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'erro' });
+    await registrarDisparo(pool, { tenantId, telefoneE164, templateNome, gatilho, status: 'erro', mensagemTexto });
   }
 }
 
@@ -244,6 +261,7 @@ async function dispararGatilho(pool, { tenantId, gatilho, telefoneE164, optOut, 
       tenantId, telefoneE164, optOut, gatilho,
       templateNome: automacao.whatsapp_template, parametrosCorpo, parametroBotao,
       phoneNumberId: tenant.meta_phone_number_id, wabaId: tenant.meta_waba_id, planoChave: tenant.plano,
+      corpoTemplate: templateInfo && templateInfo.corpo,
     });
   }
   return true;
@@ -390,6 +408,7 @@ async function enviarComAuto(pool, auto, telefoneE164, optOut, dados) {
       tenantId: auto.tenant_id, telefoneE164, optOut, gatilho: auto.gatilho,
       templateNome: auto.whatsapp_template, parametrosCorpo, parametroBotao,
       phoneNumberId: auto.meta_phone_number_id, wabaId: auto.meta_waba_id, planoChave: auto.plano,
+      corpoTemplate: templateInfo && templateInfo.corpo,
     });
   } catch (err) {
     console.error(`[automacoes] envio ${auto.gatilho} falhou: ${err.message}`);
@@ -414,13 +433,13 @@ async function processarFilaWhatsapp(pool) {
     try {
       if (item.whatsapp_opt_out || !item.meta_phone_number_id) {
         await pool.query('update whatsapp_fila set processado_em = now() where id = $1', [item.id]);
-        if (item.whatsapp_opt_out) await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'bloqueado_optout' });
+        if (item.whatsapp_opt_out) await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'bloqueado_optout', mensagemTexto: item.mensagem_texto });
         continue;
       }
       if (await enviadoRecentemente(pool, item.telefone_e164)) continue; // tenta na próxima rodada
       if (await limiteDoPlanoExcedido(pool, item.tenant_id, item.plano)) {
         await pool.query('update whatsapp_fila set processado_em = now() where id = $1', [item.id]);
-        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'bloqueado_limite_plano' });
+        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'bloqueado_limite_plano', mensagemTexto: item.mensagem_texto });
         continue;
       }
 
@@ -432,10 +451,10 @@ async function processarFilaWhatsapp(pool) {
       await pool.query('update whatsapp_fila set processado_em = now() where id = $1', [item.id]);
       if (enviado) {
         await registrarEnvioWhatsapp(pool, item.tenant_id, item.telefone_e164);
-        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'enviado' });
+        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'enviado', mensagemTexto: item.mensagem_texto });
         processados++;
       } else {
-        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'erro' });
+        await registrarDisparo(pool, { tenantId: item.tenant_id, telefoneE164: item.telefone_e164, templateNome: item.template_nome, status: 'erro', mensagemTexto: item.mensagem_texto });
       }
     } catch (err) {
       console.error(`[automacoes] falha no item ${item.id} da fila: ${err.message}`);
@@ -460,4 +479,5 @@ module.exports = {
   dadosDoAgendamento,
   registrarDisparo,
   limiteDoPlanoExcedido,
+  renderizarCorpoTemplate,
 };

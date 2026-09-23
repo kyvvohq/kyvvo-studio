@@ -5,7 +5,7 @@
 // específica do Studio: autenticação, resolver o plano/WABA do tenant,
 // buscar os clientes selecionados e montar os parâmetros do template antes
 // de delegar pro pacote.
-const { telefoneParaE164 } = require('../lib/automacoes');
+const { telefoneParaE164, renderizarCorpoTemplate } = require('../lib/automacoes');
 const planosCatalogo = require('../lib/planos');
 const { listarTemplates } = require('@kyvvohq/whatsapp');
 const { checarCotaDisparo, dispararEmLote } = require('@kyvvohq/disparos');
@@ -77,13 +77,17 @@ function registerDisparosRoutes(fastify, pool) {
     const destinatarios = clientes
       .map((c) => ({ c, telefoneE164: telefoneParaE164(c.telefone) }))
       .filter((d) => d.telefoneE164)
-      .map(({ c, telefoneE164 }) => ({
-        telefoneE164,
-        optOut: !!c.whatsapp_opt_out,
-        parametrosCorpo: templateInfo.parametros_corpo.map((nome) => ({
+      .map(({ c, telefoneE164 }) => {
+        const parametrosCorpo = templateInfo.parametros_corpo.map((nome) => ({
           nome, nomeado: true, valor: nome === 'nome_cliente' ? (c.nome || '') : (dadosPorParametro[nome] || ''),
-        })),
-      }));
+        }));
+        return {
+          telefoneE164,
+          optOut: !!c.whatsapp_opt_out,
+          parametrosCorpo,
+          mensagemTexto: renderizarCorpoTemplate(templateInfo.corpo, parametrosCorpo),
+        };
+      });
 
     const resultado = await dispararEmLote(pool, {
       tenantId, destinatarios, templateNome, phoneNumberId: tenant.meta_phone_number_id, gatilho: 'manual',
