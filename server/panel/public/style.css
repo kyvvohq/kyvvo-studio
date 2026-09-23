@@ -1357,9 +1357,15 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   appearance: none;
   width: 100%;
   font: inherit;
+  color: inherit;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
+/* Sem isso, o número (.financeiro-resumo-card > div:last-child, sem color
+   próprio) herdava color:white do reset global de <button> — ilegível em
+   fundo claro, só aparecia com contraste ao passar o mouse por acidente
+   (:hover mudava só a borda, não o texto). */
+.clientes-kpi-card > div:last-child { color: var(--text); }
 .clientes-kpi-card:hover { border-color: var(--accent-dark); }
 .clientes-kpi-card-ativo { border-color: var(--accent); background: var(--accent-tint); }
 
@@ -2170,14 +2176,31 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .chip-status-ativo { background: rgba(var(--accent-rgb), 0.15); border-color: var(--accent); color: var(--accent-dark); }
 
 /* Tabela do menu Clientes — nome + telefone empilhados na mesma célula
-   (coluna "Cliente" única, ver mockup) e linha inteira clicável (abre o
-   perfil em modal, ver data-cliente-abrir/abrirModalClienteDetalhe). */
-.tabela-clientes td:first-child { white-space: normal; }
+   (coluna "Cliente", ver mockup) e linha inteira clicável (abre o perfil em
+   modal, ver data-cliente-abrir/abrirModalClienteDetalhe). Coluna de seleção
+   (checkbox) veio antes dela (disparo em lote), por isso :nth-child(2) em
+   vez de :first-child. */
+.tabela-clientes td:nth-child(2) { white-space: normal; }
 .linha-clicavel { cursor: pointer; }
 .cliente-linha-telefone { font-size: 12px; color: var(--muted-strong); margin-top: 2px; }
 .badge-cliente-ativo { background: rgba(0, 212, 255, 0.15); color: var(--cyan); }
 .badge-cliente-novo { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
 .badge-cliente-inativo { background: rgba(161, 165, 196, 0.15); color: var(--muted-strong); }
+
+/* Disparo manual de WhatsApp (seleção de clientes) — checkbox por linha e
+   menu "⋯" (.ds-acoes, componente do DS) só existem na tabela de Clientes;
+   colunas estreitas, sem header visível (a 1ª é só o checkbox, a última só
+   o menu). */
+.col-selecao-cliente { width: 36px; }
+.tabela-clientes .ds-selecao-checkbox { width: auto; margin: 0; }
+.disparo-selecao-lista { list-style: none; max-height: 260px; overflow-y: auto; margin: 16px 0 0; padding: 0; }
+.disparo-selecao-lista li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.disparo-selecao-lista li:last-child { border-bottom: none; }
+/* .ds-modal-acoes (DS) não tem o "margin-top:0" que .modal-acoes (local)
+   já dá pros próprios botões — sem isso, cada button herda margin-top:24px
+   da regra global (button{...}) por cima do espaçamento que o próprio
+   .ds-modal-acoes já dá ao container. */
+.ds-modal-acoes button { margin-top: 0; }
 
 /* Perfil do cliente (modal, abrirModalClienteDetalhe) — seções separadas por
    divisor sutil, igual ao mockup original. */
