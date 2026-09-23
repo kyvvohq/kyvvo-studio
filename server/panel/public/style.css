@@ -2500,6 +2500,32 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .forma-pagamento-opcao:has(input:checked) { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.06); }
 .forma-pagamento-opcao input { width: auto; margin: 0; }
 
+/* Preferências > Formas de pagamento — toggle + campo de taxa (%) por
+   forma, exceto dinheiro (sem campo, nunca tem taxa). */
+.formas-pagamento-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.forma-pagamento-config-linha {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.forma-pagamento-taxa-campo { display: flex; align-items: center; gap: 6px; color: var(--muted-strong); font-size: 13px; }
+.forma-pagamento-taxa-campo input { width: 90px; margin: 0; padding: 6px 10px; }
+.forma-pagamento-taxa-campo input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Financeiro — valor líquido (taxa da forma de pagamento já descontada),
+   linha extra só quando difere do valor bruto. */
+.financeiro-item-liquido { font-size: 11px; color: var(--muted-strong); margin-top: 2px; }
+
 /* Lista de planos no modal "Trocar de plano" */
 .plano-opcoes {
   display: flex;
