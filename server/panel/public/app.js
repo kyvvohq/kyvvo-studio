@@ -3785,7 +3785,11 @@ async function opcoesTemplateDisparoManual() {
     const dados = await api('/api/automacoes/templates-whatsapp');
     automacoesTemplatesCache = (dados && dados.templates) || [];
   }
-  const suportados = new Set(['cliente', 'salao']);
+  // Nomes reais usados pelos templates aprovados hoje (confirmado ao vivo,
+  // 2026-09-23) — não são os mesmos nomes que o motor de automações usa
+  // internamente (cliente/salao/servico/...), são o parameter_name de
+  // verdade que a Meta devolve. Mesma lista em routes/disparos.js.
+  const suportados = new Set(['nome_cliente', 'nome_salao']);
   // Sem parâmetro nenhum (ex.: "hello_world") sempre serve. Com parâmetro,
   // só serve se for NOMEADO e todos os nomes forem dos que o disparo manual
   // sabe preencher (mesma regra em routes/disparos.js
