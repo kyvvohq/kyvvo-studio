@@ -940,6 +940,14 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .grade-linha:hover .grade-linha-add { opacity: 1; pointer-events: auto; }
+/* BUG: a visão Dia (renderDiaGrade) usa .grade-linha-add dentro de
+   .agenda-linha (componente do DS, não .grade-linha, que só a grade morta de
+   renderGradeHorariosDoDia usa) — sem esta regra o "+" de hover num horário
+   livre nunca aparecia, só nas visões Semana/Mês (achado ao migrá-las pro
+   componente do DS, mesma classe .grade-linha-add). */
+.agenda-linha:hover .grade-linha-add,
+.agenda-semana-celula:hover .grade-linha-add { opacity: 1; pointer-events: auto; }
+.agenda-semana-celula { position: relative; }
 
 @media (max-width: 640px) {
   .grade-linha { min-height: 48px; }
@@ -949,12 +957,34 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   .grade-linha-add { width: 22px; height: 22px; font-size: 14px; right: 6px; }
 }
 
-/* Semana — grid único: UMA régua de hora compartilhada (coluna 62px) + uma
-   coluna por dia aberto (accordion: a selecionada expande 3fr, as outras
-   recolhem 1fr — renderSemanaGrade calcula grid-template-columns inline).
-   minmax(0, Nfr) em vez de largura mínima fixa: encolhe pra caber todos os
-   dias sem scroll horizontal, mesmo com a coluna ativa ocupando a maior
-   parte do espaço. */
+/* Mês (componente .agenda-mes do DS) — mesmo "+" de hover das outras visões,
+   mas em botão próprio (não .grade-linha-add: célula do mês é vertical, o
+   botão fica no canto, não centralizado à direita) — evita conflito de
+   clique com os cards/.ds-acoes/"+N mais" dentro da mesma célula. */
+.agenda-mes-celula { position: relative; }
+.agenda-mes-celula-add {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.agenda-mes-celula:hover .agenda-mes-celula-add { opacity: 1; pointer-events: auto; }
+
+/* Quadro (colunas = profissionais) — único consumidor que resta de
+   .semana-grade/.semana-grade-hora/.semana-grade-cel: a Semana da Agenda
+   migrou pro componente `.agenda-semana` do DS (renderSemanaGrade), essas
+   classes ficaram só locais aqui pro Quadro (cabeçalho de coluna próprio,
+   .quadro-cab; sem accordion, o recorte já é um dia só). */
 .semana-grade {
   display: grid;
   border: 1px solid var(--border-strong);
@@ -967,43 +997,6 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   background: var(--sunken);
   border-bottom: 1px solid var(--border-strong);
 }
-
-.semana-cab {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  min-width: 0;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-strong);
-  border-left: 1px solid var(--border);
-  cursor: pointer;
-  background: var(--card);
-}
-.semana-cab:hover { background: var(--surface-hover); }
-
-.semana-cab strong {
-  font-size: 12px;
-  text-transform: capitalize;
-  color: var(--muted-strong);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.semana-cab span {
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.semana-cab-ativa {
-  background: var(--accent-tint);
-}
-.semana-cab-ativa strong { color: var(--accent-strong); font-size: 15px; }
-.semana-cab-ativa span { color: var(--accent-strong); }
-
-.semana-cab-hoje:not(.semana-cab-ativa) strong { color: var(--accent); }
 
 .semana-grade-hora {
   padding: 8px;
@@ -1044,29 +1037,9 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .semana-grade-cel-ativa .grade-ag-grupo { width: 100%; }
 .semana-grade-cel-ativa:hover .grade-linha-add { opacity: 1; pointer-events: auto; }
 
-/* Pilha de avatares da coluna recolhida — resumo de "quem tem horário
-   marcado" sem abrir o card (clique em qualquer parte expande a coluna). */
-.semana-item-pilha { display: flex; }
-.semana-item-avatar {
-  flex-shrink: 0;
-  width: 18px;
-  height: 18px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 8px;
-  font-weight: 600;
-  border: 1.5px solid var(--card);
-  margin-left: -6px;
-}
-.semana-item-pilha .semana-item-avatar:first-child { margin-left: 0; }
-.semana-item-avatar-extra { background: var(--surface-hover); color: var(--muted-strong); }
-
-/* Quadro (colunas = profissionais) — mesmo .semana-grade/.semana-grade-hora/
-   .semana-grade-cel da Semana, só o cabeçalho de coluna muda (avatar +
-   nome do profissional, sem estado ativo/recolhido — aqui não tem
-   accordion, o recorte já é um dia só). */
+/* Quadro (colunas = profissionais) — cabeçalho de coluna próprio (avatar +
+   nome do profissional, .quadro-cab), sem accordion (o recorte já é um dia
+   só). */
 .quadro-grade { overflow-x: auto; position: relative; }
 
 /* Linha de "agora" — só existe no dia de hoje (ver atualizarLinhaAgoraQuadro
@@ -1119,31 +1092,6 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 14px;
   text-align: center;
   padding: 40px 0;
-}
-
-.calendario-cabecalho {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.calendario-cabecalho-dia {
-  text-align: center;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--muted-strong);
-  padding: 4px 0;
-}
-/* Dia da semana sem funcionamento — coluna mais estreita (grid-template-columns
-   inline, ver renderMes), rótulo apagado pra reforçar que é fechado. */
-.calendario-cabecalho-dia-fechado { color: var(--muted); opacity: 0.6; }
-
-.calendario {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
 }
 
 /* Financeiro (US18/PR4) — 4 cards fixos (Receita prevista/Receita
@@ -1489,79 +1437,6 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Botões menores lado a lado abaixo do formulário de forma de pagamento
    (redesenho "Plano") — cabem dentro de .modal-acoes, que já é flex+gap. */
 .btn-pequeno { padding: 7px 16px; font-size: 12.5px; }
-
-.dia-cel {
-  position: relative;
-  min-height: 96px;
-  border-radius: 8px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 8px 4px;
-  font-size: 13px;
-}
-
-.dia-cel .num { color: var(--text); }
-.dia-cel.vazio-cel { background: transparent; border: none; }
-.dia-cel-fechado { opacity: 0.35; }
-
-/* Destaque do dia atual (PR2) — mesmo tratamento de acento usado no
-   destaque da view Semana/grade, aplicado à célula do calendário Mês. */
-.dia-cel-hoje {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
-
-.dia-cel-hoje .num { color: var(--accent); font-weight: 700; }
-
-.dia-cel-add {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  font-size: 13px;
-  line-height: 1;
-  padding: 0;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s;
-}
-
-.dia-cel:hover .dia-cel-add { opacity: 1; pointer-events: auto; }
-
-@media (max-width: 640px) {
-  .calendario, .calendario-cabecalho { gap: 3px; }
-  .dia-cel { min-height: 64px; padding: 6px 2px; font-size: 11px; }
-  .calendario-cabecalho-dia { font-size: 9px; padding: 2px 0; }
-  .dia-cel-ag { font-size: 9px; }
-}
-
-.dia-cel-agendamentos {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  margin-top: 4px;
-  width: 100%;
-}
-
-.dia-cel-ag {
-  color: var(--cyan);
-  font-size: 10px;
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-.dia-cel-ag-cancelado {
-  color: var(--muted);
-  text-decoration: line-through;
-}
 
 .dias-grid {
   display: grid;
