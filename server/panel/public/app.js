@@ -6421,12 +6421,23 @@ function formatarDataHoraDisparo(iso) {
   const d = new Date(iso);
   return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
 }
+// Trunca em 25 caracteres + "…", com o texto inteiro no title (tooltip nativo
+// do navegador — sem componente novo, sem JS extra). Mensagens antigas
+// (antes da coluna mensagem_texto existir) mostram "—".
+function truncarMensagem(msg) {
+  if (!msg) return '—';
+  if (msg.length <= 25) return escapeHtml(msg);
+  return `<span title="${escapeHtml(msg)}">${escapeHtml(msg.slice(0, 25))}...</span>`;
+}
+
 function renderLinhaDisparo(d) {
   return `
     <tr>
       <td>${formatarDataHoraDisparo(d.criado_em)}</td>
+      <td>${escapeHtml(d.cliente_nome || '—')}</td>
       <td>${escapeHtml(d.telefone_e164 || '—')}</td>
       <td>${escapeHtml(d.template_nome || '—')}</td>
+      <td>${truncarMensagem(d.mensagem_texto)}</td>
       <td>${badgeStatusDisparo(d.status)}</td>
     </tr>
   `;
@@ -6457,8 +6468,8 @@ function renderAbaDisparos(dados) {
     <div class="automacoes-card">
       <div class="tabela-wrapper" style="margin-bottom:0">
         <table class="tabela-automacoes">
-          <thead><tr><th>Data/hora</th><th>Número</th><th>Modelo</th><th>Status</th></tr></thead>
-          <tbody>${dados.disparos.length ? dados.disparos.map(renderLinhaDisparo).join('') : '<tr><td colspan="4">Nenhum disparo ainda.</td></tr>'}</tbody>
+          <thead><tr><th>Data/hora</th><th>Cliente</th><th>Número</th><th>Modelo</th><th>Mensagem</th><th>Status</th></tr></thead>
+          <tbody>${dados.disparos.length ? dados.disparos.map(renderLinhaDisparo).join('') : '<tr><td colspan="6">Nenhum disparo ainda.</td></tr>'}</tbody>
         </table>
       </div>
     </div>

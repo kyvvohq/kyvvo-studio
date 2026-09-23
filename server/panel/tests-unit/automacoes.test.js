@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
   renderizar, montarParametrosWhatsapp, telefoneParaE164, formatarDataHora,
   dadosDoAgendamento, detectarOptOut, SEEDS, registrarDisparo, limiteDoPlanoExcedido,
+  renderizarCorpoTemplate,
 } = require('../lib/automacoes');
 const { dentroDoHorario } = require('../lib/horario-comercial');
 const planosCatalogo = require('../lib/planos');
@@ -16,6 +17,33 @@ describe('renderizar', () => {
   });
   test('texto nulo passa direto', () => {
     assert.equal(renderizar(null, {}), null);
+  });
+});
+
+describe('renderizarCorpoTemplate (texto final pra tela de Disparos)', () => {
+  test('nomeado: substitui {{nome_do_parametro}} pelo valor', () => {
+    assert.equal(
+      renderizarCorpoTemplate('Oi {{nome_cliente}}! Bem-vindo(a) à {{nome_salao}}.', [
+        { nome: 'nome_cliente', valor: 'Ana', nomeado: true },
+        { nome: 'nome_salao', valor: 'Salão X', nomeado: true },
+      ]),
+      'Oi Ana! Bem-vindo(a) à Salão X.'
+    );
+  });
+  test('posicional: substitui {{1}}, {{2}}... na ordem do array', () => {
+    assert.equal(
+      renderizarCorpoTemplate('Oi {{1}}, seu horário é {{2}}.', [
+        { valor: 'Bia', nomeado: false },
+        { valor: '14h', nomeado: false },
+      ]),
+      'Oi Bia, seu horário é 14h.'
+    );
+  });
+  test('sem parâmetros: devolve o corpo como veio', () => {
+    assert.equal(renderizarCorpoTemplate('hello_world', []), 'hello_world');
+  });
+  test('corpo vazio/nulo: devolve string vazia', () => {
+    assert.equal(renderizarCorpoTemplate(null, [{ nome: 'x', valor: '1', nomeado: true }]), '');
   });
 });
 
@@ -147,6 +175,15 @@ describe('registrarDisparo (histórico pro admin — US WhatsApp > Disparos)', (
     const [, , , template, gatilho] = chamadas[0].params;
     assert.equal(template, null);
     assert.equal(gatilho, null);
+  });
+
+  test('mensagemTexto é gravado; ausente vira null (não undefined)', async () => {
+    const chamadas = [];
+    const pool = { query: async (sql, params) => { chamadas.push({ sql, params }); return { rows: [] }; } };
+    await registrarDisparo(pool, { tenantId: 't1', telefoneE164: '+5534999998888', status: 'enviado', mensagemTexto: 'Oi Ana!' });
+    await registrarDisparo(pool, { tenantId: 't1', telefoneE164: '+5534999998888', status: 'enviado' });
+    assert.equal(chamadas[0].params[6], 'Oi Ana!');
+    assert.equal(chamadas[1].params[6], null);
   });
 });
 

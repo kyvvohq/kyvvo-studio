@@ -15,7 +15,7 @@
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^2.1.0",
     "@kyvvohq/asaas": "^1.0.0",
-    "@kyvvohq/disparos": "^1.0.0",
+    "@kyvvohq/disparos": "^1.1.0",
     "@kyvvohq/platform-client": "^1.0.0",
     "@kyvvohq/whatsapp": "^1.1.0",
     "@sentry/node": "^10.69.0",

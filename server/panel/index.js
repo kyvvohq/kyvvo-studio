@@ -675,6 +675,21 @@ async function start() {
   // que ficaram em 'aguardando_humano' além do limite sem o salão retomar.
   iniciarWorkerHandoff(pool, configSistema, fastify.log);
   iniciarWorkerAutomacoes();
+  iniciarRecargaPlanos();
+}
+
+// Achado 2026-09-23: o admin (kyvvo-admin) edita `limite_disparos`/preço
+// direto na tabela `planos` compartilhada (mesmo Postgres), mas o
+// `planosCache` deste processo só recarregava no boot — a edição nunca
+// chegava até o Studio sem reiniciar o container. Sem infra nova (endpoint
+// server-to-server + token) pra invalidar sob demanda, um recarregamento
+// periódico curto já resolve a maior parte do problema prático (o dono edita
+// e testa minutos depois, não no mesmo segundo).
+const INTERVALO_RECARGA_PLANOS_MS = 60 * 1000;
+function iniciarRecargaPlanos() {
+  setInterval(() => {
+    planos.carregar().catch((err) => console.error(`[planos] recarga periódica falhou: ${err.message}`));
+  }, INTERVALO_RECARGA_PLANOS_MS);
 }
 
 // Worker das automações — o painel nunca teve processo em background; um
