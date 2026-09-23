@@ -2087,8 +2087,15 @@ function renderLancamentoItem(l) {
   // descrição/valor editados manualmente aqui podem ser sobrescritos nesse
   // caso. Aceitável: é raro editar e depois reagendar o mesmo atendimento.
   const titulo = l.descricao || (origemAgendamento ? l.servico : (l.tipo === 'entrada' ? 'Entrada' : 'Saída'));
-  const detalhe = origemAgendamento ? `${l.cliente || 'Cliente'} · Agendamento` : '';
+  // Forma de pagamento só existe depois de "Confirmar pagamento" (US64) —
+  // some sozinha do detalhe quando ainda é receita prevista.
+  const formaPagamentoLabel = l.forma_pagamento ? (FORMAS_PAGAMENTO_LABEL[l.forma_pagamento] || l.forma_pagamento) : null;
+  const detalhe = origemAgendamento ? [`${l.cliente || 'Cliente'} · Agendamento`, formaPagamentoLabel].filter(Boolean).join(' · ') : '';
   const valorLabel = l.tipo === 'saida' ? `- ${formatarPreco(l.valor)}` : formatarPreco(l.valor);
+  // Valor líquido (Preferências > Formas de pagamento) só aparece quando
+  // difere do bruto — tenant sem taxa configurada pra essa forma nunca vê
+  // essa linha a mais (valor_liquido sai igual a valor nesse caso).
+  const temValorLiquido = l.valor_liquido != null && Number(l.valor_liquido) !== Number(l.valor);
   const status = statusLancamento(l);
   const acoes = acoesLancamento(l);
 
@@ -2102,6 +2109,7 @@ function renderLancamentoItem(l) {
         </div>
         <div class="financeiro-item-valor">
           <div class="${classeTipo}">${valorLabel}</div>
+          ${temValorLiquido ? `<div class="financeiro-item-liquido">Líquido: ${formatarPreco(l.valor_liquido)}</div>` : ''}
           <div class="financeiro-item-status">${status.emoji} ${status.texto}</div>
         </div>
         ${acoes.length ? '<button class="btn-acoes" aria-label="Ações">⋮</button>' : ''}
@@ -2120,16 +2128,27 @@ function renderLancamentoItem(l) {
 // cliente (menu Clientes). Reaproveita o mesmo PATCH que abrirModalConcluir
 // usa no menu da Agenda — sincronizarLancamentoFinanceiro (US64) já converte
 // o lançamento de previsto pra realizado sozinho, sem endpoint próprio.
+// Formas habilitadas em Preferências (configuracao.formas_pagamento) viram
+// as opções aqui; tenant que nunca configurou nada (objeto vazio) cai nas 4
+// opções legadas de sempre, sem cálculo de taxa — zero mudança de
+// comportamento pra quem não usa a feature nova.
+function opcoesFormaPagamento() {
+  const configuradas = configuracao.formas_pagamento || {};
+  const ativas = FORMAS_PAGAMENTO_ORDEM.filter((chave) => configuradas[chave] && configuradas[chave].ativo);
+  if (ativas.length) return ativas;
+  return ['pix', 'cartao', 'dinheiro', 'outro'];
+}
+
 function confirmarPagamentoLancamento(l) {
+  const opcoes = opcoesFormaPagamento();
   abrirModal(
     '<h3>Confirmar pagamento</h3>',
     `
       <p class="modal-texto">Qual foi a forma de pagamento?</p>
       <div class="forma-pagamento-opcoes">
-        <label class="forma-pagamento-opcao"><input type="radio" name="forma-pagamento" value="pix" checked> Pix</label>
-        <label class="forma-pagamento-opcao"><input type="radio" name="forma-pagamento" value="cartao"> Cartão</label>
-        <label class="forma-pagamento-opcao"><input type="radio" name="forma-pagamento" value="dinheiro"> Dinheiro</label>
-        <label class="forma-pagamento-opcao"><input type="radio" name="forma-pagamento" value="outro"> Outro</label>
+        ${opcoes.map((chave, i) => `
+          <label class="forma-pagamento-opcao"><input type="radio" name="forma-pagamento" value="${chave}" ${i === 0 ? 'checked' : ''}> ${FORMAS_PAGAMENTO_LABEL[chave]}</label>
+        `).join('')}
       </div>
       <div class="modal-erro" id="confirmar-pagamento-erro"></div>
       <div class="modal-acoes">
@@ -6707,6 +6726,40 @@ function abrirModalExcluirAutomacao(automacao) {
   });
 }
 
+// Preferências > Formas de pagamento — mesmas chaves/regra de taxa do
+// backend (lib/financeiro.js FORMAS_PAGAMENTO_CHAVES/SEM_TAXA). Reaproveitado
+// também por renderLancamentoItem (Financeiro) pra rotular forma_pagamento.
+const FORMAS_PAGAMENTO_ORDEM = ['credito_avista', 'credito_prazo', 'debito', 'pix', 'dinheiro'];
+const FORMAS_PAGAMENTO_LABEL = {
+  credito_avista: 'Crédito à vista', credito_prazo: 'Crédito a prazo', debito: 'Débito', pix: 'Pix', dinheiro: 'Dinheiro',
+  cartao: 'Cartão', outro: 'Outro', // legado, ver routes/agenda.js FORMA_PAGAMENTO_VALIDAS
+};
+const FORMAS_PAGAMENTO_SEM_TAXA = ['dinheiro'];
+
+function formasPagamentoConfigHtml(formasPagamento) {
+  return FORMAS_PAGAMENTO_ORDEM.map((chave) => {
+    const cfg = formasPagamento[chave] || {};
+    const semTaxa = FORMAS_PAGAMENTO_SEM_TAXA.includes(chave);
+    return `
+      <div class="forma-pagamento-config-linha">
+        <label class="toggle-linha" style="margin-top:0">
+          <span class="toggle-switch">
+            <input type="checkbox" class="forma-pagamento-ativo" data-chave="${chave}" ${cfg.ativo ? 'checked' : ''}>
+            <span class="toggle-switch-trilho"></span>
+          </span>
+          ${FORMAS_PAGAMENTO_LABEL[chave]}
+        </label>
+        ${semTaxa ? '' : `
+          <div class="forma-pagamento-taxa-campo">
+            <input type="number" class="forma-pagamento-taxa" data-chave="${chave}" min="0" max="100" step="0.01" placeholder="Ex: 4,99" value="${cfg.taxa != null ? cfg.taxa : ''}" ${cfg.ativo ? '' : 'disabled'}>
+            <span>%</span>
+          </div>
+        `}
+      </div>
+    `;
+  }).join('');
+}
+
 async function renderConfiguracao() {
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
   await carregarConfiguracao();
@@ -6720,6 +6773,7 @@ async function renderConfiguracao() {
   const almocoFim = (configuracao.horario_almoco_fim || '13:00').slice(0, 5);
   const clienteInativoDias = configuracao.cliente_inativo_dias || 30;
   const clienteNovoDias = configuracao.cliente_novo_dias || 30;
+  const formasPagamento = configuracao.formas_pagamento || {};
 
   const toggleDias = NOMES_DIAS.map((nome, idx) => `
     <label class="dia-toggle-cel">
@@ -6776,6 +6830,10 @@ async function renderConfiguracao() {
       <input type="number" id="config-cliente-novo-dias" min="1" max="365" step="1" value="${clienteNovoDias}" style="max-width:120px">
       <div class="modal-texto">Usado na tela Clientes (quadro "Novos clientes") — contado a partir da data de cadastro.</div>
 
+      <label style="margin-top:16px">Formas de pagamento</label>
+      <div class="modal-texto" style="margin-top:0">Habilite as formas aceitas no salão e a taxa (%) que a maquininha/gateway cobra em cada uma — usada pra calcular o valor líquido do atendimento ao confirmar o pagamento. Dinheiro nunca tem taxa.</div>
+      <div class="formas-pagamento-config">${formasPagamentoConfigHtml(formasPagamento)}</div>
+
       <button type="submit" id="btn-salvar-config">Salvar</button>
     </form>
   `;
@@ -6784,6 +6842,13 @@ async function renderConfiguracao() {
   const almocoCampos = document.getElementById('config-almoco-campos');
   almocoAtivoInput.addEventListener('change', () => {
     almocoCampos.style.display = almocoAtivoInput.checked ? '' : 'none';
+  });
+
+  document.querySelectorAll('.forma-pagamento-ativo').forEach((chk) => {
+    chk.addEventListener('change', () => {
+      const taxaInput = document.querySelector(`.forma-pagamento-taxa[data-chave="${chk.dataset.chave}"]`);
+      if (taxaInput) taxaInput.disabled = !chk.checked;
+    });
   });
 
   // Feedback de salvamento via toast (US...) — mesmo padrão do resto do
@@ -6832,8 +6897,35 @@ async function renderConfiguracao() {
       return;
     }
 
+    const formasPagamentoPayload = {};
+    let erroFormaPagamento = null;
+    document.querySelectorAll('.forma-pagamento-ativo').forEach((chk) => {
+      const chave = chk.dataset.chave;
+      const ativo = chk.checked;
+      const taxaInput = document.querySelector(`.forma-pagamento-taxa[data-chave="${chave}"]`);
+      const cfg = { ativo };
+      if (taxaInput) {
+        const taxaValor = taxaInput.value.trim();
+        if (ativo) {
+          const taxa = parseFloat(taxaValor);
+          if (!taxaValor || Number.isNaN(taxa) || taxa < 0 || taxa > 100) {
+            erroFormaPagamento = `Informe uma taxa válida (0 a 100) pra ${FORMAS_PAGAMENTO_LABEL[chave]}.`;
+          }
+          cfg.taxa = taxa;
+        } else {
+          cfg.taxa = taxaValor ? parseFloat(taxaValor) : null;
+        }
+      }
+      formasPagamentoPayload[chave] = cfg;
+    });
+    if (erroFormaPagamento) {
+      mostrarToast(erroFormaPagamento, 'erro');
+      return;
+    }
+
     const payload = {
       diasFuncionamento, horarioAbertura, horarioFechamento,
+      formasPagamento: formasPagamentoPayload,
       horarioAlmocoAtivo, horarioAlmocoInicio, horarioAlmocoFim,
       clienteInativoDias, clienteNovoDias,
     };

@@ -118,7 +118,7 @@ function registerFinanceiroRoutes(fastify, pool) {
       // só existe pra lançamento de agendamento; manual (l.data é só data,
       // sem hora) continua mostrando a data.
       const { rows } = await pool.query(
-        `SELECT l.id, l.tipo, l.valor, l.descricao, l.data, l.status, l.agendamento_id,
+        `SELECT l.id, l.tipo, l.valor, l.valor_liquido, l.forma_pagamento, l.descricao, l.data, l.status, l.agendamento_id,
                 c.nome AS cliente, s.nome AS servico, a.data_hora,
                 a.profissional_id, a.servico_id
          FROM lancamentos_financeiros l

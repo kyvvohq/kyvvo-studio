@@ -8,7 +8,13 @@
 const { dataAtualBrasilia, mesAtualBrasilia, diaDaSemanaBrasilia, horarioParaMinutos, componentesBrasilia, dataDiaISO, isoDeComponentesBrasilia } = require('../lib/datetime');
 const { ehFeriadoNacional } = require('../lib/feriados');
 const { dentroDoHorarioFuncionamento, buscarBloqueioConflitante, empurrarProximoDiaAberto } = require('../lib/horario-funcionamento');
-const { sincronizarLancamentoFinanceiro } = require('../lib/financeiro');
+const { sincronizarLancamentoFinanceiro, FORMAS_PAGAMENTO_CHAVES } = require('../lib/financeiro');
+
+// 'cartao'/'outro' são as opções legadas (antes de Preferências > Formas de
+// pagamento existir, migration 082) — continuam válidas indefinidamente,
+// tanto pra lançamentos antigos quanto pro tenant que ainda não configurou
+// nada (a tela de "Confirmar pagamento" cai nas 4 opções antigas nesse caso).
+const FORMA_PAGAMENTO_VALIDAS = [...FORMAS_PAGAMENTO_CHAVES, 'cartao', 'outro'];
 const { garantirProfissionalPadrao } = require('../lib/profissionais');
 const { dispararAutomacoes } = require('../lib/automacoes');
 
@@ -114,7 +120,7 @@ function registerAgendaRoutes(fastify, pool) {
     if (status !== undefined && !['confirmado', 'cancelado', 'reagendado', 'concluido', 'falta'].includes(status)) {
       return reply.code(400).send({ error: 'status inválido' });
     }
-    if (formaPagamento !== undefined && !['pix', 'cartao', 'dinheiro', 'outro'].includes(formaPagamento)) {
+    if (formaPagamento !== undefined && !FORMA_PAGAMENTO_VALIDAS.includes(formaPagamento)) {
       return reply.code(400).send({ error: 'forma_pagamento inválida' });
     }
 

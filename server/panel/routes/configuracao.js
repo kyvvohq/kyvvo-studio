@@ -2,6 +2,29 @@
 // GET/PATCH /api/configuracao, GET /api/tenant/modulos.
 const planos = require('../lib/planos');
 const { diaDaSemanaBrasilia } = require('../lib/datetime');
+const { FORMAS_PAGAMENTO_CHAVES, FORMAS_PAGAMENTO_SEM_TAXA } = require('../lib/financeiro');
+
+// Formato esperado: { "<chave>": { ativo: bool, taxa?: number }, ... },
+// chaves em FORMAS_PAGAMENTO_CHAVES. `taxa` é obrigatória (0-100) pra toda
+// forma ativa, exceto as de FORMAS_PAGAMENTO_SEM_TAXA (dinheiro — nunca tem
+// desconto de intermediário). Devolve string de erro, ou null se válido.
+function validarFormasPagamento(valor) {
+  if (typeof valor !== 'object' || valor === null || Array.isArray(valor)) {
+    return 'formasPagamento deve ser um objeto';
+  }
+  for (const [chave, cfg] of Object.entries(valor)) {
+    if (!FORMAS_PAGAMENTO_CHAVES.includes(chave)) return `Forma de pagamento desconhecida: ${chave}`;
+    if (typeof cfg !== 'object' || cfg === null) return `Configuração inválida pra ${chave}`;
+    if (typeof cfg.ativo !== 'boolean') return `"ativo" de ${chave} deve ser verdadeiro/falso`;
+    if (cfg.ativo && !FORMAS_PAGAMENTO_SEM_TAXA.includes(chave)) {
+      const taxa = cfg.taxa;
+      if (typeof taxa !== 'number' || Number.isNaN(taxa) || taxa < 0 || taxa > 100) {
+        return `Informe uma taxa entre 0 e 100 pra ${chave}`;
+      }
+    }
+  }
+  return null;
+}
 
 function registerConfiguracaoRoutes(fastify, pool) {
   fastify.get('/api/configuracao', { preHandler: [fastify.authenticate] }, async (request) => {
@@ -9,7 +32,7 @@ function registerConfiguracaoRoutes(fastify, pool) {
     const { rows } = await pool.query(
       `SELECT dias_funcionamento, formato_hora, horario_abertura, horario_fechamento, segmento,
               horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, tecnologia, plano,
-              cliente_inativo_dias, cliente_novo_dias
+              cliente_inativo_dias, cliente_novo_dias, formas_pagamento
        FROM tenants WHERE id = $1`,
       [tenantId]
     );
@@ -30,8 +53,13 @@ function registerConfiguracaoRoutes(fastify, pool) {
     const {
       diasFuncionamento, formatoHora, horarioAbertura, horarioFechamento,
       horarioAlmocoAtivo, horarioAlmocoInicio, horarioAlmocoFim,
-      clienteInativoDias, clienteNovoDias,
+      clienteInativoDias, clienteNovoDias, formasPagamento,
     } = request.body || {};
+
+    if (formasPagamento !== undefined) {
+      const erro = validarFormasPagamento(formasPagamento);
+      if (erro) return reply.code(400).send({ error: erro });
+    }
 
     if (formatoHora && !['24h', '12h'].includes(formatoHora)) {
       return reply.code(400).send({ error: 'formatoHora deve ser "24h" ou "12h"' });
@@ -151,16 +179,19 @@ function registerConfiguracaoRoutes(fastify, pool) {
            horario_almoco_fim = CASE WHEN $6 = false THEN null ELSE COALESCE($8, horario_almoco_fim) END,
            cliente_inativo_dias = COALESCE($9, cliente_inativo_dias),
            cliente_novo_dias = COALESCE($10, cliente_novo_dias),
+           formas_pagamento = COALESCE($11, formas_pagamento),
            -- US56 — qualquer salvamento nesta tela conta como "horário
            -- revisado" pro checklist de onboarding, mesmo que o tenant só
            -- confirme os valores padrão sem alterar nada.
            onboarding_horario_revisado = true
          WHERE id = $1
          RETURNING dias_funcionamento, formato_hora, horario_abertura, horario_fechamento,
-                   horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, cliente_inativo_dias, cliente_novo_dias`,
+                   horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, cliente_inativo_dias, cliente_novo_dias,
+                   formas_pagamento`,
         [
           tenantId, diasFuncionamento ? JSON.stringify(diasFuncionamento) : null, formatoHora, horarioAbertura, horarioFechamento,
           horarioAlmocoAtivo ?? null, horarioAlmocoInicio, horarioAlmocoFim, clienteInativoDias ?? null, clienteNovoDias ?? null,
+          formasPagamento ? JSON.stringify(formasPagamento) : null,
         ]
       );
       await client.query('COMMIT');
