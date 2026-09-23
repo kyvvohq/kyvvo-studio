@@ -71,6 +71,7 @@ const { registerProfissionaisRoutes } = require('./routes/profissionais');
 const { registerAgendaRoutes } = require('./routes/agenda');
 // Fase 4 da modularização
 const { registerClientesRoutes } = require('./routes/clientes');
+const { registerDisparosRoutes } = require('./routes/disparos');
 // Fase 5 da modularização
 const { registerFinanceiroRoutes } = require('./routes/financeiro');
 const { registerRelatoriosRoutes } = require('./routes/relatorios');
@@ -441,6 +442,11 @@ async function start() {
   // modularização): GET/POST/DELETE /api/clientes[/:id], GET
   // /api/clientes/buscar-por-telefone, GET/PATCH /api/clientes/:id.
   registerClientesRoutes(fastify, pool);
+
+  // Disparo manual de WhatsApp por seleção de clientes — POST
+  // /api/clientes/disparo-lote. Lógica de cota/envio/registro em
+  // @kyvvohq/disparos (compartilhado com outros produtos Kyvvo).
+  registerDisparosRoutes(fastify, pool);
 
   // CRUD de Profissionais (US17/ST17.2, incluindo GET pro dropdown do
   // formulário de agendamento) — extraído pra routes/profissionais.js (fase

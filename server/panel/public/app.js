@@ -1697,6 +1697,50 @@ function renderAgendamentoItem(ag) {
   `;
 }
 
+// Seleção de clientes pro disparo em lote (menu Clientes) — atravessa
+// página/filtro de propósito (o dono pode selecionar de várias páginas),
+// então NÃO é resetada dentro de renderClientes(); só ao concluir um
+// disparo ou clicar "Limpar seleção". clientesSelecionadosInfo guarda
+// nome/telefone de quem foi selecionado em QUALQUER página, pra o passo 1
+// do modal listar todo mundo sem precisar buscar de novo na API.
+let clientesSelecionados = new Set();
+let clientesSelecionadosInfo = new Map();
+
+function atualizarBarraSelecaoClientes() {
+  const barra = document.querySelector('.ds-selecao-barra');
+  if (barra && window.KyvvoDS) window.KyvvoDS.selecaoBarraAtualizar(barra, clientesSelecionados.size);
+}
+
+conteudo.addEventListener('change', (e) => {
+  const checkbox = e.target.closest('[data-cliente-selecionar]');
+  if (!checkbox) return;
+  const id = checkbox.dataset.clienteSelecionar;
+  if (checkbox.checked) {
+    clientesSelecionados.add(id);
+    const c = clientesAtuais.find((x) => x.id === id);
+    if (c) clientesSelecionadosInfo.set(id, { nome: c.nome || 'Sem nome', telefone: c.telefone });
+  } else {
+    clientesSelecionados.delete(id);
+    clientesSelecionadosInfo.delete(id);
+  }
+  atualizarBarraSelecaoClientes();
+});
+
+// Menu "⋯" por cliente (componente .ds-acoes do DS) — disparo individual
+// pula direto pro passo 2 (escolher modelo), sem passar pela revisão de
+// seleção (não há nada a revisar com 1 cliente só).
+document.addEventListener('ds-acoes-escolher', (e) => {
+  const caixa = e.target.closest ? e.target : null;
+  if (!caixa || !caixa.classList || !caixa.classList.contains('ds-acoes')) return;
+  const clienteId = caixa.dataset.clienteId;
+  const cliente = clientesAtuais.find((x) => x.id === clienteId);
+  if (!cliente) return;
+  const acao = e.detail && e.detail.acao;
+  if (acao === 'disparo') abrirModalDisparoTemplate([clienteId], { voltarParaSelecao: false });
+  else if (acao === 'agendamento') abrirModalNovoAgendamento({ telefone: (cliente.telefone || '').replace(/^55/, ''), nome: cliente.nome });
+  else if (acao === 'editar') abrirModalClienteDetalhe(clienteId);
+});
+
 conteudo.addEventListener('click', (e) => {
   // "Cliente" nos Próximos atendimentos do Início, e qualquer linha da
   // tabela do menu Clientes — abrem o mesmo modal de perfil
@@ -1714,6 +1758,12 @@ conteudo.addEventListener('click', (e) => {
     window.open(`https://wa.me/${whatsappClienteBtn.dataset.clienteWhatsapp}`, '_blank');
     return;
   }
+  // Checkbox de seleção (disparo em lote) — fica dentro da mesma <tr
+  // data-cliente-abrir>; sem este corte, clicar nele também abriria o
+  // perfil do cliente. A mudança de estado em si é tratada no listener de
+  // 'change' abaixo (o valor de .checked já reflete o clique quando o
+  // 'click' dispara).
+  if (e.target.closest('[data-cliente-selecionar]')) return;
   const linhaClienteEl = e.target.closest('[data-cliente-abrir]');
   if (linhaClienteEl) {
     abrirModalClienteDetalhe(linhaClienteEl.dataset.clienteAbrir);
@@ -1735,6 +1785,20 @@ conteudo.addEventListener('click', (e) => {
     else clientesFiltro.pagina++;
     clientesCampoFocado = null;
     renderClientes();
+    return;
+  }
+  // Barra de seleção (disparo em lote) — "Limpar seleção" zera os dois
+  // Sets/Maps (a seleção atravessa página/filtro, então não basta re-render);
+  // "Novo disparo" abre o passo 1 (revisão da seleção).
+  if (e.target.closest('#btn-limpar-selecao')) {
+    clientesSelecionados.clear();
+    clientesSelecionadosInfo.clear();
+    atualizarBarraSelecaoClientes();
+    renderClientes();
+    return;
+  }
+  if (e.target.closest('#btn-novo-disparo')) {
+    abrirModalDisparoSelecao();
     return;
   }
 
@@ -3562,6 +3626,9 @@ function clientesKpiCard(chave, label, valor, ativo) {
 function renderClienteLinha(c) {
   return `
     <tr class="linha-clicavel" data-cliente-abrir="${c.id}">
+      <td class="col-selecao-cliente">
+        <input type="checkbox" class="ds-selecao-checkbox" data-cliente-selecionar="${c.id}" aria-label="Selecionar ${escapeHtml(c.nome || 'cliente')}" ${clientesSelecionados.has(c.id) ? 'checked' : ''}>
+      </td>
       <td>
         <div>${c.nome || 'Sem nome'}</div>
         <div class="cliente-linha-telefone">${c.telefone}</div>
@@ -3571,6 +3638,16 @@ function renderClienteLinha(c) {
       <td>${c.proximo_atendimento_data ? formatarDataHoraCurta(c.proximo_atendimento_data) : '—'}</td>
       <td>${formatarPreco(Number(c.total_gasto))}</td>
       <td><span class="badge badge-cliente-${c.status}">${CLIENTES_STATUS_LABEL[c.status]}</span></td>
+      <td>
+        <span class="ds-acoes" data-cliente-id="${c.id}">
+          <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações">⋯</button>
+          <div class="ds-acoes-menu" role="menu" hidden>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="disparo">Disparo individual</button>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="agendamento">Novo agendamento</button>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="editar">Editar cliente</button>
+          </div>
+        </span>
+      </td>
     </tr>
   `;
 }
@@ -3613,12 +3690,14 @@ async function renderClientes() {
         <table class="tabela-tenants tabela-clientes">
           <thead>
             <tr>
+              <th class="col-selecao-cliente"></th>
               <th>Cliente</th>
               <th>WhatsApp</th>
               <th>Último atendimento</th>
               <th>Próx. atendimento</th>
               <th>Total gasto</th>
               <th>Status</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -3639,8 +3718,19 @@ async function renderClientes() {
     `;
   }
 
+  html += `
+    <div class="ds-selecao-barra" data-ds-selecao-barra hidden>
+      <span class="ds-selecao-barra-contagem"></span> selecionado(s)
+      <button class="ds-selecao-barra-limpar" id="btn-limpar-selecao" type="button">Limpar seleção</button>
+      <button class="ds-selecao-barra-acao" id="btn-novo-disparo" type="button">Novo disparo</button>
+    </div>
+  `;
+
   conteudo.innerHTML = html;
   document.getElementById('btn-novo-cliente').addEventListener('click', abrirModalNovoCliente);
+  // Reflete seleção trazida de outra página/filtro (clientesSelecionados
+  // sobrevive ao re-render de propósito — ver comentário na declaração).
+  atualizarBarraSelecaoClientes();
 
   // O re-render (conteudo.innerHTML) recria o campo de busca do zero — sem
   // isso, o campo perde o foco/cursor no meio da digitação assim que o
@@ -3678,6 +3768,113 @@ async function renderClientes() {
       renderClientes();
     });
   }
+}
+
+// ---------- Disparo manual de WhatsApp (seleção de clientes) ----------
+// Passo 1 (revisão) → passo 2 (escolher modelo) → POST /api/clientes/disparo-lote
+// (backend delega pro pacote compartilhado @kyvvohq/disparos — ver
+// routes/disparos.js). O disparo individual (menu "⋯" de cada linha) pula
+// direto pro passo 2, sem revisão (não há nada a revisar com 1 cliente só).
+
+// Garante automacoesTemplatesCache populado (mesma cache que a tela de
+// Automações usa) e filtra só os templates que o disparo manual sabe
+// preencher — sem {{servico}}/{{data}}/{{hora}}/{{profissional}} (fazem
+// sentido só em automação de agendamento, não num disparo avulso).
+async function opcoesTemplateDisparoManual() {
+  if (!automacoesTemplatesCache.length) {
+    const dados = await api('/api/automacoes/templates-whatsapp');
+    automacoesTemplatesCache = (dados && dados.templates) || [];
+  }
+  const suportados = new Set(['cliente', 'salao']);
+  // Sem parâmetro nenhum (ex.: "hello_world") sempre serve. Com parâmetro,
+  // só serve se for NOMEADO e todos os nomes forem dos que o disparo manual
+  // sabe preencher (mesma regra em routes/disparos.js
+  // templateCompativelComDisparoManual — a rota confere de novo, nunca
+  // confia só neste filtro do front).
+  return automacoesTemplatesCache.filter((t) => t.status === 'APPROVED' && (
+    !t.parametros_corpo.length || (t.parametros_nomeados && t.parametros_corpo.every((nome) => suportados.has(nome)))
+  ));
+}
+
+function abrirModalDisparoSelecao() {
+  const itens = Array.from(clientesSelecionadosInfo.entries());
+  KyvvoDS.modalAbrir(`
+    <ul class="disparo-selecao-lista">
+      ${itens.map(([id, info]) => `<li>${escapeHtml(info.nome)} <span class="cliente-linha-telefone">${escapeHtml(info.telefone || '')}</span></li>`).join('')}
+    </ul>
+    <div class="ds-modal-acoes">
+      <button type="button" class="btn-secundario" id="btn-disparo-cancelar">Cancelar</button>
+      <button type="button" class="btn-primario" id="btn-disparo-proximo">Próximo</button>
+    </div>
+  `, { titulo: `Novo disparo — ${itens.length} selecionado(s)` });
+  document.getElementById('btn-disparo-cancelar').addEventListener('click', () => KyvvoDS.modalFechar());
+  document.getElementById('btn-disparo-proximo').addEventListener('click', () => {
+    abrirModalDisparoTemplate(itens.map(([id]) => id), { voltarParaSelecao: true });
+  });
+}
+
+async function abrirModalDisparoTemplate(clienteIds, opts) {
+  const voltarParaSelecao = !!(opts && opts.voltarParaSelecao);
+  KyvvoDS.modalAbrir('<div class="vazio">Carregando modelos...</div>', { titulo: 'Novo disparo' });
+  const templates = await opcoesTemplateDisparoManual();
+  if (!templates.length) {
+    KyvvoDS.modalAbrir(`
+      <p class="modal-texto">Nenhum modelo aprovado disponível pra disparo manual (precisa de um modelo aprovado na Meta que use só {{cliente}}/{{salao}} como parâmetro).</p>
+      <div class="ds-modal-acoes"><button type="button" class="btn-primario" id="btn-disparo-fechar">Entendi</button></div>
+    `, { titulo: 'Novo disparo' });
+    document.getElementById('btn-disparo-fechar').addEventListener('click', () => KyvvoDS.modalFechar());
+    return;
+  }
+  KyvvoDS.modalAbrir(`
+    <form id="form-disparo-template">
+      <div class="modal-erro" id="disparo-erro"></div>
+      <label for="disparo-template-select">Modelo aprovado (Meta)</label>
+      <select id="disparo-template-select">
+        ${templates.map((t) => `<option value="${escapeHtml(t.nome)}">${escapeHtml(t.nome)}</option>`).join('')}
+      </select>
+      <div class="ds-modal-acoes">
+        ${voltarParaSelecao ? '<button type="button" class="btn-secundario" id="btn-disparo-voltar">Voltar</button>' : ''}
+        <button type="submit" class="btn-primario">Disparar</button>
+      </div>
+    </form>
+  `, { titulo: `Novo disparo — ${clienteIds.length} cliente(s)` });
+  if (voltarParaSelecao) {
+    document.getElementById('btn-disparo-voltar').addEventListener('click', () => abrirModalDisparoSelecao());
+  }
+  document.getElementById('form-disparo-template').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const templateNome = document.getElementById('disparo-template-select').value;
+    const r = await api('/api/clientes/disparo-lote', { method: 'POST', body: JSON.stringify({ clienteIds, templateNome }) });
+    if (r && r.ok === false && r.erro === 'limite_plano') {
+      abrirModalDisparoLimiteExcedido(clienteIds, r);
+      return;
+    }
+    if (!r || r.error) {
+      document.getElementById('disparo-erro').textContent = (r && r.error) || 'Não foi possível disparar.';
+      return;
+    }
+    KyvvoDS.modalFechar();
+    mostrarToast(`${r.enviados} enviado(s), ${r.falhas} falha(s).`, r.falhas ? 'erro' : 'sucesso');
+    clientesSelecionados.clear();
+    clientesSelecionadosInfo.clear();
+    renderClientes();
+  });
+}
+
+function abrirModalDisparoLimiteExcedido(clienteIds, cota) {
+  KyvvoDS.modalAbrir(`
+    <p class="modal-texto">Seu plano não tem disparos suficientes pra essa ação (restam ${cota.restante} de ${cota.limite} este mês, e a seleção tem ${clienteIds.length}).</p>
+    <div class="ds-modal-acoes">
+      <button type="button" class="btn-secundario" id="btn-disparo-rever">Rever seleção</button>
+      <button type="button" class="btn-primario" id="btn-disparo-comprar">Comprar pacote</button>
+    </div>
+  `, { titulo: 'Limite de disparos atingido' });
+  document.getElementById('btn-disparo-rever').addEventListener('click', () => abrirModalDisparoSelecao());
+  document.getElementById('btn-disparo-comprar').addEventListener('click', () => {
+    KyvvoDS.modalFechar();
+    automacoesAbaAtiva = 'disparos';
+    selecionarMenu('automacoes');
+  });
 }
 
 // ---------- Bloqueios manuais de agenda (US61) ----------
