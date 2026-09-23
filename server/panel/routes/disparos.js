@@ -10,12 +10,20 @@ const planosCatalogo = require('../lib/planos');
 const { listarTemplates } = require('@kyvvohq/whatsapp');
 const { checarCotaDisparo, dispararEmLote } = require('@kyvvohq/disparos');
 
-// Disparo manual só sabe preencher {{cliente}}/{{salao}} — não há
-// agendamento associado pra {{servico}}/{{data}}/{{hora}}/{{profissional}}.
-// O front já filtra o dropdown pra só esses templates (ver
+// Disparo manual só sabe preencher os parâmetros abaixo — não há
+// agendamento associado pra preencher parâmetros de data/hora/serviço/
+// profissional. O front já filtra o dropdown pra só esses templates (ver
 // opcoesTemplateDisparoManual em app.js), mas a rota confere de novo (nunca
 // confiar só no filtro do cliente).
-const PARAMETROS_SUPORTADOS = new Set(['cliente', 'salao']);
+// Nomes reais usados pelos templates aprovados do Studio hoje (confirmado
+// ao vivo, 2026-09-23: studio_retorno_1/studio_retorno_cliente_2 usam só
+// nome_cliente; studio_confirmar_agenda_2/3 usam nome_cliente + nome_salao
+// + campos de agenda). NÃO são os mesmos nomes que dadosDoAgendamento/
+// montarParametrosWhatsapp usam internamente (cliente/salao/servico/...)
+// — são dois vocabulários diferentes: o de lá é a variável do PONTO DE
+// VISTA do motor de automações; este aqui é o parameter_name de VERDADE
+// que a Meta devolve pra esses templates específicos.
+const PARAMETROS_SUPORTADOS = new Set(['nome_cliente', 'nome_salao']);
 
 // Sem parâmetro nenhum (ex.: "hello_world") sempre serve. Com parâmetro,
 // só serve se for NOMEADO e todos os nomes forem dos que o disparo manual
@@ -65,7 +73,7 @@ function registerDisparosRoutes(fastify, pool) {
       [tenantId, clienteIds]
     );
 
-    const dadosPorParametro = { salao: tenant.nome || '' };
+    const dadosPorParametro = { nome_salao: tenant.nome || '' };
     const destinatarios = clientes
       .map((c) => ({ c, telefoneE164: telefoneParaE164(c.telefone) }))
       .filter((d) => d.telefoneE164)
@@ -73,7 +81,7 @@ function registerDisparosRoutes(fastify, pool) {
         telefoneE164,
         optOut: !!c.whatsapp_opt_out,
         parametrosCorpo: templateInfo.parametros_corpo.map((nome) => ({
-          nome, nomeado: true, valor: nome === 'cliente' ? (c.nome || '') : (dadosPorParametro[nome] || ''),
+          nome, nomeado: true, valor: nome === 'nome_cliente' ? (c.nome || '') : (dadosPorParametro[nome] || ''),
         })),
       }));
 
