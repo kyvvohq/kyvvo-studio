@@ -397,10 +397,11 @@ const menuNav = document.getElementById('painel-sidebar');
 const menuEl = menuNav.querySelector('.ds-menu-lista');
 const subtabsEl = document.getElementById('subtabs');
 const subtabsCadastroEl = document.getElementById('subtabs-cadastro');
-// Só as abas da barra da Agenda (Dia/Semana/Mês) — escopado pra não pegar
-// as abas de Cadastro (Serviços/Profissionais/Bloqueio), que têm listener
-// próprio mais abaixo.
-const tabs = document.querySelectorAll('#subtabs .tab');
+// Só as abas da barra da Agenda (Dia/Semana/Mês) — componente .agenda-visoes
+// do DS (components.css/README "Agenda — Dia, Semana e Mês"). Escopado pra
+// não pegar as abas de Cadastro (Serviços/Profissionais/Bloqueio), que têm
+// listener próprio mais abaixo.
+const tabs = document.querySelectorAll('#subtabs .agenda-visao');
 let menuAtual = 'inicio';
 let abaAtual = 'dia';
 // Aba ativa da tela Cadastro (menuAtual === 'cadastro'). Serviços,
@@ -767,8 +768,8 @@ async function carregarModulosNoMenu() {
 
 tabs.forEach((tab) => {
   tab.addEventListener('click', () => {
-    tabs.forEach((t) => t.classList.remove('active'));
-    tab.classList.add('active');
+    tabs.forEach((t) => t.classList.remove('agenda-visao-ativa'));
+    tab.classList.add('agenda-visao-ativa');
     abaAtual = tab.dataset.tab;
     dataRef = new Date();
     render();
@@ -1732,10 +1733,25 @@ conteudo.addEventListener('change', (e) => {
 document.addEventListener('ds-acoes-escolher', (e) => {
   const caixa = e.target.closest ? e.target : null;
   if (!caixa || !caixa.classList || !caixa.classList.contains('ds-acoes')) return;
+  const acao = e.detail && e.detail.acao;
+
+  // Cards compactos da Agenda (visões Semana e Mês, componente .agenda-card-s
+  // do DS — Dia continua com o menu local .menu-acoes/data-acoes-toggle, não
+  // faz parte desta migração).
+  if (caixa.dataset.agendamentoId) {
+    const ag = agendamentosAtuais.find((a) => a.id === caixa.dataset.agendamentoId);
+    if (!ag) return;
+    if (acao === 'concluir') abrirModalConcluir(ag);
+    else if (acao === 'reagendar') abrirModalReagendar(ag);
+    else if (acao === 'encaixar') abrirModalEncaixe(ag);
+    else if (acao === 'falta') abrirModalMarcarFalta(ag);
+    else if (acao === 'cancelar') abrirModalCancelar(ag);
+    return;
+  }
+
   const clienteId = caixa.dataset.clienteId;
   const cliente = clientesAtuais.find((x) => x.id === clienteId);
   if (!cliente) return;
-  const acao = e.detail && e.detail.acao;
   if (acao === 'disparo') abrirModalDisparoTemplate([clienteId], { voltarParaSelecao: false });
   else if (acao === 'agendamento') abrirModalNovoAgendamento({ telefone: (cliente.telefone || '').replace(/^55/, ''), nome: cliente.nome });
   else if (acao === 'editar') abrirModalClienteDetalhe(clienteId);
@@ -1855,6 +1871,19 @@ conteudo.addEventListener('click', (e) => {
   const addDiaBtn = e.target.closest('[data-add-dia]');
   if (addDiaBtn) {
     abrirModalNovoAgendamento({ data: addDiaBtn.dataset.addDia });
+    return;
+  }
+
+  // "+N mais" (.agenda-mais do DS, células da Semana/Mês com mais
+  // agendamentos do que cabe no card compacto) — leva pra visão Dia daquele
+  // dia, que já mostra todos com detalhe completo.
+  const verDiaBtn = e.target.closest('[data-ver-dia]');
+  if (verDiaBtn) {
+    const [ano, mes, dia] = verDiaBtn.dataset.verDia.split('-').map(Number);
+    dataRef = new Date(ano, mes - 1, dia, 12);
+    abaAtual = 'dia';
+    tabs.forEach((t) => t.classList.toggle('agenda-visao-ativa', t.dataset.tab === 'dia'));
+    render();
     return;
   }
 
@@ -4844,6 +4873,45 @@ function menuAcoesAgendamentoHtml(id) {
   `;
 }
 
+// Card compacto de agendamento — visões Semana e Mês (componente
+// .agenda-card-s/.agenda-ag do DS, README "Card compacto para semana e
+// mês"). Diferente do card da Dia (menu local .menu-acoes/data-acoes-toggle):
+// aqui o menu "..." é o .ds-acoes do DS, já ligado globalmente pelo
+// components.js e tratado no listener `ds-acoes-escolher` acima. Sem slot
+// próprio de hora no grid do DS — na Semana a linha já é a hora; no Mês
+// (`comHora`) prefixamos no texto do serviço, já que a célula é o dia
+// inteiro, não uma hora só.
+function renderAgendaCardCompacto(ag, opts) {
+  const comHora = !!(opts && opts.comHora);
+  const tom = TOM_STATUS_AGENDA[ag.status] || TOM_STATUS_AGENDA.confirmado;
+  const semAcoes = AG_STATUS_SEM_ACOES.includes(ag.status);
+  const multiProfissional = !!(contaStatus && contaStatus.mostrar_profissional);
+  const iniciais = iniciaisNome(multiProfissional ? (ag.profissional || '') : (ag.cliente || ag.cliente_telefone || ''));
+  const cor = multiProfissional ? corProfissional(ag.profissional_id) : 'var(--accent)';
+  const servicoTexto = comHora ? `${formatarHora(ag.data_hora)} · ${ag.servico}` : ag.servico;
+  return `
+    <div class="agenda-card agenda-card-s ${tom.classe}${ag.status === 'cancelado' ? ' agendamento-cancelado' : ''}" data-id="${ag.id}">
+      <div class="agenda-ag">
+        <span class="agenda-avatar" aria-hidden="true" style="--agenda-avatar-bg:${cor};--agenda-avatar-fg:#fff">${iniciais}</span>
+        <span class="agenda-card-cliente">${ag.cliente || ag.cliente_telefone}</span>
+        ${semAcoes ? '' : `
+          <span class="ds-acoes" data-agendamento-id="${ag.id}">
+            <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações">⋯</button>
+            <div class="ds-acoes-menu" role="menu" hidden>
+              <button type="button" role="menuitem" class="ds-acoes-item" data-acao="concluir">Concluir</button>
+              <button type="button" role="menuitem" class="ds-acoes-item" data-acao="reagendar">Reagendar</button>
+              <button type="button" role="menuitem" class="ds-acoes-item" data-acao="encaixar">Encaixar</button>
+              <button type="button" role="menuitem" class="ds-acoes-item" data-acao="falta">Marcar falta</button>
+              <button type="button" role="menuitem" class="ds-acoes-item ds-acoes-item-perigo" data-acao="cancelar">Cancelar</button>
+            </div>
+          </span>
+        `}
+        <span class="agenda-card-servico">${servicoTexto}</span>
+      </div>
+    </div>
+  `;
+}
+
 // Horários da grade Dia — pedido explícito: horário de intervalo não aparece
 // em NENHUMA view da agenda (antes essa função mantinha o slot do almoço e a
 // grade desenhava uma linha "Intervalo"; agora só reaproveita
@@ -5040,12 +5108,6 @@ function inicioDaSemana(dataRef) {
   return d;
 }
 
-// Coluna expandida do accordion da Semana (ISO "YYYY-MM-DD") — null até a
-// 1ª renderização, que escolhe hoje (se estiver na semana visível) ou o
-// primeiro dia aberto. Clique no cabeçalho de outra coluna troca; trocar de
-// semana com a coluna guardada fora do intervalo novo também reescolhe.
-let semanaColunaAtiva = null;
-
 async function renderSemana() {
   const iso = formatarDataISO(dataRef);
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
@@ -5061,14 +5123,6 @@ async function renderSemana() {
     porDia[diaISO].push(ag);
   }
 
-  let html = `
-    <div class="nav-periodo">
-      <button data-nav="-7">← Semana anterior</button>
-      <strong>Semana de ${dataRef.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</strong>
-      <button data-nav="7">Próxima semana →</button>
-    </div>
-  `;
-
   // Uma coluna por dia da semana (segunda→domingo) que o negócio funciona —
   // dias fechados nem aparecem (diferente do Mês, que mostra desabilitado).
   const diasFuncionamento = configuracao.dias_funcionamento || [1, 2, 3, 4, 5, 6];
@@ -5079,23 +5133,38 @@ async function renderSemana() {
     d.setDate(d.getDate() + i);
     if (diasFuncionamento.includes(d.getDay())) diasAbertos.push(d);
   }
+  const domingo = new Date(segunda);
+  domingo.setDate(domingo.getDate() + 6);
+  const labelIntervalo = `${segunda.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', timeZone: 'America/Sao_Paulo' })} – ${domingo.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Sao_Paulo' })}`;
+  const validos = data.agendamentos.filter((ag) => ag.status !== 'cancelado');
+
+  // Topo comum das 3 visões (componente .agenda-topo do DS, igual à Dia) —
+  // o seletor Dia/Semana/Mês em si fica na barra fixa acima (#subtabs,
+  // .agenda-visoes), não duplicado aqui.
+  let html = `
+    <div class="agenda-topo">
+      <div class="agenda-topo-nav">
+        <button class="agenda-nav-btn" data-nav="-7" aria-label="Semana anterior">‹</button>
+        <button class="agenda-nav-hoje" data-nav="hoje">Hoje</button>
+        <button class="agenda-nav-btn" data-nav="7" aria-label="Próxima semana">›</button>
+      </div>
+      <div class="agenda-topo-data">
+        <strong>${labelIntervalo}</strong>
+        <span>${validos.length} ${validos.length === 1 ? 'atendimento' : 'atendimentos'} na semana</span>
+      </div>
+    </div>
+  `;
 
   html += diasAbertos.length === 0
     ? '<div class="vazio">Nenhum dia de funcionamento configurado nessa semana.</div>'
     : renderSemanaGrade(diasAbertos, porDia);
 
   conteudo.innerHTML = html;
-  conteudo.querySelector('[data-nav="-7"]').addEventListener('click', () => {
-    dataRef.setDate(dataRef.getDate() - 7);
-    renderSemana();
-  });
-  conteudo.querySelector('[data-nav="7"]').addEventListener('click', () => {
-    dataRef.setDate(dataRef.getDate() + 7);
-    renderSemana();
-  });
-  conteudo.querySelectorAll('[data-selecionar-coluna]').forEach((el) => {
-    el.addEventListener('click', () => {
-      semanaColunaAtiva = el.dataset.selecionarColuna;
+  conteudo.querySelectorAll('[data-nav]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nav = btn.dataset.nav;
+      if (nav === 'hoje') dataRef = new Date();
+      else dataRef.setDate(dataRef.getDate() + Number(nav));
       renderSemana();
     });
   });
@@ -5103,91 +5172,59 @@ async function renderSemana() {
 
 // Grid único: UMA régua de hora compartilhada (não uma por coluna — era o
 // que desalinhava a hora com o texto da coluna seguinte na versão antiga de
-// N grades independentes lado a lado) + uma coluna por dia aberto. O dia
-// selecionado (semanaColunaAtiva) expande (3fr, grade completa igual à
-// view Dia — mesmo card, mesmo kebab de ações, nada novo pra manter);
-// os outros recolhem (1fr, resumo por pilha de avatares). `minmax(0, Nfr)`
-// em vez de largura mínima fixa: encolhe pra caber todos os dias sem barra
-// de rolagem horizontal, e a transição de grid-template-columns anima a
-// troca (redesign do canvas Claude Design).
+// N grades independentes lado a lado) + uma coluna por dia aberto — direto
+// no componente `.agenda-semana` do DS (README "Agenda — Dia, Semana e
+// Mês"): sem accordion próprio do Studio, a coluna de hoje já alarga
+// sozinha via CSS (v2.10.0, lê `.agenda-semana-cab-hoje`). `--agenda-dias`
+// informa quantas colunas o CSS deve desenhar.
 function renderSemanaGrade(diasAbertos, porDia) {
   const hojeISO = formatarDataISO(new Date());
   const isoAbertos = diasAbertos.map(formatarDataISO);
-  if (!semanaColunaAtiva || !isoAbertos.includes(semanaColunaAtiva)) {
-    semanaColunaAtiva = isoAbertos.includes(hojeISO) ? hojeISO : isoAbertos[0];
-  }
+  const horaAtualBucket = isoAbertos.includes(hojeISO) ? horaChaveGradeBucket(new Date().toISOString()) : null;
 
   const horarios = gerarHorariosGrade();
   if (horarios.length === 0) {
     return '<div class="vazio">Nenhum horário configurado (confira Abertura/Fechamento em Configuração).</div>';
   }
 
-  const colunas = isoAbertos.map((di) => (di === semanaColunaAtiva ? 'minmax(0,3fr)' : 'minmax(0,1fr)')).join(' ');
-
-  let html = `<div class="semana-grade" style="grid-template-columns:62px ${colunas}">`;
-  html += '<div class="semana-grade-canto"></div>';
+  let html = `<div class="agenda-semana" style="--agenda-dias:${diasAbertos.length}">`;
+  html += '<div class="agenda-semana-canto"></div>';
   diasAbertos.forEach((d, i) => {
     const diaISO = isoAbertos[i];
-    const ativa = diaISO === semanaColunaAtiva;
-    const qtd = (porDia[diaISO] || []).length;
+    const hoje = diaISO === hojeISO;
     const dataLabel = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
-    const nomeDia = nomeDiaSemana(d);
     html += `
-      <div class="semana-cab${ativa ? ' semana-cab-ativa' : ''}${diaISO === hojeISO ? ' semana-cab-hoje' : ''}" data-selecionar-coluna="${diaISO}">
-        <strong>${ativa ? nomeDia : nomeDia.slice(0, 3)}</strong>
-        <span>${dataLabel}${qtd ? ` · ${qtd}` : ''}</span>
+      <div class="agenda-semana-cab${hoje ? ' agenda-semana-cab-hoje' : ''}">
+        <span class="agenda-dia-num${hoje ? ' agenda-dia-num-hoje' : ''}">${d.getDate()}</span>
+        <span>${nomeDiaSemana(d).slice(0, 3)} ${dataLabel}</span>
       </div>
     `;
   });
 
   for (const hora of horarios) {
-    html += `<div class="semana-grade-hora">${hora}</div>`;
+    const horaAtual = hora === horaAtualBucket;
+    html += `<div class="agenda-rail${horaAtual ? ' agenda-rail-agora agenda-linha-alta' : ''}"><span class="agenda-rail-hora">${hora}</span></div>`;
     diasAbertos.forEach((d, i) => {
       const diaISO = isoAbertos[i];
-      const ativa = diaISO === semanaColunaAtiva;
       const itens = (porDia[diaISO] || []).filter((ag) => horaChaveGradeBucket(ag.data_hora) === hora);
-      html += renderSemanaCelula(diaISO, hora, itens, ativa);
+      html += renderSemanaCelula(diaISO, hora, itens, diaISO === hojeISO);
     });
   }
   html += '</div>';
   return html;
 }
 
-// Avatar (por profissional, se o tenant tem mais de um — corProfissional;
-// senão pelo cliente) usado tanto na pilha da coluna recolhida quanto,
-// via renderAgendamentoGradeCard, no card da coluna expandida.
-function semanaAvatarMini(ag) {
-  const multiProfissional = !!(contaStatus && contaStatus.mostrar_profissional);
-  const cor = multiProfissional ? corProfissional(ag.profissional_id) : 'var(--accent)';
-  const iniciais = iniciaisNome(multiProfissional ? ag.profissional : ag.cliente);
-  return `<span class="semana-item-avatar" style="background:${cor};color:#fff">${iniciais}</span>`;
-}
-
-function renderSemanaCelula(diaISO, hora, itens, ativa) {
-  if (!ativa) {
-    // Recolhida: só a pilha de avatares (quem tem agendamento nesse
-    // horário), sem detalhe — clique em qualquer parte expande a coluna.
-    if (!itens.length) return `<div class="semana-grade-cel" data-selecionar-coluna="${diaISO}"></div>`;
-    const visiveis = itens.slice(0, 3);
-    const extra = itens.length > 3 ? `<span class="semana-item-avatar semana-item-avatar-extra">+${itens.length - 3}</span>` : '';
-    return `
-      <div class="semana-grade-cel" data-selecionar-coluna="${diaISO}">
-        <span class="semana-item-pilha">${visiveis.map(semanaAvatarMini).join('')}${extra}</span>
-      </div>
-    `;
-  }
-
-  // Expandida: reaproveita literalmente o card da view Dia (kebab, menu de
-  // ações, badges) — side by side quando há mais de um no mesmo horário,
-  // igual .grade-ag-grupo da grade Dia.
-  const conteudo = !itens.length
-    ? '<span class="grade-linha-vazia">Disponível</span>'
-    : itens.length === 1
-      ? renderAgendamentoGradeCard(itens[0])
-      : `<div class="grade-ag-grupo" style="grid-template-columns:repeat(${itens.length},1fr)">${itens.map(renderAgendamentoGradeCard).join('')}</div>`;
+// Cada célula mostra os cards direto (sem accordion) — no máximo 2, o resto
+// vira ".agenda-mais" (componente do DS), que leva pra visão Dia daquele dia
+// (wireado no listener global de [data-ver-dia]).
+function renderSemanaCelula(diaISO, hora, itens, hoje) {
+  const MAX_VISIVEIS = 2;
+  const visiveis = itens.slice(0, MAX_VISIVEIS);
+  const extra = itens.length - visiveis.length;
   return `
-    <div class="semana-grade-cel semana-grade-cel-ativa">
-      ${conteudo}
+    <div class="agenda-semana-celula${hoje ? ' agenda-semana-celula-hoje' : ''}">
+      ${visiveis.map((ag) => renderAgendaCardCompacto(ag)).join('')}
+      ${extra > 0 ? `<span class="agenda-mais" data-ver-dia="${diaISO}">+${extra} mais</span>` : ''}
       <button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora} em ${diaISO}">+</button>
     </div>
   `;
@@ -5341,8 +5378,8 @@ async function renderMes() {
   const data = await api(`/api/agendamentos?view=mes&data=${mesISO}`);
   if (!data) return;
 
-  // US02.6 — antes mostrava só a contagem de agendamentos por dia; agora
-  // agrupa por dia e lista horário-duração de cada um, empilhados na célula.
+  agendamentosAtuais = data.agendamentos;
+
   const porDia = {};
   for (const ag of data.agendamentos) {
     const diaISO = ag.data_hora.slice(0, 10);
@@ -5354,72 +5391,94 @@ async function renderMes() {
   const mes = dataRef.getMonth();
   const primeiroDia = new Date(ano, mes, 1);
   const ultimoDia = new Date(ano, mes + 1, 0);
-  const offsetSemana = primeiroDia.getDay();
-
   const mesLabel = dataRef.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
+  const validos = data.agendamentos.filter((ag) => ag.status !== 'cancelado');
 
   let html = `
-    <div class="nav-periodo">
-      <button data-nav="-1">← Mês anterior</button>
-      <strong>${mesLabel}</strong>
-      <button data-nav="1">Próximo mês →</button>
+    <div class="agenda-topo">
+      <div class="agenda-topo-nav">
+        <button class="agenda-nav-btn" data-nav="-1" aria-label="Mês anterior">‹</button>
+        <button class="agenda-nav-hoje" data-nav="hoje">Hoje</button>
+        <button class="agenda-nav-btn" data-nav="1" aria-label="Próximo mês">›</button>
+      </div>
+      <div class="agenda-topo-data">
+        <strong>${mesLabel}</strong>
+        <span>${validos.length} ${validos.length === 1 ? 'atendimento' : 'atendimentos'} no mês</span>
+      </div>
     </div>
   `;
 
-  // Colunas de dia da semana sem funcionamento (Configuração > Dias de
-  // funcionamento) não têm nada pra mostrar — nenhum agendamento cai nelas —
-  // então ficavam do mesmo tamanho das colunas úteis à toa, espremendo o
-  // espaço de quem realmente tem conteúdo (data/agendamentos cortando).
-  // grid-template-columns fica menor nessas colunas (0.4fr contra 1fr) e
-  // maior nas abertas; cabeçalho e corpo do grid usam o MESMO template pra
-  // não desalinhar as colunas entre si. diaSemana index bate com
-  // NOMES_DIAS/getDay() (0 = domingo).
+  // Dia da semana sem funcionamento (Configuração > Dias de funcionamento)
+  // nem vira coluna (README do DS: "Mês — também só com dias de trabalho") —
+  // diferente da versão anterior, que mostrava uma coluna estreita e
+  // desabilitada. diaSemana index bate com NOMES_DIAS/getDay() (0 = domingo).
   const diasFuncionamentoMes = configuracao.dias_funcionamento || [1, 2, 3, 4, 5, 6];
-  const templateColunasMes = NOMES_DIAS.map((_, diaSemana) => (diasFuncionamentoMes.includes(diaSemana) ? '1fr' : '0.4fr')).join(' ');
+  html += diasFuncionamentoMes.length === 0
+    ? '<div class="vazio">Nenhum dia de funcionamento configurado (confira Preferências).</div>'
+    : renderMesGrade(ano, mes, primeiroDia, ultimoDia, diasFuncionamentoMes, porDia);
 
-  html += `
-    <div class="calendario-cabecalho" style="grid-template-columns:${templateColunasMes}">
-      ${NOMES_DIAS.map((nome, diaSemana) => `<div class="calendario-cabecalho-dia${diasFuncionamentoMes.includes(diaSemana) ? '' : ' calendario-cabecalho-dia-fechado'}">${nome.slice(0, 3)}</div>`).join('')}
-    </div>
-    <div class="calendario" style="grid-template-columns:${templateColunasMes}">
-  `;
+  conteudo.innerHTML = html;
+  conteudo.querySelectorAll('[data-nav]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nav = btn.dataset.nav;
+      if (nav === 'hoje') dataRef = new Date();
+      else dataRef.setMonth(dataRef.getMonth() + Number(nav));
+      renderMes();
+    });
+  });
+}
 
-  for (let i = 0; i < offsetSemana; i++) {
-    html += '<div class="dia-cel vazio-cel"></div>';
+// Grade do componente `.agenda-mes` do DS — só colunas de dia de semana
+// aberto; `.agenda-mes-fora` completa a 1ª/última linha com dias do mês
+// anterior/seguinte (cosmético, só numeração sequencial). Até 3 cards por
+// célula (`.agenda-mais` pro resto, leva pra visão Dia daquele dia).
+function renderMesGrade(ano, mes, primeiroDia, ultimoDia, diasFuncionamentoMes, porDia) {
+  const colunas = [0, 1, 2, 3, 4, 5, 6].filter((ds) => diasFuncionamentoMes.includes(ds));
+  let offset = 0;
+  for (let ds = 0; ds < primeiroDia.getDay(); ds++) {
+    if (colunas.includes(ds)) offset++;
   }
-  const hojeISOMes = formatarDataISO(new Date());
+
+  const hojeISO = formatarDataISO(new Date());
+  const MAX_VISIVEIS = 3;
+  const celulasDias = [];
   for (let dia = 1; dia <= ultimoDia.getDate(); dia++) {
+    const diaSemana = new Date(ano, mes, dia).getDay();
+    if (!diasFuncionamentoMes.includes(diaSemana)) continue;
     const diaISO = `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
     const agsDoDia = porDia[diaISO] || [];
-    const diaSemana = new Date(ano, mes, dia).getDay();
-    const fechado = !diasFuncionamentoMes.includes(diaSemana);
-    const listaAgendamentos = agsDoDia.length
-      ? `<div class="dia-cel-agendamentos">${agsDoDia
-          .map(
-            (ag) =>
-              `<div class="dia-cel-ag${ag.status === 'cancelado' ? ' dia-cel-ag-cancelado' : ''}">${formatarHora(ag.data_hora)}-${ag.duracao_minutos}min</div>`
-          )
-          .join('')}</div>`
-      : '';
-    html += `
-      <div class="dia-cel${fechado ? ' dia-cel-fechado' : ''}${diaISO === hojeISOMes ? ' dia-cel-hoje' : ''}">
-        <div class="num">${dia}</div>
-        ${listaAgendamentos}
-        ${fechado ? '' : `<button class="dia-cel-add" data-add-dia="${diaISO}" aria-label="Novo agendamento em ${dia}">+</button>`}
+    const hoje = diaISO === hojeISO;
+    const visiveis = agsDoDia.slice(0, MAX_VISIVEIS);
+    const extra = agsDoDia.length - visiveis.length;
+    celulasDias.push(`
+      <div class="agenda-mes-celula${hoje ? ' agenda-mes-celula-hoje' : ''}">
+        <span class="agenda-dia-num${hoje ? ' agenda-dia-num-hoje' : ''}">${dia}</span>
+        ${visiveis.map((ag) => renderAgendaCardCompacto(ag, { comHora: true })).join('')}
+        ${extra > 0 ? `<span class="agenda-mais" data-ver-dia="${diaISO}">+${extra} mais</span>` : ''}
+        <button class="agenda-mes-celula-add" data-add-dia="${diaISO}" aria-label="Novo agendamento em ${dia}">+</button>
       </div>
-    `;
+    `);
   }
 
-  html += '</div>';
-  conteudo.innerHTML = html;
-  conteudo.querySelector('[data-nav="-1"]').addEventListener('click', () => {
-    dataRef.setMonth(dataRef.getMonth() - 1);
-    renderMes();
-  });
-  conteudo.querySelector('[data-nav="1"]').addEventListener('click', () => {
-    dataRef.setMonth(dataRef.getMonth() + 1);
-    renderMes();
-  });
+  const mesAnteriorUltimoDia = new Date(ano, mes, 0).getDate();
+  const celulasAntes = Array.from({ length: offset }, (_, i) =>
+    `<div class="agenda-mes-celula agenda-mes-fora"><span class="agenda-dia-num">${mesAnteriorUltimoDia - offset + 1 + i}</span></div>`
+  );
+
+  const restante = (offset + celulasDias.length) % colunas.length;
+  const totalDepois = restante === 0 ? 0 : colunas.length - restante;
+  const celulasDepois = Array.from({ length: totalDepois }, (_, i) =>
+    `<div class="agenda-mes-celula agenda-mes-fora"><span class="agenda-dia-num">${i + 1}</span></div>`
+  );
+
+  return `
+    <div class="agenda-mes" style="--agenda-dias:${colunas.length}">
+      ${colunas.map((ds) => `<div class="agenda-mes-cab">${NOMES_DIAS[ds].slice(0, 3)}</div>`).join('')}
+      ${celulasAntes.join('')}
+      ${celulasDias.join('')}
+      ${celulasDepois.join('')}
+    </div>
+  `;
 }
 
 // ---------- Perfil (US33) ----------
