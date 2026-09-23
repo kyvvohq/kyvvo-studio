@@ -87,12 +87,17 @@ function registerAgendaRoutes(fastify, pool) {
 
     if (view === 'mes') {
       const mesRef = data || mesAtualBrasilia();
-      // US02.6 — a view Mês mostrava só a contagem de agendamentos por dia;
-      // agora traz data_hora + duração de cada um pra listar horário-duração
-      // empilhados na célula do dia (o agrupamento por dia é feito no front).
+      // Mesmas colunas da view Semana (id/cliente/profissional/serviço) —
+      // antes a Mês só trazia data_hora/status/duração (US02.6, quando a
+      // célula só listava "HH:MM-XXmin"); agora os cards compactos do
+      // componente .agenda-mes do DS (renderAgendaCardCompacto) precisam do
+      // resto pra mostrar avatar/cliente/serviço e ligar o menu .ds-acoes.
       const { rows } = await pool.query(
-        `SELECT a.data_hora, a.status, s.duracao_minutos
+        `SELECT a.id, a.data_hora, a.status, a.encaixe, c.nome AS cliente, c.telefone AS cliente_telefone,
+                a.profissional_id, p.nome AS profissional, a.servico_id, s.nome AS servico, s.duracao_minutos, s.preco
          FROM agendamentos a
+         JOIN clientes c ON c.id = a.cliente_id
+         JOIN profissionais p ON p.id = a.profissional_id
          JOIN servicos s ON s.id = a.servico_id
          WHERE a.tenant_id = $1
            AND to_char(a.data_hora AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM') = $2
