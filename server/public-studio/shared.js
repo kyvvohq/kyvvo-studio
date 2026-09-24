@@ -70,5 +70,11 @@ Promise.all([
   injectPartial('/partials/footer.html', 'site-footer'),
 ]).then(() => {
   resolverLinksDoPortal();
+  // O rodapé só existe no DOM depois da injeção acima — o carrossel do DS
+  // (components.js) hidrata sozinho no clique (delegado), mas os pontos
+  // (.ds-carrossel-ponto) só aparecem depois de preparado uma vez;
+  // carrosselIndice() já chama prepararCarrossel() internamente.
+  const carrossel = document.querySelector('.ds-carrossel');
+  if (carrossel && window.KyvvoDS) window.KyvvoDS.carrosselIndice(carrossel);
   if (typeof onSharedReady === 'function') onSharedReady();
 });

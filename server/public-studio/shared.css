@@ -65,3 +65,9 @@ footer{padding:48px 6%;border-top:1px solid var(--border);display:flex;align-ite
 .footer-links{display:flex;gap:20px;flex-wrap:wrap}
 .footer-links a{font-size:.82rem;color:var(--muted);text-decoration:none;transition:color .2s}
 .footer-links a:hover{color:var(--text)}
+/* Rodapé público novo (.ds-rodape-publico, componente do DS) — o `footer{}`
+   acima era pro rodapé antigo (logo + 2 links); undo do display:flex/
+   border-top pra não brigar com o grid e a borda que o próprio componente
+   já desenha (.ds-rodape-publico-conteudo::before). Padding/cor o componente
+   já resolve sozinho (seletor de classe vence o de elemento). */
+.ds-rodape-publico{display:block;border-top:none}
