@@ -71,3 +71,9 @@ footer{padding:48px 6%;border-top:1px solid var(--border);display:flex;align-ite
    já desenha (.ds-rodape-publico-conteudo::before). Padding/cor o componente
    já resolve sozinho (seletor de classe vence o de elemento). */
 .ds-rodape-publico{display:block;border-top:none}
+/* kyvvo-claro.svg é o wordmark horizontal (522x240, com o próprio retângulo
+   branco de fundo) — o slot do DS é 1:1 com object-fit:cover pensado pra
+   foto de post do Instagram de verdade; com "cover" o logo ficava cortado
+   (só "yvvo" visível). Até ter uma foto real, "contain" mostra o logo
+   inteiro (com uma faixa escura acima/abaixo, sem cortar nada). */
+.ds-rodape-publico-imagem img{object-fit:contain}
