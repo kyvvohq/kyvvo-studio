@@ -161,68 +161,75 @@ test.describe('View Dia — grade de horários (PR2/PR8 — hora em hora)', () =
   });
 });
 
-test.describe('View Mês — horário-duração empilhados (US02.6)', () => {
-  test('dia com um agendamento mostra horário-duração', async ({ page }) => {
+test.describe('View Mês — componente .agenda-mes do DS', () => {
+  test('dia com um agendamento mostra o card compacto (cliente + serviço)', async ({ page }) => {
     await entrarNoPainel(page, {
-      mes: [{ data_hora: '2026-07-10T14:00:00.000Z', status: 'confirmado', duracao_minutos: 30 }],
+      mes: [{
+        id: 'ag1', data_hora: '2026-07-10T14:00:00.000Z', status: 'confirmado', duracao_minutos: 30,
+        cliente: 'Maria Silva', profissional: 'Bruna', servico: 'Corte', preco: '50.00',
+      }],
     });
-    await page.click('.tab[data-tab="mes"]');
+    await page.click('.agenda-visao[data-tab="mes"]');
 
-    const cel = page.locator('.dia-cel').filter({ has: page.locator('.num', { hasText: /^10$/ }) });
-    await expect(cel.locator('.dia-cel-ag')).toContainText('30min');
+    const cel = page.locator('.agenda-mes-celula').filter({ has: page.locator('.agenda-dia-num', { hasText: /^10$/ }) });
+    await expect(cel.locator('.agenda-card-cliente')).toHaveText('Maria Silva');
+    await expect(cel.locator('.agenda-card-servico')).toContainText('Corte');
   });
 
-  test('dia com vários agendamentos lista todos empilhados', async ({ page }) => {
+  test('dia com mais agendamentos do que cabe no card mostra "+N mais"', async ({ page }) => {
+    const item = (hora, id) => ({
+      id, data_hora: `2026-07-10T${hora}:00:00.000Z`, status: 'confirmado', duracao_minutos: 30,
+      cliente: `Cliente ${id}`, profissional: 'Bruna', servico: 'Corte', preco: '50.00',
+    });
     await entrarNoPainel(page, {
-      mes: [
-        { data_hora: '2026-07-10T11:00:00.000Z', status: 'confirmado', duracao_minutos: 30 },
-        { data_hora: '2026-07-10T14:00:00.000Z', status: 'confirmado', duracao_minutos: 60 },
-        { data_hora: '2026-07-10T16:00:00.000Z', status: 'cancelado', duracao_minutos: 45 },
-      ],
+      mes: [item('11', 'ag1'), item('14', 'ag2'), item('16', 'ag3'), item('18', 'ag4')],
     });
-    await page.click('.tab[data-tab="mes"]');
+    await page.click('.agenda-visao[data-tab="mes"]');
 
-    const cel = page.locator('.dia-cel').filter({ has: page.locator('.num', { hasText: /^10$/ }) });
-    const itens = cel.locator('.dia-cel-ag');
-    await expect(itens).toHaveCount(3);
-    // O cancelado fica com estilo diferenciado (riscado), não escondido.
-    await expect(itens.last()).toHaveClass(/dia-cel-ag-cancelado/);
+    const cel = page.locator('.agenda-mes-celula').filter({ has: page.locator('.agenda-dia-num', { hasText: /^10$/ }) });
+    // MAX_VISIVEIS = 3 (renderMesGrade) — o 4º vira "+1 mais".
+    await expect(cel.locator('.agenda-card-s')).toHaveCount(3);
+    await expect(cel.locator('.agenda-mais')).toHaveText('+1 mais');
   });
 
-  test('dia sem agendamentos não mostra lista', async ({ page }) => {
-    await entrarNoPainel(page, { mes: [] });
-    await page.click('.tab[data-tab="mes"]');
+  test('"+N mais" leva pra visão Dia daquele dia', async ({ page }) => {
+    const item = (hora, id) => ({
+      id, data_hora: `2026-07-10T${hora}:00:00.000Z`, status: 'confirmado', duracao_minutos: 30,
+      cliente: `Cliente ${id}`, profissional: 'Bruna', servico: 'Corte', preco: '50.00',
+    });
+    await entrarNoPainel(page, {
+      mes: [item('11', 'ag1'), item('14', 'ag2'), item('16', 'ag3'), item('18', 'ag4')],
+    });
+    await page.click('.agenda-visao[data-tab="mes"]');
+    await page.locator('.agenda-mais').click();
 
-    const cel = page.locator('.dia-cel').filter({ has: page.locator('.num', { hasText: /^15$/ }) });
-    await expect(cel.locator('.dia-cel-ag')).toHaveCount(0);
+    await expect(page.locator('.agenda-visao-ativa')).toHaveText('Dia');
   });
 
-  test('mostra o dia da semana no cabeçalho de cada coluna (PR2)', async ({ page }) => {
+  test('dia sem agendamentos não mostra card nenhum', async ({ page }) => {
     await entrarNoPainel(page, { mes: [] });
-    await page.click('.tab[data-tab="mes"]');
+    await page.click('.agenda-visao[data-tab="mes"]');
 
-    const cabecalho = await page.locator('.calendario-cabecalho-dia').allTextContents();
-    expect(cabecalho).toEqual(['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']);
+    const cel = page.locator('.agenda-mes-celula').filter({ has: page.locator('.agenda-dia-num', { hasText: /^15$/ }) });
+    await expect(cel.locator('.agenda-card-s')).toHaveCount(0);
   });
 
-  test('hover num dia aberto mostra "+" que abre novo agendamento pré-preenchido (PR2)', async ({ page }) => {
-    await entrarNoPainel(page, { mes: [] });
-    await page.click('.tab[data-tab="mes"]');
+  test('dia fechado (Configuração > Dias de funcionamento) nem vira coluna', async ({ page }) => {
+    await entrarNoPainel(page, { mes: [], configuracao: { dias_funcionamento: [1, 2, 3, 4, 5, 6] } }); // domingo fechado
+    await page.click('.agenda-visao[data-tab="mes"]');
 
-    const cel = page.locator('.dia-cel').filter({ has: page.locator('.num', { hasText: /^15$/ }) });
+    const cabecalho = await page.locator('.agenda-mes-cab').allTextContents();
+    expect(cabecalho).toEqual(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']);
+  });
+
+  test('hover num dia mostra "+" que abre novo agendamento pré-preenchido', async ({ page }) => {
+    await entrarNoPainel(page, { mes: [] });
+    await page.click('.agenda-visao[data-tab="mes"]');
+
+    const cel = page.locator('.agenda-mes-celula').filter({ has: page.locator('.agenda-dia-num', { hasText: /^15$/ }) });
     await cel.hover();
-    await cel.locator('.dia-cel-add').click();
+    await cel.locator('.agenda-mes-celula-add').click();
     await expect(page.locator('#form-novo-agendamento')).toBeVisible();
     await expect(page.locator('#novo-ag-data')).toHaveValue('2026-07-15');
-  });
-
-  test('dia fechado não tem botão de "+"', async ({ page }) => {
-    await entrarNoPainel(page, { mes: [], configuracao: { dias_funcionamento: [1, 2, 3, 4, 5, 6] } }); // domingo fechado
-    await page.click('.tab[data-tab="mes"]');
-
-    // 2026-07-05 é domingo.
-    const cel = page.locator('.dia-cel').filter({ has: page.locator('.num', { hasText: /^5$/ }) });
-    await expect(cel).toHaveClass(/dia-cel-fechado/);
-    await expect(cel.locator('.dia-cel-add')).toHaveCount(0);
   });
 });
