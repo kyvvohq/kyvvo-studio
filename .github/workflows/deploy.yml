@@ -56,15 +56,30 @@ jobs:
           source: "server/index.js,server/package.json,server/.npmrc,server/public-studio/**"
           target: "/opt/kyvvo/landing"
           strip_components: 1
-      - name: Reiniciar container da landing
+      # Health check (2026-09-25): sem isso, "o deploy rodou" só confirmava
+      # que o container foi recriado, nunca que o npm install/app dentro
+      # dele realmente subiu. Sem rota de health dedicada — `/` (index.html
+      # via @fastify/static) já confirma o Fastify de pé.
+      - name: Reiniciar container da landing + checar saúde
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ steps.sshkey.outputs.value }}
           script: |
+            set -e
             sudo /opt/kyvvo/scripts/gen-env-from-ssm.sh
             cd /opt/kyvvo && sudo docker compose up -d --force-recreate landing
+            for i in $(seq 1 15); do
+              if curl -sf http://127.0.0.1:3000/ > /dev/null; then
+                echo "OK: / respondeu na tentativa ${i} (~$((i * 2))s)."
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "::error::/ não respondeu depois de ~30s — logs do container:"
+            sudo docker logs kyvvo-landing-1 --tail 80
+            exit 1
 
   deploy-panel:
     needs: changes
@@ -112,7 +127,13 @@ jobs:
           source: "server/db/**"
           target: "/opt/kyvvo/panel/db"
           strip_components: 2
-      - name: Reiniciar container do painel
+      # Health check (2026-09-25): sem isso, "o deploy rodou" só confirmava
+      # que o container foi recriado, nunca que o npm install/app dentro
+      # dele realmente subiu (nem que as migrations aplicaram sem erro —
+      # embora essa parte já falhasse o job por causa do `set -e`). Sem rota
+      # de health dedicada — `/` (index.html via @fastify/static) já
+      # confirma o Fastify de pé.
+      - name: Reiniciar container do painel + checar saúde
         uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -130,3 +151,13 @@ jobs:
             # container antigo estar de pé.
             sudo docker compose run --rm studio node scripts/aplicar-migrations.js
             sudo docker compose up -d --force-recreate studio
+            for i in $(seq 1 15); do
+              if curl -sf http://127.0.0.1:3001/ > /dev/null; then
+                echo "OK: / respondeu na tentativa ${i} (~$((i * 2))s)."
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "::error::/ não respondeu depois de ~30s — logs do container:"
+            sudo docker logs kyvvo-studio-1 --tail 80
+            exit 1
