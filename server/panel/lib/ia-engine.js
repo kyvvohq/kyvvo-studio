@@ -335,6 +335,19 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
     } else {
       fastify.log.warn({ params }, 'Executor de ação IA — dataNascimento ausente/inválida em informar_nascimento');
     }
+    // Bug real em produção (2026-09-26): o prompt pede a data de nascimento
+    // como último gate antes de agendar/reagendar, e o cliente costuma
+    // responder tudo junto na mesma mensagem (data de nascimento + confirma o
+    // agendamento). A IA classifica o turno como "informar_nascimento" (regra
+    // do prompt) e já responde como se o agendamento estivesse confirmado —
+    // mas sem isto aqui, o agendamento em si nunca era criado, porque cada
+    // turno só executava UMA ação. `params` já veio com tudo que o
+    // agendamento precisa (mesmo JSON que a IA teria mandado com intent
+    // "agendar"/"reagendar"); `dataHoraAlvoISO` só existe quando é
+    // reagendamento de um atendimento específico.
+    if (params.dataHoraISO) {
+      return executarAcaoIA({ intent: params.dataHoraAlvoISO ? 'reagendar' : 'agendar', params, tenant, clienteId });
+    }
     return { ok: true };
   }
 
