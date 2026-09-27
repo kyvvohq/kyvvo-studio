@@ -123,7 +123,13 @@
 <footer data-ds-rodape></footer>
 
 <script src="/pagamento-form.js"></script>
-<script src="/app.js"></script>
+<!-- components.js precisa vir ANTES de app.js: o boot do painel chama
+     carregarNotificacoes() de cara (fim do app.js), que usa
+     window.KyvvoDS.notificacoesAtualizar — na ordem antiga (app.js primeiro)
+     essa primeira chamada era descartada (KyvvoDS ainda não existia) e o
+     balão só refletia a realidade a partir do primeiro polling de 60s,
+     nunca no carregamento da página. -->
 <script src="/ds/components.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>
