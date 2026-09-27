@@ -422,6 +422,31 @@ async function carregarConfiguracao() {
   if (dados) configuracao = dados;
 }
 
+// Serviço de notificações — balão do topo (painel.html, sino ao lado do
+// avatar). Polling simples (setInterval no boot, ver fim do arquivo), mesmo
+// endpoint alimenta a contagem do balão e a lista do dropdown de uma vez só.
+async function carregarNotificacoes() {
+  const sino = document.getElementById('notificacoes-sino');
+  const lista = document.getElementById('notificacoes-lista');
+  if (!sino || !lista || !window.KyvvoDS) return;
+  const dados = await api('/api/notificacoes');
+  if (!dados) return;
+  const grupos = dados.notificacoes || [];
+  const total = grupos.reduce((soma, g) => soma + g.itens.length, 0);
+  KyvvoDS.notificacoesAtualizar(sino, total);
+  lista.innerHTML = total === 0
+    ? '<div class="ds-notificacoes-vazio">Nenhuma notificação por enquanto.</div>'
+    : grupos.map((g) => `
+        <div class="ds-notificacoes-grupo-titulo">${escapeHtml(g.titulo)}</div>
+        ${g.itens.map((item) => `
+          <a class="ds-notificacoes-item" href="/atendimento.html?clienteId=${item.id}">
+            <div class="ds-notificacoes-item-titulo">${escapeHtml(item.titulo)}</div>
+            <div class="ds-notificacoes-item-meta">${escapeHtml(item.detalhe)}${item.desde ? ' · desde ' + new Date(item.desde).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</div>
+          </a>
+        `).join('')}
+      `).join('');
+}
+
 // Cabeçalhos de grupo expansível da sidebar (Agenda, Configurações) —
 // genérico via data-submenu em vez de um par de consts fixo por grupo, pra
 // suportar quantos grupos a sidebar precisar sem repetir a mesma lógica.
@@ -3068,6 +3093,7 @@ async function render() {
   if (menuAtual === 'inicio') return renderInicio();
   if (menuAtual === 'quadro') return renderQuadro();
   if (menuAtual === 'configuracao') return renderConfiguracao();
+  if (menuAtual === 'notificacoes') return renderNotificacoes();
   if (menuAtual === 'perfil') return renderPerfil();
   if (menuAtual === 'empresa') return renderMinhaEmpresa();
   if (menuAtual === 'equipe') return renderEquipe();
@@ -7089,6 +7115,52 @@ async function renderConfiguracao() {
   });
 }
 
+// Configurações > Notificações — liga/desliga cada tipo (lib/notificacoes.js
+// no backend, mesma lista replicada aqui só com chave+título pra não
+// precisar de um endpoint próprio só pra listar os tipos existentes).
+// Salva na hora ao trocar o toggle (sem botão "Salvar" — cada linha já é a
+// própria ação), reaproveitando o mesmo PATCH /api/configuracao de
+// Preferências (campo notificacoesAtivas).
+const TIPOS_NOTIFICACAO = [
+  { chave: 'whatsapp_aguardando_humano', titulo: 'Conversas de WhatsApp aguardando atendimento humano' },
+];
+
+async function renderNotificacoes() {
+  conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
+  await carregarConfiguracao();
+  const ativas = configuracao.notificacoes_ativas || {};
+
+  conteudo.innerHTML = `
+    <h2>Notificações</h2>
+    <div class="card">
+      ${TIPOS_NOTIFICACAO.map((tipo) => `
+        <label class="toggle-linha" data-chave="${tipo.chave}">
+          <span class="toggle-switch">
+            <input type="checkbox" class="notificacao-ativa" data-chave="${tipo.chave}" ${ativas[tipo.chave] === false ? '' : 'checked'}>
+            <span class="toggle-switch-trilho"></span>
+          </span>
+          ${escapeHtml(tipo.titulo)}
+        </label>
+      `).join('')}
+    </div>
+  `;
+
+  conteudo.querySelectorAll('.notificacao-ativa').forEach((chk) => {
+    chk.addEventListener('change', async () => {
+      const notificacoesAtivas = { ...configuracao.notificacoes_ativas, [chk.dataset.chave]: chk.checked };
+      const resultado = await api('/api/configuracao', { method: 'PATCH', body: JSON.stringify({ notificacoesAtivas }) });
+      if (resultado && !resultado.error) {
+        configuracao = resultado;
+        mostrarToast('Salvo com sucesso!', 'sucesso');
+        carregarNotificacoes();
+      } else {
+        chk.checked = !chk.checked;
+        mostrarToast((resultado && resultado.error) || 'Erro ao salvar.', 'erro');
+      }
+    });
+  });
+}
+
 // Lê a seção a partir da URL de carregamento (ex.: /agenda) em vez de sempre
 // abrir em Início — selecionarMenu (não só render()) porque também precisa
 // corrigir o "active" da sidebar, que o HTML estático sempre marca em
@@ -7099,3 +7171,7 @@ carregarConfiguracao().then(() => {
 });
 carregarModulosNoMenu();
 carregarUserMenu();
+// Balão de notificações (header, persistente entre trocas de menu — não
+// precisa de clearInterval como o do Quadro, que é escopado a uma view só).
+carregarNotificacoes();
+setInterval(carregarNotificacoes, 60000);
