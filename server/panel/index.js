@@ -83,6 +83,7 @@ const { registerWhatsappConfigRoutes } = require('./routes/whatsapp-config');
 const { registerAutomacoesRoutes } = require('./routes/automacoes');
 const automacoes = require('./lib/automacoes');
 const { registerConfiguracaoRoutes } = require('./routes/configuracao');
+const { registerNotificacoesRoutes } = require('./routes/notificacoes');
 // Fase 8 da modularização
 const { registerPagamentosRoutes } = require('./routes/pagamentos');
 // Fase 9 da modularização — montarResumoPagamentos não é mais usada direto
@@ -484,6 +485,9 @@ async function start() {
   // Configuração — extraído pra routes/configuracao.js (fase 7 da
   // modularização): GET/PATCH /api/configuracao, GET /api/tenant/modulos.
   registerConfiguracaoRoutes(fastify, pool);
+
+  // Serviço de notificações — balão do topo (GET /api/notificacoes).
+  registerNotificacoesRoutes(fastify, pool);
 
 
   // Financeiro — extraído pra routes/financeiro.js (fase 5 da modularização):

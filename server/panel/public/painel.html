@@ -31,17 +31,30 @@
     </button>
     <span class="topbar-produto-tag">Studio</span>
   </div>
-  <div class="user-menu" id="user-menu">
-    <button class="user-menu-toggle" id="user-menu-toggle">
-      <div class="user-menu-avatar" id="user-menu-avatar"></div>
-      <div class="user-menu-textos">
-        <div class="user-menu-nome" id="user-menu-nome"></div>
-        <div class="user-menu-empresa" id="user-menu-empresa"></div>
+  <div class="topbar-direita">
+    <div class="ds-notificacoes" id="notificacoes-sino">
+      <button class="ds-notificacoes-btn" id="notificacoes-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Notificações">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span class="ds-notificacoes-contagem" id="notificacoes-contagem" hidden></span>
+      </button>
+      <div class="ds-notificacoes-painel" role="menu" hidden>
+        <div class="ds-notificacoes-lista" id="notificacoes-lista"></div>
       </div>
-      <span class="user-menu-chevron">▾</span>
-    </button>
-    <div class="user-menu-dropdown" id="user-menu-dropdown" hidden>
-      <div class="user-menu-item" data-menu="perfil">Meu Perfil</div>
+    </div>
+    <div class="user-menu" id="user-menu">
+      <button class="user-menu-toggle" id="user-menu-toggle">
+        <div class="user-menu-avatar" id="user-menu-avatar"></div>
+        <div class="user-menu-textos">
+          <div class="user-menu-nome" id="user-menu-nome"></div>
+          <div class="user-menu-empresa" id="user-menu-empresa"></div>
+        </div>
+        <span class="user-menu-chevron">▾</span>
+      </button>
+      <div class="user-menu-dropdown" id="user-menu-dropdown" hidden>
+        <div class="user-menu-item" data-menu="perfil">Meu Perfil</div>
       <div class="user-menu-item" data-menu="equipe" data-somente-admin data-somente-plano-custom>Equipe</div>
       <div class="user-menu-item" data-menu="ajuda">Ajuda</div>
       <button class="user-menu-tema" id="btn-tema-toggle" type="button" role="switch" aria-checked="false">
@@ -51,6 +64,7 @@
       <div class="user-menu-divisor"></div>
       <button class="user-menu-sair" id="btn-sair"><span aria-hidden="true">⎋</span> Sair</button>
     </div>
+  </div>
   </div>
 </div>
 <div id="cobranca-banner" class="cobranca-banner" hidden>
@@ -81,6 +95,7 @@
           <li><button type="button" class="ds-menu-sublink menu-item" data-menu="cadastro">Cadastro</button></li>
           <li><button type="button" class="ds-menu-sublink menu-item" data-menu="empresa" data-somente-admin>Meu negócio</button></li>
           <li><button type="button" class="ds-menu-sublink menu-item" data-menu="configuracao" data-somente-admin>Preferências</button></li>
+          <li><button type="button" class="ds-menu-sublink menu-item" data-menu="notificacoes" data-somente-admin>Notificações</button></li>
           <li><button type="button" class="ds-menu-sublink menu-item" data-menu="whatsapp">WhatsApp</button></li>
           <li><button type="button" class="ds-menu-sublink menu-item" data-menu="automacoes" data-somente-admin>Automações</button></li>
           <li><button type="button" class="ds-menu-sublink menu-item" data-menu="pagamentos" data-somente-admin>Plano e cobrança</button></li>

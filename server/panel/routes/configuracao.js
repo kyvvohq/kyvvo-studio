@@ -3,6 +3,7 @@
 const planos = require('../lib/planos');
 const { diaDaSemanaBrasilia } = require('../lib/datetime');
 const { FORMAS_PAGAMENTO_CHAVES, FORMAS_PAGAMENTO_SEM_TAXA } = require('../lib/financeiro');
+const { TIPOS_NOTIFICACAO } = require('../lib/notificacoes');
 
 // Formato esperado: { "<chave>": { ativo: bool, taxa?: number }, ... },
 // chaves em FORMAS_PAGAMENTO_CHAVES. `taxa` é obrigatória (0-100) pra toda
@@ -26,13 +27,28 @@ function validarFormasPagamento(valor) {
   return null;
 }
 
+// Mesmo molde de validarFormasPagamento acima: objeto {"<chave>": bool},
+// chave precisa ser um tipo de notificação que existe de verdade
+// (lib/notificacoes.js) — nunca aceita chave desconhecida silenciosamente.
+function validarNotificacoesAtivas(valor) {
+  if (typeof valor !== 'object' || valor === null || Array.isArray(valor)) {
+    return 'notificacoesAtivas deve ser um objeto';
+  }
+  const chavesValidas = TIPOS_NOTIFICACAO.map((t) => t.chave);
+  for (const [chave, ativo] of Object.entries(valor)) {
+    if (!chavesValidas.includes(chave)) return `Tipo de notificação desconhecido: ${chave}`;
+    if (typeof ativo !== 'boolean') return `"${chave}" deve ser verdadeiro/falso`;
+  }
+  return null;
+}
+
 function registerConfiguracaoRoutes(fastify, pool) {
   fastify.get('/api/configuracao', { preHandler: [fastify.authenticate] }, async (request) => {
     const { tenantId } = request.user;
     const { rows } = await pool.query(
       `SELECT dias_funcionamento, formato_hora, horario_abertura, horario_fechamento, segmento,
               horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, tecnologia, plano,
-              cliente_inativo_dias, cliente_novo_dias, formas_pagamento
+              cliente_inativo_dias, cliente_novo_dias, formas_pagamento, notificacoes_ativas
        FROM tenants WHERE id = $1`,
       [tenantId]
     );
@@ -53,11 +69,16 @@ function registerConfiguracaoRoutes(fastify, pool) {
     const {
       diasFuncionamento, formatoHora, horarioAbertura, horarioFechamento,
       horarioAlmocoAtivo, horarioAlmocoInicio, horarioAlmocoFim,
-      clienteInativoDias, clienteNovoDias, formasPagamento,
+      clienteInativoDias, clienteNovoDias, formasPagamento, notificacoesAtivas,
     } = request.body || {};
 
     if (formasPagamento !== undefined) {
       const erro = validarFormasPagamento(formasPagamento);
+      if (erro) return reply.code(400).send({ error: erro });
+    }
+
+    if (notificacoesAtivas !== undefined) {
+      const erro = validarNotificacoesAtivas(notificacoesAtivas);
       if (erro) return reply.code(400).send({ error: erro });
     }
 
@@ -180,6 +201,7 @@ function registerConfiguracaoRoutes(fastify, pool) {
            cliente_inativo_dias = COALESCE($9, cliente_inativo_dias),
            cliente_novo_dias = COALESCE($10, cliente_novo_dias),
            formas_pagamento = COALESCE($11, formas_pagamento),
+           notificacoes_ativas = COALESCE($12, notificacoes_ativas),
            -- US56 — qualquer salvamento nesta tela conta como "horário
            -- revisado" pro checklist de onboarding, mesmo que o tenant só
            -- confirme os valores padrão sem alterar nada.
@@ -187,11 +209,12 @@ function registerConfiguracaoRoutes(fastify, pool) {
          WHERE id = $1
          RETURNING dias_funcionamento, formato_hora, horario_abertura, horario_fechamento,
                    horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, cliente_inativo_dias, cliente_novo_dias,
-                   formas_pagamento`,
+                   formas_pagamento, notificacoes_ativas`,
         [
           tenantId, diasFuncionamento ? JSON.stringify(diasFuncionamento) : null, formatoHora, horarioAbertura, horarioFechamento,
           horarioAlmocoAtivo ?? null, horarioAlmocoInicio, horarioAlmocoFim, clienteInativoDias ?? null, clienteNovoDias ?? null,
           formasPagamento ? JSON.stringify(formasPagamento) : null,
+          notificacoesAtivas ? JSON.stringify(notificacoesAtivas) : null,
         ]
       );
       await client.query('COMMIT');
