@@ -1496,7 +1496,7 @@ function abrirModalReagendar(ag) {
     `
       <div class="modal-erro" id="reagendar-erro"></div>
       <label for="reagendar-data">Nova data</label>
-      <input type="date" id="reagendar-data" min="${hoje}" value="${ag.data_hora.slice(0, 10)}">
+      <input type="date" id="reagendar-data" min="${hoje}" value="${formatarDataISO(new Date(ag.data_hora))}">
       <label for="reagendar-horario">Novo horário</label>
       <select id="reagendar-horario"><option>Carregando horários...</option></select>
       <div class="modal-acoes">
@@ -1569,7 +1569,7 @@ function abrirModalEncaixe(ag) {
       <label for="encaixe-servico">Serviço</label>
       <select id="encaixe-servico"><option value="">Carregando serviços...</option></select>
       <label for="encaixe-data">Data</label>
-      <input type="date" id="encaixe-data" min="${hoje}" value="${ag.data_hora.slice(0, 10)}">
+      <input type="date" id="encaixe-data" min="${hoje}" value="${formatarDataISO(new Date(ag.data_hora))}">
       <label for="encaixe-horario">Horário</label>
       <select id="encaixe-horario"><option>Selecione um serviço primeiro</option></select>
       <p class="modal-texto">Encaixe pode sobrepor um horário já ocupado — os marcados "(ocupado)" continuam selecionáveis de propósito.</p>
@@ -4968,44 +4968,122 @@ function renderDiaCardCompacto(ag) {
   `;
 }
 
+// PR (2026-09-27) — blocos espichados na view Dia: altura/posição em px a
+// partir da duração real (`ag.duracao_minutos`), em vez de "o agendamento só
+// ocupa a hora em que começa" (bug real em produção: uma Micro Pigmentação
+// de 240min aparecia como se ocupasse só 1 hora, e as 3 horas seguintes
+// ficavam mostrando "Livre"). ALTURA_LINHA_DIA_PX precisa bater com o CSS
+// (.agenda-grade-blocos .agenda-linha { height: 60px }) — 60px pros 60min de
+// SLOT_INTERVALO_MINUTOS, 1px por minuto, matemática simples de top/height.
+const ALTURA_LINHA_DIA_PX = 60;
+
+// Minutos desde a ABERTURA, já descontando o intervalo de almoço pra quem
+// vem depois dele — o mesmo espaço "comprimido" que gerarHorariosGradeDia já
+// usa pra decidir quais linhas existem (o almoço nunca vira linha, então o
+// overlay de blocos não pode deixar um buraco ali também). Nunca precisa
+// lidar com um bloco atravessando o almoço: dentroDoHorarioFuncionamento (a
+// mesma validação do backend, lib/horario-funcionamento.js) já rejeita
+// qualquer agendamento cujo horário+duração invada o intervalo.
+function minutoAjustadoDia(dataHoraISO) {
+  const minutoBruto = horarioParaMinutosFrontend(horaChave24h(dataHoraISO));
+  const aberturaMin = horarioParaMinutosFrontend(configuracao.horario_abertura || '08:00');
+  const almocoFimMin = configuracao.horario_almoco_ativo ? horarioParaMinutosFrontend(configuracao.horario_almoco_fim) : null;
+  const descontoAlmoco = (almocoFimMin != null && minutoBruto >= almocoFimMin) ? minutosIntervaloAlmoco() : 0;
+  return minutoBruto - aberturaMin - descontoAlmoco;
+}
+
+// Layout de colunas por sobreposição REAL de horário (não mais "mesma hora
+// cheia") — algoritmo clássico de "salas de reunião": ordena por início,
+// agrupa em clusters que se sobrepõem transitivamente entre si, e dentro de
+// cada cluster distribui em colunas (greedy: reaproveita a primeira coluna já
+// livre). totalColunas de cada item é o tamanho do cluster em que ele caiu,
+// não o total do dia inteiro — dois agendamentos que nunca se cruzam no
+// tempo continuam ocupando a largura inteira, cada um na sua vez.
+function calcularBlocosDia(agendamentos) {
+  const itens = agendamentos
+    .map((ag) => {
+      const inicio = horarioParaMinutosFrontend(horaChave24h(ag.data_hora));
+      const fim = inicio + Number(ag.duracao_minutos || 0);
+      return { ag, inicio, fim };
+    })
+    .sort((a, b) => a.inicio - b.inicio);
+
+  const resultado = [];
+  let grupo = [];
+  let fimGrupo = -Infinity;
+  const fecharGrupo = () => {
+    if (!grupo.length) return;
+    const colunas = [];
+    for (const item of grupo) {
+      let coluna = colunas.findIndex((fimColuna) => fimColuna <= item.inicio);
+      if (coluna === -1) coluna = colunas.length;
+      colunas[coluna] = item.fim;
+      resultado.push({ ...item, coluna });
+    }
+    const totalColunas = colunas.length;
+    for (let i = resultado.length - grupo.length; i < resultado.length; i++) resultado[i].totalColunas = totalColunas;
+  };
+  for (const item of itens) {
+    if (grupo.length && item.inicio >= fimGrupo) { fecharGrupo(); grupo = []; fimGrupo = -Infinity; }
+    grupo.push(item);
+    fimGrupo = Math.max(fimGrupo, item.fim);
+  }
+  fecharGrupo();
+  return resultado;
+}
+
 function renderDiaGrade(diaISO, agendamentos) {
   const linhas = gerarHorariosGradeDia();
   if (linhas.length === 0) {
     return '<div class="vazio">Nenhum horário configurado (confira Abertura/Fechamento em Configuração).</div>';
   }
 
-  const porHorario = {};
-  for (const ag of agendamentos) {
-    const chave = horaChaveGradeBucket(ag.data_hora);
-    (porHorario[chave] = porHorario[chave] || []).push(ag);
-  }
+  // Cancelado continua contando pra ocupação visual do bucket (mesma
+  // paridade de antes — só ganhava o tom "agendamento-cancelado" no card,
+  // nunca sumia da grade).
+  const blocos = calcularBlocosDia(agendamentos);
 
   const ehHoje = diaISO === formatarDataISO(new Date());
   const horaAtualBucket = ehHoje ? horaChaveGradeBucket(new Date().toISOString()) : null;
 
   const corpo = linhas.map(({ hora, intervalo }) => {
-    const itens = intervalo ? [] : (porHorario[hora] || []);
-    const multi = itens.length > 1;
+    const horaMin = horarioParaMinutosFrontend(hora);
+    const horaFimMin = horaMin + SLOT_INTERVALO_MINUTOS;
+    // "Ocupada" agora é sobreposição real (início < fim do bucket E início do
+    // bucket < fim do agendamento) — um serviço de 240min começando às 11h
+    // ocupa 11h/12h/13h/14h inteiras, não só a linha das 11h.
+    const ocupada = !intervalo && blocos.some((b) => b.inicio < horaFimMin && horaMin < b.fim);
     const conteudoLinha = intervalo
       ? '<span class="agenda-livre agenda-intervalo">Intervalo</span>'
-      : !itens.length
-        ? '<span class="agenda-livre">Livre</span>'
-        : itens.length === 1
-          ? renderDiaCardHorizontal(itens[0])
-          : `<div class="agenda-multi">${itens.map(renderDiaCardCompacto).join('')}</div>`;
+      : (ocupada ? '' : '<span class="agenda-livre">Livre</span>');
     return `
       <div class="agenda-linha${hora === horaAtualBucket ? ' agenda-linha-agora' : ''}${intervalo ? ' agenda-linha-intervalo' : ''}">
         <div class="agenda-rail">
           <span class="agenda-rail-hora">${hora}</span>
-          ${multi ? `<span class="agenda-rail-nota">${itens.length} em paralelo</span>` : ''}
         </div>
         <div class="agenda-conteudo">${conteudoLinha}</div>
-        ${intervalo ? '' : `<button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora}">+</button>`}
+        ${intervalo || ocupada ? '' : `<button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora}">+</button>`}
       </div>
     `;
   }).join('');
 
-  return `<div class="agenda-grade">${corpo}</div>`;
+  const pxPorMinuto = ALTURA_LINHA_DIA_PX / SLOT_INTERVALO_MINUTOS;
+  const alturaTotal = linhas.length * ALTURA_LINHA_DIA_PX;
+  const camadaBlocos = blocos.map(({ ag, coluna, totalColunas }) => {
+    const top = minutoAjustadoDia(ag.data_hora) * pxPorMinuto;
+    const altura = Math.max(Number(ag.duracao_minutos || 0) * pxPorMinuto - 4, 24);
+    const largura = 100 / totalColunas;
+    const esquerda = largura * coluna;
+    const card = totalColunas > 1 ? renderDiaCardCompacto(ag) : renderDiaCardHorizontal(ag);
+    return `<div class="agenda-bloco" style="top:${top}px;height:${altura}px;left:${esquerda}%;width:calc(${largura}% - 4px)">${card}</div>`;
+  }).join('');
+
+  return `
+    <div class="agenda-grade agenda-grade-blocos" style="height:${alturaTotal}px">
+      ${corpo}
+      <div class="agenda-bloco-camada">${camadaBlocos}</div>
+    </div>
+  `;
 }
 
 async function renderDia() {
@@ -5116,9 +5194,15 @@ async function renderSemana() {
 
   agendamentosAtuais = data.agendamentos;
 
+  // Bug real em produção (2026-09-27): `ag.data_hora` vem em UTC — um recorte
+  // ingênuo dos 10 primeiros caracteres pega o dia UTC, não o de Brasília.
+  // Perto da virada (ex.: 23h+ de Brasília = já é o dia seguinte em UTC, ou
+  // de madrugada em UTC = ainda o dia anterior em Brasília) o agendamento
+  // caía na coluna errada da semana. formatarDataISO já resolve isso em
+  // todo o resto do arquivo — só faltava aqui.
   const porDia = {};
   for (const ag of data.agendamentos) {
-    const diaISO = ag.data_hora.slice(0, 10);
+    const diaISO = formatarDataISO(new Date(ag.data_hora));
     if (!porDia[diaISO]) porDia[diaISO] = [];
     porDia[diaISO].push(ag);
   }
@@ -5380,9 +5464,11 @@ async function renderMes() {
 
   agendamentosAtuais = data.agendamentos;
 
+  // Mesmo bug de fuso da Semana (ver comentário lá) — recorte ingênuo da
+  // string UTC em vez de converter pra Brasília.
   const porDia = {};
   for (const ag of data.agendamentos) {
-    const diaISO = ag.data_hora.slice(0, 10);
+    const diaISO = formatarDataISO(new Date(ag.data_hora));
     if (!porDia[diaISO]) porDia[diaISO] = [];
     porDia[diaISO].push(ag);
   }

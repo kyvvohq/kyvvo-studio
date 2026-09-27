@@ -961,6 +961,40 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
    mas em botão próprio (não .grade-linha-add: célula do mês é vertical, o
    botão fica no canto, não centralizado à direita) — evita conflito de
    clique com os cards/.ds-acoes/"+N mais" dentro da mesma célula. */
+/* Blocos espichados na view Dia (PR — duração real do serviço, achado em
+   produção 2026-09-27: uma Micro Pigmentação de 240min aparecia como se
+   ocupasse só 1 hora, porque a grade original só marca o agendamento na
+   linha em que ele COMEÇA, nunca ocupa visualmente as horas seguintes).
+   `.agenda-grade` (componente do DS) não tem position:relative por padrão —
+   só liga aqui, escopado a esta classe extra, pra não afetar Semana/Quadro/
+   Mês (que continuam com o card dentro do próprio bucket, sem overlay).
+   Altura de linha fixa (60px = 1px/minuto, SLOT_INTERVALO_MINUTOS=60 no
+   app.js) é o que permite calcular top/height em JS e bater exatamente com
+   a régua renderizada — droppa o min-height flexível/a régua "hora atual
+   maior" da grade padrão, que quebrariam essa matemática. */
+.agenda-grade-blocos { position: relative; }
+.agenda-grade-blocos .agenda-linha { height: 60px; min-height: 60px; }
+.agenda-bloco-camada {
+  position: absolute;
+  top: 0;
+  left: 78px;
+  right: 0;
+  pointer-events: none;
+}
+.agenda-bloco {
+  position: absolute;
+  min-height: 28px;
+  padding: 2px 4px;
+  pointer-events: auto;
+  z-index: 1;
+}
+.agenda-bloco .agenda-card { height: 100%; display: flex; }
+.agenda-bloco .agenda-card-h-linha,
+.agenda-bloco .agenda-card-c-linha { align-items: flex-start; height: 100%; flex-wrap: wrap; row-gap: 2px; }
+@media (max-width: 640px) {
+  .agenda-bloco-camada { left: 56px; }
+}
+
 .agenda-mes-celula { position: relative; }
 .agenda-mes-celula-add {
   position: absolute;
