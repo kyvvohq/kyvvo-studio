@@ -425,6 +425,23 @@ async function carregarConfiguracao() {
 // Serviço de notificações — balão do topo (painel.html, sino ao lado do
 // avatar). Polling simples (setInterval no boot, ver fim do arquivo), mesmo
 // endpoint alimenta a contagem do balão e a lista do dropdown de uma vez só.
+// Destino do clique em cada item do dropdown — por tipo, porque
+// whatsapp_aguardando_humano é uma página separada da SPA (atendimento.html)
+// e disparos_acabando é uma aba dentro da própria SPA (Automações >
+// Disparos, sem URL própria pra linkar direto).
+function abrirNotificacaoItem(tipo, id) {
+  if (tipo === 'whatsapp_aguardando_humano') {
+    window.location.href = `/atendimento.html?clienteId=${id}`;
+  } else if (tipo === 'disparos_acabando') {
+    automacoesAbaAtiva = 'disparos';
+    selecionarMenu('automacoes');
+  }
+}
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('.ds-notificacoes-item');
+  if (item) { e.preventDefault(); abrirNotificacaoItem(item.dataset.tipo, item.dataset.id); }
+});
+
 async function carregarNotificacoes() {
   const sino = document.getElementById('notificacoes-sino');
   const lista = document.getElementById('notificacoes-lista');
@@ -439,7 +456,7 @@ async function carregarNotificacoes() {
     : grupos.map((g) => `
         <div class="ds-notificacoes-grupo-titulo">${escapeHtml(g.titulo)}</div>
         ${g.itens.map((item) => `
-          <a class="ds-notificacoes-item" href="/atendimento.html?clienteId=${item.id}">
+          <a class="ds-notificacoes-item" href="#" data-tipo="${g.tipo}" data-id="${item.id}">
             <div class="ds-notificacoes-item-titulo">${escapeHtml(item.titulo)}</div>
             <div class="ds-notificacoes-item-meta">${escapeHtml(item.detalhe)}${item.desde ? ' · desde ' + new Date(item.desde).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</div>
           </a>
@@ -7121,42 +7138,91 @@ async function renderConfiguracao() {
 // Salva na hora ao trocar o toggle (sem botão "Salvar" — cada linha já é a
 // própria ação), reaproveitando o mesmo PATCH /api/configuracao de
 // Preferências (campo notificacoesAtivas).
+// Mesma lista de lib/notificacoes.js (backend), só com o que o frontend
+// precisa pra desenhar a tela — chave+título pra cada toggle, e
+// `campoNumerico` quando o tipo tem um parâmetro extra editável (ver
+// disparos_acabando). Evita um endpoint só pra listar os tipos existentes.
 const TIPOS_NOTIFICACAO = [
   { chave: 'whatsapp_aguardando_humano', titulo: 'Conversas de WhatsApp aguardando atendimento humano' },
+  {
+    chave: 'disparos_acabando',
+    titulo: 'Disparos de WhatsApp acabando',
+    campoNumerico: { chave: 'limiar', label: 'Avisar quando restarem até', padrao: 10 },
+  },
 ];
+
+function notificacaoConfigAtual(chave) {
+  const cfg = (configuracao.notificacoes_ativas || {})[chave];
+  return cfg && typeof cfg === 'object' ? cfg : {};
+}
 
 async function renderNotificacoes() {
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
   await carregarConfiguracao();
-  const ativas = configuracao.notificacoes_ativas || {};
 
   conteudo.innerHTML = `
     <h2>Notificações</h2>
     <div class="card">
-      ${TIPOS_NOTIFICACAO.map((tipo) => `
-        <label class="toggle-linha" data-chave="${tipo.chave}">
-          <span class="toggle-switch">
-            <input type="checkbox" class="notificacao-ativa" data-chave="${tipo.chave}" ${ativas[tipo.chave] === false ? '' : 'checked'}>
-            <span class="toggle-switch-trilho"></span>
-          </span>
-          ${escapeHtml(tipo.titulo)}
-        </label>
-      `).join('')}
+      ${TIPOS_NOTIFICACAO.map((tipo) => {
+        const cfg = notificacaoConfigAtual(tipo.chave);
+        const ativo = cfg.ativo !== false;
+        return `
+          <div class="notificacao-linha" data-chave="${tipo.chave}" style="margin-bottom:16px">
+            <label class="toggle-linha">
+              <span class="toggle-switch">
+                <input type="checkbox" class="notificacao-ativa" data-chave="${tipo.chave}" ${ativo ? 'checked' : ''}>
+                <span class="toggle-switch-trilho"></span>
+              </span>
+              ${escapeHtml(tipo.titulo)}
+            </label>
+            ${tipo.campoNumerico ? `
+              <div class="notificacao-campo-numerico" style="margin:8px 0 0 44px;${ativo ? '' : 'display:none'}">
+                <label>${escapeHtml(tipo.campoNumerico.label)}
+                  <input type="number" min="1" step="1" class="notificacao-numerico" data-chave="${tipo.chave}" data-campo="${tipo.campoNumerico.chave}" value="${cfg[tipo.campoNumerico.chave] || tipo.campoNumerico.padrao}" style="width:80px;margin-left:8px">
+                </label>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('')}
     </div>
   `;
 
+  // Cada mudança (toggle ou número) manda o objeto INTEIRO daquela chave já
+  // mesclado — mesmo padrão de formas_pagamento (PATCH substitui o objeto
+  // completo, não mescla parcial no backend).
+  async function salvar(chave, patchParcial) {
+    const cfgAtual = notificacaoConfigAtual(chave);
+    const notificacoesAtivas = { ...configuracao.notificacoes_ativas, [chave]: { ...cfgAtual, ...patchParcial } };
+    const resultado = await api('/api/configuracao', { method: 'PATCH', body: JSON.stringify({ notificacoesAtivas }) });
+    if (resultado && !resultado.error) {
+      configuracao = resultado;
+      mostrarToast('Salvo com sucesso!', 'sucesso');
+      carregarNotificacoes();
+      return true;
+    }
+    mostrarToast((resultado && resultado.error) || 'Erro ao salvar.', 'erro');
+    return false;
+  }
+
   conteudo.querySelectorAll('.notificacao-ativa').forEach((chk) => {
     chk.addEventListener('change', async () => {
-      const notificacoesAtivas = { ...configuracao.notificacoes_ativas, [chk.dataset.chave]: chk.checked };
-      const resultado = await api('/api/configuracao', { method: 'PATCH', body: JSON.stringify({ notificacoesAtivas }) });
-      if (resultado && !resultado.error) {
-        configuracao = resultado;
-        mostrarToast('Salvo com sucesso!', 'sucesso');
-        carregarNotificacoes();
-      } else {
-        chk.checked = !chk.checked;
-        mostrarToast((resultado && resultado.error) || 'Erro ao salvar.', 'erro');
+      const linha = chk.closest('.notificacao-linha');
+      const campoNumerico = linha.querySelector('.notificacao-campo-numerico');
+      const ok = await salvar(chk.dataset.chave, { ativo: chk.checked });
+      if (!ok) { chk.checked = !chk.checked; return; }
+      if (campoNumerico) campoNumerico.style.display = chk.checked ? '' : 'none';
+    });
+  });
+
+  conteudo.querySelectorAll('.notificacao-numerico').forEach((input) => {
+    input.addEventListener('change', async () => {
+      const valor = parseInt(input.value, 10);
+      if (!Number.isInteger(valor) || valor < 1) {
+        mostrarToast('Informe um número inteiro maior que zero.', 'erro');
+        return;
       }
+      await salvar(input.dataset.chave, { [input.dataset.campo]: valor });
     });
   });
 }
