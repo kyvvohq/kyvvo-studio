@@ -322,7 +322,6 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
     padding: var(--space-2) var(--space-3);
     overflow-x: auto;
   }
-  .ds-menu-topo { display: none; }
   .ds-menu-lista { flex-direction: row; gap: 4px; }
   .ds-menu-grupo { position: relative; }
   .ds-menu-sub {
