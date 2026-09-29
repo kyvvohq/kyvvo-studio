@@ -1198,15 +1198,30 @@ function abrirModalNovoAgendamento(prefill) {
   // decisão real do usuário. Só reaparece quando há 2+ (plano Custom).
   const labelProfissional = document.querySelector('label[for="novo-ag-profissional"]');
   const selectProfissional = document.getElementById('novo-ag-profissional');
+  let profissionaisCarregados = [];
+
+  // Profissional exclusivo (substituiu profissional_preferencial_id): quando
+  // o serviço escolhido tem `profissionais_exclusivos` não-vazio, o campo
+  // Profissional só oferece essas opções — servico "sem exclusividade"
+  // (array vazio) continua mostrando todos, sem restringir.
+  function popularSelectProfissional(idsPermitidos) {
+    const valorAtual = selectProfissional.value;
+    const lista = idsPermitidos && idsPermitidos.length
+      ? profissionaisCarregados.filter((p) => idsPermitidos.includes(p.id))
+      : profissionaisCarregados;
+    selectProfissional.innerHTML = '<option value="">Selecione...</option>' +
+      lista.map((p) => `<option value="${p.id}">${p.nome}</option>`).join('');
+    if (lista.some((p) => p.id === valorAtual)) selectProfissional.value = valorAtual;
+  }
+
   api('/api/profissionais').then((resultado) => {
     if (!resultado || !resultado.profissionais) {
       selectProfissional.innerHTML = '<option value="">Erro ao carregar profissionais</option>';
       return;
     }
-    const profissionais = resultado.profissionais;
-    selectProfissional.innerHTML = '<option value="">Selecione...</option>' +
-      profissionais.map((p) => `<option value="${p.id}">${p.nome}</option>`).join('');
-    if (profissionais.length <= 1) {
+    profissionaisCarregados = resultado.profissionais;
+    popularSelectProfissional(null);
+    if (profissionaisCarregados.length <= 1) {
       // `label { display: block }` (style.css) é regra de autor e vence o
       // `[hidden]` do user-agent stylesheet independente de especificidade
       // (mesma pegadinha já documentada em .cadastro-plano[hidden]) — por
@@ -1216,24 +1231,18 @@ function abrirModalNovoAgendamento(prefill) {
       selectProfissional.hidden = true;
       selectProfissional.style.display = 'none';
       selectProfissional.removeAttribute('data-obrigatorio');
-      if (profissionais.length === 1) {
-        selectProfissional.value = profissionais[0].id;
+      if (profissionaisCarregados.length === 1) {
+        selectProfissional.value = profissionaisCarregados[0].id;
         selectProfissional.dispatchEvent(new Event('change'));
       }
     }
   });
 
-  // Profissional preferencial (PR4/US17): escolher um serviço que tenha um
-  // marcado pré-seleciona ele no campo Profissional — o usuário ainda pode
-  // trocar manualmente depois. Registrado antes do listener de
-  // carregarSlotsNovoAgendamento (abaixo) pra já valer na mesma mudança.
+  // Registrado antes do listener de carregarSlotsNovoAgendamento (abaixo)
+  // pra já valer na mesma mudança.
   document.getElementById('novo-ag-servico').addEventListener('change', () => {
     const servico = servicosCarregados.find((s) => s.id === document.getElementById('novo-ag-servico').value);
-    if (!servico || !servico.profissional_preferencial_id) return;
-    const profissionalSelect = document.getElementById('novo-ag-profissional');
-    if ([...profissionalSelect.options].some((o) => o.value === servico.profissional_preferencial_id)) {
-      profissionalSelect.value = servico.profissional_preferencial_id;
-    }
+    popularSelectProfissional(servico ? servico.profissionais_exclusivos : null);
   });
 
   // ST09.3 — Carrega os slots reais de GET /agendamentos/disponibilidade sempre
@@ -1791,6 +1800,16 @@ document.addEventListener('ds-acoes-escolher', (e) => {
     return;
   }
 
+  // Serviços (US17/ST17.3, redesenho do menu Serviços pro CRUD padrão).
+  if (caixa.dataset.servicoId) {
+    const servico = servicosAtuais.find((s) => s.id === caixa.dataset.servicoId);
+    if (!servico) return;
+    if (acao === 'editar') abrirModalServico(servico);
+    else if (acao === 'excluir') abrirModalExcluirServico(servico);
+    else if (acao === 'desabilitar' || acao === 'habilitar') alternarAtivoServico(servico);
+    return;
+  }
+
   const clienteId = caixa.dataset.clienteId;
   const cliente = clientesAtuais.find((x) => x.id === clienteId);
   if (!cliente) return;
@@ -1970,19 +1989,13 @@ conteudo.addEventListener('click', (e) => {
     }
   }
 
-  // US17 — ações de editar/excluir nas listas de Serviços e Profissionais.
-  // Usam atributos próprios (data-acao-servico/data-acao-profissional), não
-  // "data-acao", pra não colidir com a busca em agendamentosAtuais acima.
-  const acaoServicoBtn = e.target.closest('[data-acao-servico]');
-  if (acaoServicoBtn) {
-    document.querySelectorAll('.menu-acoes.aberto').forEach((m) => m.classList.remove('aberto'));
-    const servico = servicosAtuais.find((s) => s.id === acaoServicoBtn.dataset.id);
-    if (!servico) return;
-    if (acaoServicoBtn.dataset.acaoServico === 'editar') abrirModalServico(servico);
-    if (acaoServicoBtn.dataset.acaoServico === 'excluir') abrirModalExcluirServico(servico);
-    if (acaoServicoBtn.dataset.acaoServico === 'desabilitar' || acaoServicoBtn.dataset.acaoServico === 'habilitar') {
-      alternarAtivoServico(servico);
-    }
+  // Serviços (US17/ST17.3) — clicar na linha abre a edição, mesmo padrão
+  // data-servico-abrir/linha-clicavel usado em Clientes (data-cliente-abrir).
+  const linhaServicoEl = e.target.closest('[data-servico-abrir]');
+  if (linhaServicoEl) {
+    const servico = servicosAtuais.find((s) => s.id === linhaServicoEl.dataset.servicoAbrir);
+    if (servico) abrirModalServico(servico);
+    return;
   }
 
   const acaoProfissionalBtn = e.target.closest('[data-acao-profissional]');
@@ -3152,26 +3165,35 @@ async function renderCadastro() {
 let servicosAtuais = [];
 // formatarPreco agora vive em pagamento-form.js (US52).
 
-// `nomeProfissionalPreferencial` já vem resolvido de renderServicos (evita
-// cada card refazer a mesma busca em profissionaisAtuais).
-function renderServicoItem(s, nomeProfissionalPreferencial) {
+// Linha de tabela no padrão CRUD compartilhado (mesmo de Clientes): clicar
+// na linha abre a edição (data-servico-abrir na <tr>), o "⋯" é o componente
+// .ds-acoes do design system (tratado no listener global ds-acoes-escolher).
+function renderServicoLinha(s, profissionaisPorId, mostrarProfissionais) {
   const desabilitado = s.ativo === false;
+  const nomesProfissionais = (s.profissionais_exclusivos || [])
+    .map((id) => profissionaisPorId.get(id))
+    .filter(Boolean);
   return `
-    <div class="agendamento-item servico-item${desabilitado ? ' servico-desabilitado' : ''}" data-id="${s.id}">
-      <div class="servico-info">
-        <div class="agendamento-detalhe">Serviço: <strong>${s.nome}</strong></div>
-        <div class="agendamento-detalhe">Duração: ${s.duracao_minutos} min</div>
-        <div class="agendamento-detalhe">Valor: ${formatarPreco(s.preco)}</div>
-        ${s.descricao ? `<div class="agendamento-detalhe servico-descricao">${s.descricao}</div>` : ''}
-        ${nomeProfissionalPreferencial && contaStatus && contaStatus.mostrar_profissional ? `<div class="agendamento-detalhe">Profissional preferencial: ${nomeProfissionalPreferencial}</div>` : ''}
-        ${desabilitado ? '<span class="badge badge-status-inativo">Desabilitado</span>' : ''}
-      </div>
-      <div class="servico-acoes">
-        <button class="btn-secundario" data-acao-servico="editar" data-id="${s.id}">Editar</button>
-        <button class="btn-secundario" data-acao-servico="${desabilitado ? 'habilitar' : 'desabilitar'}" data-id="${s.id}">${desabilitado ? 'Habilitar' : 'Desabilitar'}</button>
-        <button class="btn-secundario acao-perigo" data-acao-servico="excluir" data-id="${s.id}">Excluir</button>
-      </div>
-    </div>
+    <tr class="linha-clicavel" data-servico-abrir="${s.id}">
+      <td>
+        <div>${s.nome}</div>
+        ${s.descricao ? `<div class="cliente-linha-telefone">${escapeHtml(s.descricao)}</div>` : ''}
+      </td>
+      <td>${s.duracao_minutos} min</td>
+      <td>${formatarPreco(s.preco)}</td>
+      ${mostrarProfissionais ? `<td>${nomesProfissionais.length ? escapeHtml(nomesProfissionais.join(', ')) : '—'}</td>` : ''}
+      <td>${desabilitado ? '<span class="badge badge-status-inativo">Desabilitado</span>' : '<span class="badge badge-status-ativo">Ativo</span>'}</td>
+      <td>
+        <span class="ds-acoes" data-servico-id="${s.id}">
+          <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações">⋯</button>
+          <div class="ds-acoes-menu" role="menu" hidden>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="editar">Editar</button>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="${desabilitado ? 'habilitar' : 'desabilitar'}">${desabilitado ? 'Habilitar' : 'Desabilitar'}</button>
+            <button type="button" role="menuitem" class="ds-acoes-item ds-acoes-item-perigo" data-acao="excluir">Excluir</button>
+          </div>
+        </span>
+      </td>
+    </tr>
   `;
 }
 
@@ -3194,6 +3216,7 @@ async function renderServicos() {
   if (!dataServicos) return;
   servicosAtuais = dataServicos.servicos;
   const profissionaisPorId = new Map((dataProfissionais?.profissionais || []).map((p) => [p.id, p.nome]));
+  const mostrarProfissionais = !!(contaStatus && contaStatus.mostrar_profissional);
 
   let html = `
     <div class="nav-periodo">
@@ -3201,16 +3224,57 @@ async function renderServicos() {
       <button class="btn-novo-agendamento" id="btn-novo-servico">+ Novo serviço</button>
     </div>
   `;
-  html += servicosAtuais.length
-    ? servicosAtuais.map((s) => renderServicoItem(s, profissionaisPorId.get(s.profissional_preferencial_id))).join('')
-    : '<div class="vazio">Nenhum serviço cadastrado ainda.</div>';
+
+  if (!servicosAtuais.length) {
+    html += '<div class="vazio">Nenhum serviço cadastrado ainda.</div>';
+  } else {
+    html += `
+      <div class="tabela-wrapper">
+        <table class="tabela-tenants">
+          <thead>
+            <tr>
+              <th>Serviço</th>
+              <th>Duração</th>
+              <th>Valor</th>
+              ${mostrarProfissionais ? '<th>Profissionais</th>' : ''}
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${servicosAtuais.map((s) => renderServicoLinha(s, profissionaisPorId, mostrarProfissionais)).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
   conteudo.innerHTML = html;
   document.getElementById('btn-novo-servico').addEventListener('click', () => abrirModalServico(null));
 }
 
-function abrirModalServico(servico) {
+async function abrirModalServico(servico) {
   const editando = !!servico;
+  const mostrarProfissionais = !!(contaStatus && contaStatus.mostrar_profissional);
+  let checkboxesProfissionais = '';
+  if (mostrarProfissionais) {
+    const resultadoProfissionais = await api('/api/profissionais');
+    const listaProfissionais = (resultadoProfissionais && resultadoProfissionais.profissionais) || [];
+    const exclusivosAtuais = editando ? servico.profissionais_exclusivos || [] : [];
+    checkboxesProfissionais = listaProfissionais.length
+      ? listaProfissionais
+          .map(
+            (p) => `
+        <label class="dia-checkbox">
+          <input type="checkbox" value="${p.id}" ${exclusivosAtuais.includes(p.id) ? 'checked' : ''}>
+          ${escapeHtml(p.nome)}
+        </label>
+      `
+          )
+          .join('')
+      : '<div class="modal-texto">Nenhum profissional cadastrado ainda.</div>';
+  }
+
   abrirModal(
     `<h3>${editando ? 'Editar serviço' : 'Novo serviço'}</h3>`,
     `
@@ -3224,8 +3288,10 @@ function abrirModalServico(servico) {
         <input type="number" id="servico-preco" data-obrigatorio min="0" step="0.01" value="${editando && servico.preco != null ? servico.preco : ''}">
         <label for="servico-descricao">Descrição curta (opcional)</label>
         <textarea id="servico-descricao" rows="2" maxlength="280" placeholder="Ex: inclui lavagem e finalização">${editando && servico.descricao ? servico.descricao : ''}</textarea>
-        <label for="servico-profissional-preferencial"${contaStatus && contaStatus.mostrar_profissional ? '' : ' hidden style="display:none"'}>Profissional preferencial (opcional)</label>
-        <select id="servico-profissional-preferencial"${contaStatus && contaStatus.mostrar_profissional ? '' : ' hidden style="display:none"'}><option value="">Carregando profissionais...</option></select>
+        ${mostrarProfissionais ? `
+        <label>Profissional exclusivo (opcional)</label>
+        <div class="profissional-servicos-lista" id="servico-profissionais">${checkboxesProfissionais}</div>
+        ` : ''}
         <div class="modal-acoes">
           <button type="button" class="btn-secundario" id="btn-cancelar-servico">Cancelar</button>
           <button type="submit" class="btn-primario" id="btn-salvar-servico">${editando ? 'Salvar' : 'Criar'}</button>
@@ -3235,17 +3301,6 @@ function abrirModalServico(servico) {
   );
 
   document.getElementById('btn-cancelar-servico').addEventListener('click', fecharModal);
-
-  api('/api/profissionais').then((resultado) => {
-    const select = document.getElementById('servico-profissional-preferencial');
-    if (!resultado || !resultado.profissionais) {
-      select.innerHTML = '<option value="">Erro ao carregar profissionais</option>';
-      return;
-    }
-    select.innerHTML = '<option value="">Nenhum</option>' +
-      resultado.profissionais.map((p) => `<option value="${p.id}">${p.nome}</option>`).join('');
-    if (editando && servico.profissional_preferencial_id) select.value = servico.profissional_preferencial_id;
-  });
 
   const form = document.getElementById('form-servico');
   form.querySelectorAll('[data-obrigatorio]').forEach((campo) => {
@@ -3273,8 +3328,10 @@ function abrirModalServico(servico) {
       duracao_minutos: parseInt(document.getElementById('servico-duracao').value, 10),
       preco: precoValor ? parseFloat(precoValor) : null,
       descricao: document.getElementById('servico-descricao').value.trim() || null,
-      profissional_preferencial_id: document.getElementById('servico-profissional-preferencial').value || null,
     };
+    if (mostrarProfissionais) {
+      payload.profissionais_exclusivos = Array.from(document.querySelectorAll('#servico-profissionais input:checked')).map((el) => el.value);
+    }
 
     const resultado = await api(editando ? `/api/servicos/${servico.id}` : '/api/servicos', {
       method: editando ? 'PATCH' : 'POST',
