@@ -11,8 +11,9 @@ async function entrarNoPainel(page, { servicos = [], profissionais = [] } = {}) 
   );
   // plano 'custom' fixo pra manter o menu Profissionais visível/clicável
   // nestes testes (data-somente-plano-custom); mostrar_profissional segue a
-  // mesma regra do backend real (profissionais > 1) — sem isso os campos
-  // "Profissional preferencial" ficam sempre escondidos (contaStatus null).
+  // mesma regra do backend real (profissionais > 1) — sem isso a coluna
+  // "Profissionais" e o campo "Profissional exclusivo" ficam sempre
+  // escondidos (contaStatus null).
   await page.route('**/api/tenant/status', (route) =>
     route.fulfill({
       json: {
@@ -44,47 +45,53 @@ async function entrarNoPainel(page, { servicos = [], profissionais = [] } = {}) 
   await page.goto('/painel.html');
 }
 
+// Abre o menu "⋯" (componente .ds-acoes do design system) de uma linha de
+// serviço e clica na ação pedida — mesmo padrão já usado por Clientes/Agenda.
+async function escolherAcaoServico(page, id, acao) {
+  const caixa = page.locator(`.ds-acoes[data-servico-id="${id}"]`);
+  await caixa.locator('.ds-acoes-btn').click();
+  await caixa.locator(`.ds-acoes-item[data-acao="${acao}"]`).click();
+}
+
 test.describe('Serviços — CRUD (US17/PR4)', () => {
-  test('lista os serviços cadastrados com labels e botões sempre visíveis', async ({ page }) => {
-    await entrarNoPainel(page, { servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true }] });
+  test('lista os serviços numa tabela com nome, duração e valor', async ({ page }) => {
+    await entrarNoPainel(page, { servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, profissionais_exclusivos: [] }] });
     await page.click('.menu-item[data-menu="cadastro"]');
-    const item = page.locator('.servico-item');
-    await expect(item).toContainText('Serviço: Corte');
-    await expect(item).toContainText('Duração: 30 min');
-    await expect(item).toContainText('Valor: R$ 50,00');
-    // Editar/Desabilitar/Excluir visíveis sem precisar abrir nenhum menu.
-    await expect(item.locator('[data-acao-servico="editar"]')).toBeVisible();
-    await expect(item.locator('[data-acao-servico="desabilitar"]')).toBeVisible();
-    await expect(item.locator('[data-acao-servico="excluir"]')).toBeVisible();
+    const linha = page.locator('tr[data-servico-abrir="s1"]');
+    await expect(linha).toContainText('Corte');
+    await expect(linha).toContainText('30 min');
+    await expect(linha).toContainText('R$ 50,00');
+    await expect(linha.locator('.badge-status-ativo')).toHaveText('Ativo');
   });
 
-  // US60 — descrição curta é opcional: aparece no card quando cadastrada.
-  test('serviço com descrição mostra o texto no card', async ({ page }) => {
+  // US60 — descrição curta é opcional: aparece na linha quando cadastrada.
+  test('serviço com descrição mostra o texto na linha', async ({ page }) => {
     await entrarNoPainel(page, {
-      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, descricao: 'Inclui lavagem e finalização' }],
+      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, descricao: 'Inclui lavagem e finalização', profissionais_exclusivos: [] }],
     });
     await page.click('.menu-item[data-menu="cadastro"]');
-    await expect(page.locator('.servico-item')).toContainText('Inclui lavagem e finalização');
+    await expect(page.locator('tr[data-servico-abrir="s1"]')).toContainText('Inclui lavagem e finalização');
   });
 
-  test('serviço com profissional preferencial mostra o nome dele no card', async ({ page }) => {
-    // 2 profissionais: com só 1, "Profissional preferencial" some do card
+  test('serviço com profissional exclusivo mostra o nome dele na coluna Profissionais', async ({ page }) => {
+    // 2 profissionais: com só 1, a coluna "Profissionais" some da tabela
     // (não é mais uma escolha real) — mesma regra de mostrar_profissional.
     await entrarNoPainel(page, {
-      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, profissional_preferencial_id: 'p1' }],
+      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, profissionais_exclusivos: ['p1'] }],
       profissionais: [{ id: 'p1', nome: 'Bruna', servicos: ['s1'] }, { id: 'p2', nome: 'Ana', servicos: [] }],
     });
     await page.click('.menu-item[data-menu="cadastro"]');
-    await expect(page.locator('.servico-item')).toContainText('Profissional preferencial: Bruna');
+    await expect(page.locator('tr[data-servico-abrir="s1"]')).toContainText('Bruna');
   });
 
-  test('serviço desabilitado mostra o badge e o botão vira "Habilitar"', async ({ page }) => {
-    await entrarNoPainel(page, { servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: false }] });
+  test('serviço desabilitado mostra o badge e o kebab oferece "Habilitar"', async ({ page }) => {
+    await entrarNoPainel(page, { servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: false, profissionais_exclusivos: [] }] });
     await page.click('.menu-item[data-menu="cadastro"]');
-    const item = page.locator('.servico-item');
-    await expect(item).toHaveClass(/servico-desabilitado/);
-    await expect(item.locator('.badge')).toHaveText('Desabilitado');
-    await expect(item.locator('[data-acao-servico="habilitar"]')).toHaveText('Habilitar');
+    const linha = page.locator('tr[data-servico-abrir="s1"]');
+    await expect(linha.locator('.badge-status-inativo')).toHaveText('Desabilitado');
+    const caixa = linha.locator('.ds-acoes');
+    await caixa.locator('.ds-acoes-btn').click();
+    await expect(caixa.locator('.ds-acoes-item[data-acao="habilitar"]')).toHaveText('Habilitar');
   });
 
   test('sem serviços cadastrados, mostra mensagem vazia', async ({ page }) => {
@@ -93,9 +100,9 @@ test.describe('Serviços — CRUD (US17/PR4)', () => {
     await expect(page.locator('.vazio')).toContainText('Nenhum serviço cadastrado');
   });
 
-  test('cria um novo serviço com profissional preferencial', async ({ page }) => {
-    // 2 profissionais: com só 1 o campo "Profissional preferencial" some do
-    // formulário (data-somente hidden), impossível de selectOption nele.
+  test('cria um novo serviço com profissional exclusivo selecionado', async ({ page }) => {
+    // 2 profissionais: com só 1 a lista de profissionais exclusivos some do
+    // formulário (data-somente hidden), impossível de marcar checkbox nela.
     await entrarNoPainel(page, { servicos: [], profissionais: [{ id: 'p1', nome: 'Bruna', servicos: [] }, { id: 'p2', nome: 'Ana', servicos: [] }] });
     let corpoEnviado = null;
     await page.route('**/api/servicos', (route) => {
@@ -110,7 +117,7 @@ test.describe('Serviços — CRUD (US17/PR4)', () => {
     await page.fill('#servico-duracao', '45');
     await page.fill('#servico-preco', '60');
     await page.fill('#servico-descricao', 'Escova modeladora');
-    await page.selectOption('#servico-profissional-preferencial', 'p1');
+    await page.check('#servico-profissionais input[value="p1"]');
     await page.click('#btn-salvar-servico');
 
     await expect(page.locator('.toast-sucesso')).toHaveText(/criado com sucesso/);
@@ -119,27 +126,27 @@ test.describe('Serviços — CRUD (US17/PR4)', () => {
       duracao_minutos: 45,
       preco: 60,
       descricao: 'Escova modeladora',
-      profissional_preferencial_id: 'p1',
+      profissionais_exclusivos: ['p1'],
     });
   });
 
-  test('editar um serviço existente pré-preenche o formulário (inclusive descrição e profissional preferencial)', async ({ page }) => {
+  test('editar um serviço existente pré-preenche o formulário (inclusive descrição e profissional exclusivo)', async ({ page }) => {
     await entrarNoPainel(page, {
-      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, descricao: 'Inclui lavagem', profissional_preferencial_id: 'p1' }],
+      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, descricao: 'Inclui lavagem', profissionais_exclusivos: ['p1'] }],
       profissionais: [{ id: 'p1', nome: 'Bruna', servicos: ['s1'] }],
     });
     await page.click('.menu-item[data-menu="cadastro"]');
-    await page.click('[data-acao-servico="editar"]');
+    await escolherAcaoServico(page, 's1', 'editar');
 
     await expect(page.locator('#servico-nome')).toHaveValue('Corte');
     await expect(page.locator('#servico-duracao')).toHaveValue('30');
     await expect(page.locator('#servico-preco')).toHaveValue('50');
     await expect(page.locator('#servico-descricao')).toHaveValue('Inclui lavagem');
-    await expect(page.locator('#servico-profissional-preferencial')).toHaveValue('p1');
+    await expect(page.locator('#servico-profissionais input[value="p1"]')).toBeChecked();
   });
 
-  test('desabilitar e habilitar um serviço chama PATCH com ativo invertido', async ({ page }) => {
-    await entrarNoPainel(page, { servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true }] });
+  test('desabilitar um serviço pelo kebab chama PATCH com ativo invertido', async ({ page }) => {
+    await entrarNoPainel(page, { servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, profissionais_exclusivos: [] }] });
     let corpoEnviado = null;
     await page.route('**/api/servicos/s1', (route) => {
       corpoEnviado = route.request().postDataJSON();
@@ -147,7 +154,7 @@ test.describe('Serviços — CRUD (US17/PR4)', () => {
     });
 
     await page.click('.menu-item[data-menu="cadastro"]');
-    await page.click('[data-acao-servico="desabilitar"]');
+    await escolherAcaoServico(page, 's1', 'desabilitar');
 
     await expect(page.locator('.toast-sucesso')).toHaveText(/desabilitado/);
     expect(corpoEnviado).toMatchObject({ ativo: false });
@@ -162,7 +169,7 @@ test.describe('Serviços — CRUD (US17/PR4)', () => {
     });
 
     await page.click('.menu-item[data-menu="cadastro"]');
-    await page.click('[data-acao-servico="excluir"]');
+    await escolherAcaoServico(page, 's1', 'excluir');
 
     await expect(page.locator('.modal-card')).toContainText('não estará mais disponível para novos agendamentos');
     await page.click('#btn-confirmar-excluir-servico');
@@ -180,7 +187,7 @@ test.describe('Serviços — CRUD (US17/PR4)', () => {
     });
 
     await page.click('.menu-item[data-menu="cadastro"]');
-    await page.click('[data-acao-servico="excluir"]');
+    await escolherAcaoServico(page, 's1', 'excluir');
     await page.click('#btn-voltar-excluir-servico');
 
     await expect(page.locator('.modal-overlay')).toHaveCount(0);
@@ -188,7 +195,7 @@ test.describe('Serviços — CRUD (US17/PR4)', () => {
   });
 });
 
-test.describe('Novo agendamento — profissional preferencial e serviço desabilitado (PR4)', () => {
+test.describe('Novo agendamento — profissional exclusivo e serviço desabilitado (PR4)', () => {
   test('serviço desabilitado não aparece no dropdown de novo agendamento', async ({ page }) => {
     await entrarNoPainel(page, {
       servicos: [
@@ -202,14 +209,28 @@ test.describe('Novo agendamento — profissional preferencial e serviço desabil
     expect(opcoes.some((o) => o.includes('Hidratação'))).toBe(false);
   });
 
-  test('escolher um serviço com profissional preferencial pré-seleciona ele', async ({ page }) => {
+  test('escolher um serviço com profissional exclusivo restringe as opções do campo Profissional', async ({ page }) => {
     await entrarNoPainel(page, {
-      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, profissional_preferencial_id: 'p1' }],
+      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, profissionais_exclusivos: ['p1'] }],
       profissionais: [{ id: 'p1', nome: 'Bruna', servicos: ['s1'] }, { id: 'p2', nome: 'Ana', servicos: [] }],
     });
     await page.click('#btn-novo-agendamento');
     await page.selectOption('#novo-ag-servico', 's1');
-    await expect(page.locator('#novo-ag-profissional')).toHaveValue('p1');
+    const opcoes = await page.locator('#novo-ag-profissional option').allTextContents();
+    expect(opcoes.some((o) => o.includes('Bruna'))).toBe(true);
+    expect(opcoes.some((o) => o.includes('Ana'))).toBe(false);
+  });
+
+  test('serviço sem profissional exclusivo mostra todos os profissionais', async ({ page }) => {
+    await entrarNoPainel(page, {
+      servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50, ativo: true, profissionais_exclusivos: [] }],
+      profissionais: [{ id: 'p1', nome: 'Bruna', servicos: ['s1'] }, { id: 'p2', nome: 'Ana', servicos: [] }],
+    });
+    await page.click('#btn-novo-agendamento');
+    await page.selectOption('#novo-ag-servico', 's1');
+    const opcoes = await page.locator('#novo-ag-profissional option').allTextContents();
+    expect(opcoes.some((o) => o.includes('Bruna'))).toBe(true);
+    expect(opcoes.some((o) => o.includes('Ana'))).toBe(true);
   });
 });
 

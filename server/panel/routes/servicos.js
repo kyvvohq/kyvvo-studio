@@ -7,12 +7,33 @@ const { sincronizarLancamentoFinanceiro } = require('../lib/financeiro');
 // longo dentro do card da listagem.
 const DESCRICAO_SERVICO_MAX = 280;
 
+// "Profissional exclusivo" (substituiu profissional_preferencial_id, que só
+// pré-selecionava um default sem restringir nada) — mesma tabela de vínculo
+// já usada pelo lado Profissionais (definirServicosDoProfissional em
+// routes/profissionais.js), agora também editável pelo lado Serviço. Espelha
+// exatamente aquele helper, só invertendo qual ponta é fixa.
+async function definirProfissionaisDoServico(client, tenantId, servicoId, profissionalIds) {
+  if (!Array.isArray(profissionalIds)) return;
+  await client.query('DELETE FROM profissionais_servicos WHERE servico_id = $1', [servicoId]);
+  if (profissionalIds.length === 0) return;
+  await client.query(
+    `INSERT INTO profissionais_servicos (profissional_id, servico_id)
+     SELECT p.id, $1 FROM profissionais p WHERE p.tenant_id = $2 AND p.id = ANY($3::uuid[])`,
+    [servicoId, tenantId, profissionalIds]
+  );
+}
+
 function registerServicosRoutes(fastify, pool) {
   fastify.get('/api/servicos', { preHandler: [fastify.authenticate] }, async (request) => {
     const { tenantId } = request.user;
     const { rows } = await pool.query(
-      `SELECT id, nome, duracao_minutos, preco, descricao, ativo, profissional_preferencial_id
-       FROM servicos WHERE tenant_id = $1 AND excluido_em IS NULL ORDER BY nome`,
+      `SELECT s.id, s.nome, s.duracao_minutos, s.preco, s.descricao, s.ativo,
+              COALESCE(array_agg(ps.profissional_id) FILTER (WHERE ps.profissional_id IS NOT NULL), '{}') AS profissionais_exclusivos
+       FROM servicos s
+       LEFT JOIN profissionais_servicos ps ON ps.servico_id = s.id
+       WHERE s.tenant_id = $1 AND s.excluido_em IS NULL
+       GROUP BY s.id
+       ORDER BY s.nome`,
       [tenantId]
     );
     return { servicos: rows };
@@ -20,7 +41,7 @@ function registerServicosRoutes(fastify, pool) {
 
   fastify.post('/api/servicos', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { tenantId } = request.user;
-    const { nome, duracao_minutos: duracaoMinutos, preco, descricao, profissional_preferencial_id: profissionalPreferencialId } = request.body || {};
+    const { nome, duracao_minutos: duracaoMinutos, preco, descricao, profissionais_exclusivos: profissionaisExclusivos } = request.body || {};
 
     if (!nome || !nome.trim()) {
       return reply.code(400).send({ error: 'Campo "nome" é obrigatório' });
@@ -42,32 +63,48 @@ function registerServicosRoutes(fastify, pool) {
       return reply.code(400).send({ error: `Campo "descricao" deve ter no máximo ${DESCRICAO_SERVICO_MAX} caracteres` });
     }
 
-    const { rows } = await pool.query(
-      `INSERT INTO servicos (tenant_id, nome, duracao_minutos, preco, descricao, profissional_preferencial_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, nome, duracao_minutos, preco, descricao, ativo, profissional_preferencial_id`,
-      [tenantId, nome.trim(), duracaoMinutos, preco ?? null, descricao ? descricao.trim() : null, profissionalPreferencialId || null]
-    );
-
-    // Tenant com um único profissional (fora do plano Custom) não tem como
-    // vincular manualmente pela tela Profissionais (menu oculto) — sem isso o
-    // serviço recém-criado ficaria inagendável pelo bot/IA.
-    const profissionalPadrao = await garantirProfissionalPadrao(tenantId);
-    if (profissionalPadrao.unico) {
-      await pool.query(
-        'INSERT INTO profissionais_servicos (profissional_id, servico_id) VALUES ($1, $2)',
-        [profissionalPadrao.id, rows[0].id]
+    const client = await pool.connect();
+    let servico;
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        `INSERT INTO servicos (tenant_id, nome, duracao_minutos, preco, descricao)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, nome, duracao_minutos, preco, descricao, ativo`,
+        [tenantId, nome.trim(), duracaoMinutos, preco ?? null, descricao ? descricao.trim() : null]
       );
+      servico = rows[0];
+
+      // Tenant com um único profissional (fora do plano Custom) não tem como
+      // vincular manualmente pela tela Profissionais (menu oculto) — sem isso
+      // o serviço recém-criado ficaria inagendável pelo bot/IA.
+      const profissionalPadrao = await garantirProfissionalPadrao(tenantId);
+      if (profissionalPadrao.unico) {
+        await client.query(
+          'INSERT INTO profissionais_servicos (profissional_id, servico_id) VALUES ($1, $2)',
+          [profissionalPadrao.id, servico.id]
+        );
+        servico.profissionais_exclusivos = [profissionalPadrao.id];
+      } else {
+        await definirProfissionaisDoServico(client, tenantId, servico.id, profissionaisExclusivos || []);
+        servico.profissionais_exclusivos = profissionaisExclusivos || [];
+      }
+      await client.query('COMMIT');
+    } catch (erro) {
+      await client.query('ROLLBACK');
+      throw erro;
+    } finally {
+      client.release();
     }
 
     reply.code(201);
-    return rows[0];
+    return servico;
   });
 
   fastify.patch('/api/servicos/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { tenantId } = request.user;
     const { id } = request.params;
-    const { nome, duracao_minutos: duracaoMinutos, preco, descricao, ativo, profissional_preferencial_id: profissionalPreferencialId } = request.body || {};
+    const { nome, duracao_minutos: duracaoMinutos, preco, descricao, ativo, profissionais_exclusivos: profissionaisExclusivos } = request.body || {};
 
     if (nome !== undefined && !nome.trim()) {
       return reply.code(400).send({ error: 'Campo "nome" não pode ficar vazio' });
@@ -82,24 +119,38 @@ function registerServicosRoutes(fastify, pool) {
       return reply.code(400).send({ error: `Campo "descricao" deve ter no máximo ${DESCRICAO_SERVICO_MAX} caracteres` });
     }
 
-    const { rows } = await pool.query(
-      `UPDATE servicos SET
-         nome = COALESCE($3, nome),
-         duracao_minutos = COALESCE($4, duracao_minutos),
-         preco = CASE WHEN $5 THEN $6 ELSE preco END,
-         descricao = CASE WHEN $7 THEN $8 ELSE descricao END,
-         ativo = COALESCE($9, ativo),
-         profissional_preferencial_id = CASE WHEN $10 THEN $11 ELSE profissional_preferencial_id END
-       WHERE id = $1 AND tenant_id = $2 AND excluido_em IS NULL
-       RETURNING id, nome, duracao_minutos, preco, descricao, ativo, profissional_preferencial_id`,
-      [
-        id, tenantId, nome ? nome.trim() : null, duracaoMinutos ?? null, preco !== undefined, preco ?? null,
-        descricao !== undefined, descricao ? descricao.trim() : null,
-        ativo ?? null, profissionalPreferencialId !== undefined, profissionalPreferencialId || null,
-      ]
-    );
-    if (!rows[0]) {
-      return reply.code(404).send({ error: 'Serviço não encontrado' });
+    const client = await pool.connect();
+    let servico;
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        `UPDATE servicos SET
+           nome = COALESCE($3, nome),
+           duracao_minutos = COALESCE($4, duracao_minutos),
+           preco = CASE WHEN $5 THEN $6 ELSE preco END,
+           descricao = CASE WHEN $7 THEN $8 ELSE descricao END,
+           ativo = COALESCE($9, ativo)
+         WHERE id = $1 AND tenant_id = $2 AND excluido_em IS NULL
+         RETURNING id, nome, duracao_minutos, preco, descricao, ativo`,
+        [
+          id, tenantId, nome ? nome.trim() : null, duracaoMinutos ?? null, preco !== undefined, preco ?? null,
+          descricao !== undefined, descricao ? descricao.trim() : null, ativo ?? null,
+        ]
+      );
+      if (!rows[0]) {
+        await client.query('ROLLBACK');
+        return reply.code(404).send({ error: 'Serviço não encontrado' });
+      }
+      servico = rows[0];
+      if (profissionaisExclusivos !== undefined) {
+        await definirProfissionaisDoServico(client, tenantId, id, profissionaisExclusivos);
+      }
+      await client.query('COMMIT');
+    } catch (erro) {
+      await client.query('ROLLBACK');
+      throw erro;
+    } finally {
+      client.release();
     }
 
     // "Previsto" do dashboard Início (GET /api/inicio/resumo) soma
@@ -116,13 +167,17 @@ function registerServicosRoutes(fastify, pool) {
       for (const ag of agsAfetados) {
         // eslint-disable-next-line no-await-in-loop
         await sincronizarLancamentoFinanceiro(pool, {
-          tenantId, agendamentoId: ag.id, servicoNome: rows[0].nome, servicoPreco: rows[0].preco,
+          tenantId, agendamentoId: ag.id, servicoNome: servico.nome, servicoPreco: servico.preco,
           dataHora: ag.data_hora, statusAgendamento: 'confirmado', formaPagamento: null,
         });
       }
     }
 
-    return rows[0];
+    const { rows: exclusivos } = await pool.query(
+      'SELECT profissional_id FROM profissionais_servicos WHERE servico_id = $1', [id]
+    );
+    servico.profissionais_exclusivos = exclusivos.map((r) => r.profissional_id);
+    return servico;
   });
 
   // CA da exclusão (redesenho do menu Serviços): soft delete, não mais um
