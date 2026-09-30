@@ -143,9 +143,24 @@ function renderOutrosProdutos(produtos) {
   const container = document.getElementById('user-menu-outros-produtos');
   if (!container) return;
   container.innerHTML = (produtos || [])
-    .map((p) => `<a class="user-menu-item" href="${p.url}">${escapeHtml(p.nome)}</a>`)
+    .map((p) => `<a class="user-menu-item" href="${p.url}" data-produto-chave="${p.chave}">${escapeHtml(p.nome)}</a>`)
     .join('');
 }
+
+// Clicar num item de "trocar de produto" tenta primeiro o login automático
+// (handoff via kyvvo-platform) — só cai no link puro (abre a landing pública
+// pra logar de novo) se o handoff falhar por qualquer motivo. `href` já
+// aponta pro link puro de propósito: usuário com JS desabilitado, ou clique
+// com botão do meio/Ctrl (abrir em nova aba) continuam funcionando normal.
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('[data-produto-chave]');
+  if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  const destinoDireto = link.href;
+  api('/api/meus-produtos/handoff', { method: 'POST', body: JSON.stringify({ produto: link.dataset.produtoChave }) })
+    .then((resultado) => { window.location.href = (resultado && resultado.url) || destinoDireto; })
+    .catch(() => { window.location.href = destinoDireto; });
+});
 
 // Aviso fixo de conta bloqueada (acesso limitado — trial vencido/
 // inadimplente/suspenso/cancelado): substitui a antiga tela cheia de
