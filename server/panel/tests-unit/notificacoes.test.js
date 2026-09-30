@@ -1,12 +1,20 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { TIPOS_NOTIFICACAO, listarNotificacoesPendentes } = require('../lib/notificacoes');
+const { TIPOS_NOTIFICACAO, canaisAtivos, listarNotificacoesPendentes, dispararNotificacaoEvento } = require('../lib/notificacoes');
 const planosCatalogo = require('../lib/planos');
 
-// fakePool devolve `rows` fixo pra qualquer query — suficiente pro tipo
-// whatsapp_aguardando_humano (1 query só).
-function fakePool(rows = []) {
-  return { query: async () => ({ rows }) };
+// fakePool devolve `rows` fixo pra query de clientes (whatsapp_aguardando_
+// humano) — os 3 tipos eventoUnico novos (agenda_criada/confirmada/
+// remarcada) sempre consultam notificacoes_eventos também, então essa fake
+// pool precisa responder [] pra essa tabela, senão os `rows` de clientes
+// vazariam pros itens desses outros tipos (SQL-aware de propósito).
+function fakePool(clientesRows = []) {
+  return {
+    query: async (sql) => {
+      if (/FROM notificacoes_eventos/.test(sql)) return { rows: [] };
+      return { rows: clientesRows };
+    },
+  };
 }
 
 // disparos_acabando precisa de 2 respostas diferentes (plano do tenant +
@@ -14,13 +22,15 @@ function fakePool(rows = []) {
 // em outros testes-unit deste repo (ex.: agenda-recorrencia.test.js).
 // `listarNotificacoesPendentes` roda TODOS os tipos registrados, então
 // mesmo testando só disparos_acabando essa fake pool também precisa
-// responder a query do whatsapp_aguardando_humano (vazia = sem interferir).
+// responder à query do whatsapp_aguardando_humano e à de notificacoes_eventos
+// (vazias = sem interferir).
 function fakePoolDisparos({ plano, usados }) {
   return {
     query: async (sql) => {
       if (/FROM tenants/.test(sql)) return { rows: [{ plano }] };
       if (/FROM whatsapp_disparos/.test(sql)) return { rows: [{ total: usados }] };
       if (/FROM clientes/.test(sql)) return { rows: [] };
+      if (/FROM notificacoes_eventos/.test(sql)) return { rows: [] };
       throw new Error(`query inesperada no teste: ${sql}`);
     },
   };
@@ -124,5 +134,101 @@ describe('listarNotificacoesPendentes — disparos_acabando', () => {
     const pool = fakePoolDisparos({ plano: 'pro', usados: 99 });
     const r = await listarNotificacoesPendentes(pool, 't1', { disparos_acabando: { ativo: false } });
     assert.deepEqual(r, []);
+  });
+});
+
+describe('canaisAtivos', () => {
+  test('formato novo ({canais}) respeita cada canal individualmente', () => {
+    assert.deepEqual(canaisAtivos({ canais: { studio: true, email: true, whatsapp: false } }), { studio: true, email: true, whatsapp: false });
+  });
+  test('formato antigo ({ativo}) vira só Studio (nunca e-mail/WhatsApp)', () => {
+    assert.deepEqual(canaisAtivos({ ativo: true }), { studio: true, email: false, whatsapp: false });
+    assert.deepEqual(canaisAtivos({ ativo: false }), { studio: false, email: false, whatsapp: false });
+  });
+  test('config ausente/vazia conta como Studio ativo por padrão', () => {
+    assert.deepEqual(canaisAtivos(undefined), { studio: true, email: false, whatsapp: false });
+    assert.deepEqual(canaisAtivos({}), { studio: true, email: false, whatsapp: false });
+  });
+});
+
+describe('TIPOS_NOTIFICACAO — tipos orientados a evento', () => {
+  test('agenda_criada/agenda_confirmada/agenda_remarcada estão registrados como eventoUnico', () => {
+    for (const chave of ['agenda_criada', 'agenda_confirmada', 'agenda_remarcada']) {
+      const tipo = TIPOS_NOTIFICACAO.find((t) => t.chave === chave);
+      assert.ok(tipo, `${chave} não registrado`);
+      assert.equal(tipo.eventoUnico, true);
+    }
+  });
+});
+
+describe('listarNotificacoesPendentes — tipos orientados a evento', () => {
+  function fakePoolEventos(eventosRows) {
+    return {
+      query: async (sql) => {
+        if (/FROM notificacoes_eventos/.test(sql)) return { rows: eventosRows };
+        return { rows: [] };
+      },
+    };
+  }
+
+  test('evento recente aparece no resultado', async () => {
+    const pool = fakePoolEventos([{ id: 'e1', titulo: 'Corte às 10h', detalhe: 'Bruna', criado_em: new Date() }]);
+    const r = await listarNotificacoesPendentes(pool, 't1', {});
+    const item = r.find((x) => x.tipo === 'agenda_criada');
+    assert.ok(item);
+    assert.equal(item.itens[0].titulo, 'Corte às 10h');
+  });
+
+  test('sem eventos recentes, o tipo não aparece', async () => {
+    const pool = fakePoolEventos([]);
+    const r = await listarNotificacoesPendentes(pool, 't1', {});
+    assert.ok(!r.some((x) => x.tipo === 'agenda_criada'));
+  });
+
+  test('canal Studio desligado some mesmo com eventos recentes', async () => {
+    const pool = fakePoolEventos([{ id: 'e1', titulo: 'Corte às 10h', detalhe: null, criado_em: new Date() }]);
+    const r = await listarNotificacoesPendentes(pool, 't1', { agenda_criada: { canais: { studio: false } } });
+    assert.ok(!r.some((x) => x.tipo === 'agenda_criada'));
+  });
+});
+
+describe('dispararNotificacaoEvento', () => {
+  function fakePoolTenant({ notificacoesAtivas, whatsapp = null }) {
+    const chamadas = [];
+    return {
+      chamadas,
+      query: async (sql, params) => {
+        chamadas.push({ sql, params });
+        if (/SELECT notificacoes_ativas, whatsapp FROM tenants/.test(sql)) {
+          return { rows: [{ notificacoes_ativas: notificacoesAtivas, whatsapp }] };
+        }
+        if (/INSERT INTO notificacoes_eventos/.test(sql)) return { rows: [] };
+        if (/FROM usuarios WHERE tenant_id/.test(sql)) return { rows: [{ email: 'dono@salao.com' }] };
+        return { rows: [] };
+      },
+    };
+  }
+
+  test('canal Studio ativo grava em notificacoes_eventos', async () => {
+    const pool = fakePoolTenant({ notificacoesAtivas: { agenda_criada: { canais: { studio: true } } } });
+    await dispararNotificacaoEvento(pool, 't1', 'agenda_criada', { titulo: 'Novo agendamento', detalhe: 'Corte às 10h' });
+    assert.ok(pool.chamadas.some((c) => /INSERT INTO notificacoes_eventos/.test(c.sql)));
+  });
+
+  test('canal Studio desligado não grava nada', async () => {
+    const pool = fakePoolTenant({ notificacoesAtivas: { agenda_criada: { canais: { studio: false } } } });
+    await dispararNotificacaoEvento(pool, 't1', 'agenda_criada', { titulo: 'Novo agendamento' });
+    assert.ok(!pool.chamadas.some((c) => /INSERT INTO notificacoes_eventos/.test(c.sql)));
+  });
+
+  test('tenant inexistente não lança erro (best-effort)', async () => {
+    const pool = { query: async () => ({ rows: [] }) };
+    await assert.doesNotReject(dispararNotificacaoEvento(pool, 'tenant-fantasma', 'agenda_criada', { titulo: 'x' }));
+  });
+
+  test('config ausente pro tipo usa o default (Studio ativo)', async () => {
+    const pool = fakePoolTenant({ notificacoesAtivas: {} });
+    await dispararNotificacaoEvento(pool, 't1', 'agenda_criada', { titulo: 'Novo agendamento' });
+    assert.ok(pool.chamadas.some((c) => /INSERT INTO notificacoes_eventos/.test(c.sql)));
   });
 });

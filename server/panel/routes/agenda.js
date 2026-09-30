@@ -17,6 +17,7 @@ const { sincronizarLancamentoFinanceiro, FORMAS_PAGAMENTO_CHAVES } = require('..
 const FORMA_PAGAMENTO_VALIDAS = [...FORMAS_PAGAMENTO_CHAVES, 'cartao', 'outro'];
 const { garantirProfissionalPadrao } = require('../lib/profissionais');
 const { dispararAutomacoes } = require('../lib/automacoes');
+const { dispararNotificacaoEvento } = require('../lib/notificacoes');
 
 // PATCH status -> gatilho de automação (só quando o status muda de fato).
 // Só "concluido" (Feedback do serviço) dispara automação hoje.
@@ -235,6 +236,20 @@ function registerAgendaRoutes(fastify, pool) {
     if (gatilho) {
       dispararAutomacoes(pool, { tenantId, gatilho, agendamento: detalhado[0] })
         .catch((err) => request.log.error({ err }, `automacao ${gatilho}`));
+    }
+
+    // Configurações > Notificações — "Agendamento remarcado" (mudou
+    // data_hora) e "Agendamento confirmado" (status virou 'confirmado' de
+    // verdade, não o valor que já nasce assim na criação). Best-effort.
+    const dataFormatada = new Date(detalhado[0].data_hora).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+    const quemEQuando = `${detalhado[0].servico} com ${detalhado[0].cliente || detalhado[0].cliente_telefone} — ${detalhado[0].profissional}, ${dataFormatada}`;
+    if (dataHora !== undefined) {
+      dispararNotificacaoEvento(pool, tenantId, 'agenda_remarcada', { titulo: 'Agendamento remarcado', detalhe: quemEQuando })
+        .catch((err) => request.log.error({ err }, 'notificacao agenda_remarcada'));
+    }
+    if (status === 'confirmado' && status !== atual.status) {
+      dispararNotificacaoEvento(pool, tenantId, 'agenda_confirmada', { titulo: 'Agendamento confirmado', detalhe: quemEQuando })
+        .catch((err) => request.log.error({ err }, 'notificacao agenda_confirmada'));
     }
 
     return detalhado[0];
@@ -638,6 +653,13 @@ function registerAgendaRoutes(fastify, pool) {
     // resto). Best-effort, não bloqueia a resposta.
     dispararAutomacoes(pool, { tenantId, gatilho: 'agendamento_criado', agendamento: resposta })
       .catch((err) => request.log.error({ err }, 'automacao agendamento_criado'));
+
+    // Configurações > Notificações ("Novo agendamento criado") — mesmo
+    // raciocínio: só o âncora, best-effort, não bloqueia a resposta.
+    dispararNotificacaoEvento(pool, tenantId, 'agenda_criada', {
+      titulo: `Novo agendamento: ${resposta.servico} com ${resposta.cliente || resposta.cliente_telefone}`,
+      detalhe: `${resposta.profissional} — ${new Date(resposta.data_hora).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
+    }).catch((err) => request.log.error({ err }, 'notificacao agenda_criada'));
 
     return resposta;
   });

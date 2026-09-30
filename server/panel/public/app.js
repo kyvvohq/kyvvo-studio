@@ -450,6 +450,8 @@ function abrirNotificacaoItem(tipo, id) {
   } else if (tipo === 'disparos_acabando') {
     automacoesAbaAtiva = 'disparos';
     selecionarMenu('automacoes');
+  } else if (tipo === 'agenda_criada' || tipo === 'agenda_confirmada' || tipo === 'agenda_remarcada') {
+    selecionarMenu('agendamento');
   }
 }
 document.addEventListener('click', (e) => {
@@ -7376,18 +7378,66 @@ async function renderConfiguracao() {
 // precisa pra desenhar a tela — chave+título pra cada toggle, e
 // `campoNumerico` quando o tipo tem um parâmetro extra editável (ver
 // disparos_acabando). Evita um endpoint só pra listar os tipos existentes.
+// Mesma lista de lib/notificacoes.js (backend) — mantida em espelho aqui
+// (sem endpoint próprio só pra listar tipo) igual sempre foi. Os 3 últimos
+// são "orientados a evento" (disparados uma vez quando o fato acontece —
+// agendamento criado/confirmado/remarcado — não há "estado atual" pra
+// recalcular como nos 2 primeiros); pra esta tela não faz diferença, os 5
+// aparecem como linha igual, só variando os canais que cada um oferece.
 const TIPOS_NOTIFICACAO = [
   { chave: 'whatsapp_aguardando_humano', titulo: 'Conversas de WhatsApp aguardando atendimento humano' },
   {
     chave: 'disparos_acabando',
     titulo: 'Disparos de WhatsApp acabando',
-    campoNumerico: { chave: 'limiar', label: 'Avisar quando restarem até', padrao: 10 },
+    campoNumerico: { chave: 'limiar', label: 'Avisar quando restarem apenas', sufixo: 'disparos WhatsApp', padrao: 10 },
   },
+  { chave: 'agenda_criada', titulo: 'Novo agendamento criado' },
+  { chave: 'agenda_confirmada', titulo: 'Agendamento confirmado' },
+  { chave: 'agenda_remarcada', titulo: 'Agendamento remarcado' },
 ];
 
 function notificacaoConfigAtual(chave) {
   const cfg = (configuracao.notificacoes_ativas || {})[chave];
   return cfg && typeof cfg === 'object' ? cfg : {};
+}
+
+// Espelha lib/notificacoes.js#canaisAtivos no backend — formato novo
+// ({canais:{studio,email,whatsapp}}) e formato antigo ({ativo: bool}, de
+// antes desta tela existir, tratado como "só Studio", que é o que sempre foi
+// até aqui) precisam ler igual dos dois lados.
+function canaisAtivosNotificacao(cfg) {
+  if (cfg && cfg.canais && typeof cfg.canais === 'object') {
+    return { studio: cfg.canais.studio !== false, email: !!cfg.canais.email, whatsapp: !!cfg.canais.whatsapp };
+  }
+  return { studio: cfg ? cfg.ativo !== false : true, email: false, whatsapp: false };
+}
+
+function renderNotificacaoLinha(tipo) {
+  const cfg = notificacaoConfigAtual(tipo.chave);
+  const canais = canaisAtivosNotificacao(cfg);
+  const toggleCanal = (canal) => `
+    <span class="toggle-switch">
+      <input type="checkbox" class="notificacao-canal" data-chave="${tipo.chave}" data-canal="${canal}" ${canais[canal] ? 'checked' : ''}>
+      <span class="toggle-switch-trilho"></span>
+    </span>
+  `;
+  return `
+    <tr data-chave="${tipo.chave}">
+      <td>
+        <div>${escapeHtml(tipo.titulo)}</div>
+        ${tipo.campoNumerico ? `
+          <div class="notificacao-campo-numerico" style="margin-top:6px;font-size:13px;color:var(--muted-strong)">
+            ${escapeHtml(tipo.campoNumerico.label)}
+            <input type="number" min="1" step="1" class="notificacao-numerico" data-chave="${tipo.chave}" data-campo="${tipo.campoNumerico.chave}" value="${cfg[tipo.campoNumerico.chave] || tipo.campoNumerico.padrao}" style="width:70px;margin:0 6px">
+            ${escapeHtml(tipo.campoNumerico.sufixo || '')}
+          </div>
+        ` : ''}
+      </td>
+      <td>${toggleCanal('email')}</td>
+      <td>${toggleCanal('whatsapp')}</td>
+      <td>${toggleCanal('studio')}</td>
+    </tr>
+  `;
 }
 
 async function renderNotificacoes() {
@@ -7396,38 +7446,32 @@ async function renderNotificacoes() {
 
   conteudo.innerHTML = `
     <h2>Notificações</h2>
-    <div class="card">
-      ${TIPOS_NOTIFICACAO.map((tipo) => {
-        const cfg = notificacaoConfigAtual(tipo.chave);
-        const ativo = cfg.ativo !== false;
-        return `
-          <div class="notificacao-linha" data-chave="${tipo.chave}" style="margin-bottom:16px">
-            <label class="toggle-linha">
-              <span class="toggle-switch">
-                <input type="checkbox" class="notificacao-ativa" data-chave="${tipo.chave}" ${ativo ? 'checked' : ''}>
-                <span class="toggle-switch-trilho"></span>
-              </span>
-              ${escapeHtml(tipo.titulo)}
-            </label>
-            ${tipo.campoNumerico ? `
-              <div class="notificacao-campo-numerico" style="margin:8px 0 0 44px;${ativo ? '' : 'display:none'}">
-                <label>${escapeHtml(tipo.campoNumerico.label)}
-                  <input type="number" min="1" step="1" class="notificacao-numerico" data-chave="${tipo.chave}" data-campo="${tipo.campoNumerico.chave}" value="${cfg[tipo.campoNumerico.chave] || tipo.campoNumerico.padrao}" style="width:80px;margin-left:8px">
-                </label>
-              </div>
-            ` : ''}
-          </div>
-        `;
-      }).join('')}
+    <div class="tabela-wrapper">
+      <table class="tabela-tenants tabela-crud-compacta">
+        <thead>
+          <tr>
+            <th>Descrição</th>
+            <th>E-mail</th>
+            <th>WhatsApp</th>
+            <th>Studio</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${TIPOS_NOTIFICACAO.map(renderNotificacaoLinha).join('')}
+        </tbody>
+      </table>
     </div>
   `;
 
-  // Cada mudança (toggle ou número) manda o objeto INTEIRO daquela chave já
+  // Cada mudança (canal ou número) manda o objeto INTEIRO daquela chave já
   // mesclado — mesmo padrão de formas_pagamento (PATCH substitui o objeto
-  // completo, não mescla parcial no backend).
-  async function salvar(chave, patchParcial) {
+  // completo, não mescla parcial no backend). `canais` sempre vai completo
+  // (os 3 booleanos), nunca só o que mudou — e sem `ativo` sobrando do
+  // formato antigo, migrando pro formato novo na primeira mudança.
+  async function salvar(chave, novoCfgParcial) {
     const cfgAtual = notificacaoConfigAtual(chave);
-    const notificacoesAtivas = { ...configuracao.notificacoes_ativas, [chave]: { ...cfgAtual, ...patchParcial } };
+    const { ativo, ...resto } = cfgAtual;
+    const notificacoesAtivas = { ...configuracao.notificacoes_ativas, [chave]: { ...resto, ...novoCfgParcial } };
     const resultado = await api('/api/configuracao', { method: 'PATCH', body: JSON.stringify({ notificacoesAtivas }) });
     if (resultado && !resultado.error) {
       configuracao = resultado;
@@ -7439,13 +7483,12 @@ async function renderNotificacoes() {
     return false;
   }
 
-  conteudo.querySelectorAll('.notificacao-ativa').forEach((chk) => {
+  conteudo.querySelectorAll('.notificacao-canal').forEach((chk) => {
     chk.addEventListener('change', async () => {
-      const linha = chk.closest('.notificacao-linha');
-      const campoNumerico = linha.querySelector('.notificacao-campo-numerico');
-      const ok = await salvar(chk.dataset.chave, { ativo: chk.checked });
-      if (!ok) { chk.checked = !chk.checked; return; }
-      if (campoNumerico) campoNumerico.style.display = chk.checked ? '' : 'none';
+      const chave = chk.dataset.chave;
+      const canaisAtuais = canaisAtivosNotificacao(notificacaoConfigAtual(chave));
+      const ok = await salvar(chave, { canais: { ...canaisAtuais, [chk.dataset.canal]: chk.checked } });
+      if (!ok) chk.checked = !chk.checked;
     });
   });
 
@@ -7456,7 +7499,9 @@ async function renderNotificacoes() {
         mostrarToast('Informe um número inteiro maior que zero.', 'erro');
         return;
       }
-      await salvar(input.dataset.chave, { [input.dataset.campo]: valor });
+      const chave = input.dataset.chave;
+      const canaisAtuais = canaisAtivosNotificacao(notificacaoConfigAtual(chave));
+      await salvar(chave, { canais: canaisAtuais, [input.dataset.campo]: valor });
     });
   });
 }

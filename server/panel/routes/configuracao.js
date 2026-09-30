@@ -28,10 +28,15 @@ function validarFormasPagamento(valor) {
 }
 
 // Mesmo molde de validarFormasPagamento acima: objeto
-// {"<chave>": {"ativo": bool, ...params}}, chave precisa ser um tipo de
-// notificação que existe de verdade (lib/notificacoes.js) — nunca aceita
-// chave desconhecida silenciosamente. `params` extra (ex.: `limiar` de
-// disparos_acabando) só é validado quando o tipo declara `campoNumerico`.
+// {"<chave>": {"canais": {"studio","email","whatsapp"}, ...params}}, chave
+// precisa ser um tipo de notificação que existe de verdade
+// (lib/notificacoes.js) — nunca aceita chave desconhecida silenciosamente.
+// `params` extra (ex.: `limiar` de disparos_acabando) só é validado quando o
+// tipo declara `campoNumerico`. Formato antigo ({"ativo": bool}, sem canal)
+// só é aceito na LEITURA (lib/notificacoes.js#canaisAtivos, dado já
+// persistido de antes desta mudança) — daqui pra frente só grava no formato
+// novo.
+const CANAIS_VALIDOS = ['studio', 'email', 'whatsapp'];
 function validarNotificacoesAtivas(valor) {
   if (typeof valor !== 'object' || valor === null || Array.isArray(valor)) {
     return 'notificacoesAtivas deve ser um objeto';
@@ -41,7 +46,14 @@ function validarNotificacoesAtivas(valor) {
     const tipo = porChave[chave];
     if (!tipo) return `Tipo de notificação desconhecido: ${chave}`;
     if (typeof cfg !== 'object' || cfg === null || Array.isArray(cfg)) return `Configuração inválida pra ${chave}`;
-    if (typeof cfg.ativo !== 'boolean') return `"ativo" de ${chave} deve ser verdadeiro/falso`;
+    if (typeof cfg.canais !== 'object' || cfg.canais === null || Array.isArray(cfg.canais)) {
+      return `"canais" de ${chave} deve ser um objeto com studio/email/whatsapp`;
+    }
+    for (const canal of CANAIS_VALIDOS) {
+      if (cfg.canais[canal] !== undefined && typeof cfg.canais[canal] !== 'boolean') {
+        return `"canais.${canal}" de ${chave} deve ser verdadeiro/falso`;
+      }
+    }
     if (tipo.campoNumerico && cfg[tipo.campoNumerico.chave] !== undefined) {
       const numero = cfg[tipo.campoNumerico.chave];
       if (typeof numero !== 'number' || !Number.isInteger(numero) || numero < 1) {

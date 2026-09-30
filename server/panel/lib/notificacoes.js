@@ -5,13 +5,15 @@
 // notificacoes_ativas) leem esta lista, não um tipo hard-coded.
 //
 // Cada tipo: `chave` (persistida em tenants.notificacoes_ativas, formato
-// {"<chave>": {"ativo": bool, ...params}}, mesmo molde de formas_pagamento —
-// escolhido pra caber parâmetro extra por tipo, ex.: `limiar` de
-// disparos_acabando, sem precisar de coluna nova a cada notificação nova),
-// `titulo` (rótulo no dropdown do balão e no toggle de Configurações) e
-// `calcular(pool, tenantId, config)` -> array de itens pendentes (vazio =
-// nada a notificar agora); `config` é o objeto salvo pro tenant nessa chave
-// (nunca null — listarNotificacoesPendentes já normaliza pra {}).
+// {"<chave>": {"canais": {"studio","email","whatsapp"}, ...params}}), `titulo`
+// (rótulo na tela de Configurações e no dropdown do balão) e, ou:
+// - `calcular(pool, tenantId, config)` -> array de itens pendentes AGORA
+//   (tipos "de estado", ex.: disparos acabando — recalculado a cada consulta,
+//   sem persistir nada); ou
+// - `eventoUnico: true` -> não tem "calcular": o item é registrado uma vez
+//   (dispararNotificacaoEvento, chamado no momento em que o fato acontece:
+//   agendamento criado/confirmado/remarcado) na tabela notificacoes_eventos e
+//   listado dali pro canal Studio.
 const planosCatalogo = require('./planos');
 
 const LIMIAR_DISPAROS_PADRAO = 10;
@@ -40,7 +42,7 @@ const TIPOS_NOTIFICACAO = [
     titulo: 'Disparos de WhatsApp acabando',
     // Descreve o campo numérico extra pra Configurações > Notificações
     // montar o input sem precisar de endpoint próprio só pra isso.
-    campoNumerico: { chave: 'limiar', label: 'Avisar quando restarem até', padrao: LIMIAR_DISPAROS_PADRAO },
+    campoNumerico: { chave: 'limiar', label: 'Avisar quando restarem apenas', sufixo: 'disparos WhatsApp', padrao: LIMIAR_DISPAROS_PADRAO },
     async calcular(pool, tenantId, config) {
       const { rows: tenantRows } = await pool.query('SELECT plano FROM tenants WHERE id = $1', [tenantId]);
       const plano = tenantRows[0] && planosCatalogo.obterPlano(tenantRows[0].plano);
@@ -66,22 +68,162 @@ const TIPOS_NOTIFICACAO = [
       }];
     },
   },
+  { chave: 'agenda_criada', titulo: 'Novo agendamento criado', eventoUnico: true },
+  { chave: 'agenda_confirmada', titulo: 'Agendamento confirmado', eventoUnico: true },
+  { chave: 'agenda_remarcada', titulo: 'Agendamento remarcado', eventoUnico: true },
 ];
 
-// Chave ausente em `notificacoesAtivas` conta como ativa (default seguro) —
-// só `ativo: false` explícito desliga. Tipos sem nenhum item pendente não
-// entram no resultado (o balão/dropdown não precisam saber distinguir "0
-// itens" de "tipo nem existe").
+// Formato novo: {"canais": {"studio","email","whatsapp"}, ...}. Formato
+// antigo (tenants que nunca abriram a tela redesenhada): {"ativo": bool},
+// sem canal explícito — tratado como "só Studio", que é o que sempre existiu
+// até aqui (nunca houve envio real de e-mail/WhatsApp pra estes avisos).
+function canaisAtivos(cfg) {
+  if (cfg && cfg.canais && typeof cfg.canais === 'object' && !Array.isArray(cfg.canais)) {
+    return {
+      studio: cfg.canais.studio !== false,
+      email: !!cfg.canais.email,
+      whatsapp: !!cfg.canais.whatsapp,
+    };
+  }
+  return { studio: cfg ? cfg.ativo !== false : true, email: false, whatsapp: false };
+}
+
+// --- Envio real (E-mail/WhatsApp), além do Studio (sino in-app) ----------
+// Mesmos provedores de token-service.js (Resend/Meta Cloud API), sem o
+// conceito de token de 6 dígitos — mensagem livre. Best-effort: nunca lança,
+// cai num modo de log sem as variáveis de ambiente (mesmo espírito de
+// token-service.js), pra funcionar em dev/homologação sem serviço externo.
+async function enviarEmailNotificacao(email, assunto, corpoTexto) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM || 'Kyvvo <no-reply@kyvvo.com.br>';
+  if (!apiKey) {
+    console.log(`[notificacoes] (dev) e-mail para ${email} — ${assunto}: ${corpoTexto}`);
+    return false;
+  }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from,
+        to: [email],
+        subject: assunto,
+        html: `<div style="font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111"><p>${corpoTexto}</p></div>`,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      console.error(`[notificacoes] Resend respondeu ${res.status} ao enviar para ${email}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`[notificacoes] Falha ao enviar e-mail para ${email}: ${err.message}`);
+    return false;
+  }
+}
+
+async function enviarWhatsappNotificacao(whatsappNacional, texto) {
+  if (!whatsappNacional) return false;
+  const apiToken = process.env.META_WHATSAPP_TOKEN;
+  const phoneNumberId = process.env.META_PHONE_NUMBER_ID;
+  if (!apiToken || !phoneNumberId) {
+    console.log(`[notificacoes] (dev) WhatsApp para 55${whatsappNacional}: ${texto}`);
+    return false;
+  }
+  try {
+    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: `55${whatsappNacional}`,
+        type: 'text',
+        text: { body: texto },
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      const corpo = await res.text().catch(() => '');
+      console.error(`[notificacoes] Meta WhatsApp API respondeu ${res.status} ao enviar para 55${whatsappNacional}: ${corpo}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`[notificacoes] Falha ao enviar WhatsApp para 55${whatsappNacional}: ${err.message}`);
+    return false;
+  }
+}
+
+// Dispara uma notificação de EVENTO ÚNICO (agenda criada/confirmada/
+// remarcada — diferente dos tipos "de estado" acima). Chamado no momento em
+// que o fato acontece (routes/agenda.js, lib/ia-engine.js). Best-effort de
+// propósito (try/catch amplo): nunca deve interromper a criação/atualização
+// do agendamento que disparou a notificação.
+async function dispararNotificacaoEvento(pool, tenantId, chave, { titulo, detalhe }) {
+  try {
+    const { rows: tenantRows } = await pool.query('SELECT notificacoes_ativas, whatsapp FROM tenants WHERE id = $1', [tenantId]);
+    const tenant = tenantRows[0];
+    if (!tenant) return;
+    const cfg = (tenant.notificacoes_ativas || {})[chave];
+    const canais = canaisAtivos(cfg);
+
+    if (canais.studio) {
+      await pool.query(
+        'INSERT INTO notificacoes_eventos (tenant_id, chave, titulo, detalhe) VALUES ($1, $2, $3, $4)',
+        [tenantId, chave, titulo, detalhe || null]
+      );
+    }
+    if (canais.email) {
+      const { rows: adminRows } = await pool.query(
+        `SELECT email FROM usuarios WHERE tenant_id = $1 AND role = 'administrador' ORDER BY criado_em ASC LIMIT 1`,
+        [tenantId]
+      );
+      if (adminRows[0]) enviarEmailNotificacao(adminRows[0].email, titulo, detalhe || titulo).catch(() => {});
+    }
+    if (canais.whatsapp) {
+      enviarWhatsappNotificacao(tenant.whatsapp, detalhe ? `${titulo}\n${detalhe}` : titulo).catch(() => {});
+    }
+  } catch (err) {
+    console.error(`[notificacoes] Falha ao disparar evento "${chave}" pro tenant ${tenantId}: ${err.message}`);
+  }
+}
+
+// Chave ausente em `notificacoesAtivas` conta como ativa no Studio (default
+// seguro, mesmo comportamento de sempre) — só desliga com o canal Studio
+// explicitamente desmarcado. Tipos sem nenhum item pendente/evento recente
+// não entram no resultado.
 async function listarNotificacoesPendentes(pool, tenantId, notificacoesAtivas) {
   const todasConfigs = notificacoesAtivas || {};
   const resultado = [];
   for (const tipo of TIPOS_NOTIFICACAO) {
     const config = todasConfigs[tipo.chave] || {};
-    if (config.ativo === false) continue;
+    const canais = canaisAtivos(config);
+    if (!canais.studio) continue;
+
+    if (tipo.eventoUnico) {
+      // eslint-disable-next-line no-await-in-loop
+      const { rows } = await pool.query(
+        `SELECT id, titulo, detalhe, criado_em FROM notificacoes_eventos
+         WHERE tenant_id = $1 AND chave = $2 AND criado_em > now() - interval '7 days'
+         ORDER BY criado_em DESC LIMIT 20`,
+        [tenantId, tipo.chave]
+      );
+      if (rows.length) {
+        resultado.push({
+          tipo: tipo.chave,
+          titulo: tipo.titulo,
+          itens: rows.map((r) => ({ id: r.id, titulo: r.titulo, detalhe: r.detalhe, desde: r.criado_em })),
+        });
+      }
+      continue;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
     const itens = await tipo.calcular(pool, tenantId, config);
     if (itens.length) resultado.push({ tipo: tipo.chave, titulo: tipo.titulo, itens });
   }
   return resultado;
 }
 
-module.exports = { TIPOS_NOTIFICACAO, listarNotificacoesPendentes };
+module.exports = { TIPOS_NOTIFICACAO, canaisAtivos, listarNotificacoesPendentes, dispararNotificacaoEvento };
