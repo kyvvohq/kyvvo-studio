@@ -791,10 +791,14 @@ async function carregarUserMenu() {
 
 // ---------- Menu dinâmico por módulo (ST10.3) ----------
 // Os itens fixos (Agendamento/Perfil/Configuração) continuam sempre visíveis
-// (CA05). Aqui só acrescentamos um item de menu por módulo ativo do tenant,
-// além do "agenda_inteligente" (que já é coberto pelo item fixo
-// "Agendamento"). As telas de cada módulo (financeiro, dashboards etc.) são
+// (CA05). Aqui só acrescentamos um item de menu por módulo INTERNO do Studio
+// ativo do tenant (financeiro, dashboards etc.), além do "agenda_inteligente"
+// (já coberto pelo item fixo "Agendamento"). As telas de cada módulo são
 // escopo de USs futuras — o clique mostra só um aviso de "em breve".
+// "crm"/"people" ficam de fora de propósito: são OUTROS PRODUTOS Kyvvo, não
+// módulos internos do Studio — esses vivem no menu de perfil (ver
+// renderOutrosProdutos), nunca na sidebar.
+const MODULOS_OUTROS_PRODUTOS = ['agenda_inteligente', 'crm', 'people'];
 async function carregarModulosNoMenu() {
   const resultado = await api('/api/tenant/modulos');
   if (!resultado || !Array.isArray(resultado.modulos)) return;
@@ -806,7 +810,7 @@ async function carregarModulosNoMenu() {
   const ancora = document.getElementById('menu-modulos-anchor');
   const ICONE_MODULO = { financeiro: 'wallet', dashboards: 'chart-column', relatorios: 'chart-column' };
   resultado.modulos
-    .filter((m) => m.key !== 'agenda_inteligente')
+    .filter((m) => !MODULOS_OUTROS_PRODUTOS.includes(m.key))
     .forEach((m) => {
       const li = document.createElement('li');
       const item = document.createElement('button');
