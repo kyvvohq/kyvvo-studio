@@ -130,6 +130,21 @@ async function verificarStatusConta() {
   document.querySelectorAll('[data-somente-plano-custom]').forEach((el) => {
     el.hidden = el.hidden || status.plano !== 'custom';
   });
+
+  renderOutrosProdutos(status.outros_produtos);
+}
+
+// "Trocar de produto" no menu de perfil (logo abaixo de "Meu Perfil") — só
+// aparece pra quem o mesmo tenant também tem ativo (ex.: salão que também
+// usa o CRM). São <a href> de verdade pro outro subdomínio, não itens de
+// navegação interna do SPA — por isso ficam fora do loop de .user-menu-item
+// que chama selecionarMenu().
+function renderOutrosProdutos(produtos) {
+  const container = document.getElementById('user-menu-outros-produtos');
+  if (!container) return;
+  container.innerHTML = (produtos || [])
+    .map((p) => `<a class="user-menu-item" href="${p.url}">${escapeHtml(p.nome)}</a>`)
+    .join('');
 }
 
 // Aviso fixo de conta bloqueada (acesso limitado — trial vencido/

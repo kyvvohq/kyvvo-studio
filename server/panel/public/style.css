@@ -663,6 +663,12 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .user-menu-item:hover { background: var(--surface-hover); }
 
+/* Itens de "trocar de produto" (outros módulos ativos do tenant, injetados
+   em #user-menu-outros-produtos) são <a> de verdade, não <div> — precisam
+   desfazer o sublinhado/cor de link padrão do navegador pra ficar igual aos
+   outros itens do menu. */
+a.user-menu-item { display: block; text-decoration: none; }
+
 /* Linha "Tema" com o estado atual à direita (paridade com o toggle de tema
    do Kyvvo People). É um <button> — desfaz o reset genérico de button. Fora
    do loop de clique dos .user-menu-item de propósito (não navega, só alterna
