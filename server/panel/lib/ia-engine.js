@@ -10,6 +10,7 @@ const { dentroDoHorarioFuncionamento, buscarBloqueioConflitante } = require('./h
 const { sincronizarLancamentoFinanceiro } = require('./financeiro');
 const { garantirProfissionalPadrao } = require('./profissionais');
 const { calcularDisponibilidadeIA, IA_DIAS_DISPONIBILIDADE, IA_DURACAO_PADRAO_MINUTOS } = require('./disponibilidade');
+const { dispararNotificacaoEvento } = require('./notificacoes');
 const anthropicService = require('../anthropic-service');
 const { parsearIntentIA, escolherAgendamentoAlvoIA } = require('../ia-intent-parser');
 
@@ -259,6 +260,12 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
             statusAgendamento: 'confirmado',
           });
           await client.query('COMMIT');
+          // Configurações > Notificações ("Agendamento remarcado") —
+          // best-effort, não bloqueia a resposta ao cliente no WhatsApp.
+          dispararNotificacaoEvento(pool, tenant.id, 'agenda_remarcada', {
+            titulo: 'Agendamento remarcado pelo WhatsApp',
+            detalhe: `${existente.servico_nome || 'Serviço'} com ${profissional.nome} — ${new Date(params.dataHoraISO).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
+          }).catch(() => {});
           return { ok: true, agendamentoId: existente.id };
         }
         // candidatos.length === 0: nenhum atendimento existente pra
@@ -281,6 +288,12 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
         statusAgendamento: 'confirmado',
       });
       await client.query('COMMIT');
+      // Configurações > Notificações ("Novo agendamento criado") —
+      // best-effort, não bloqueia a resposta ao cliente no WhatsApp.
+      dispararNotificacaoEvento(pool, tenant.id, 'agenda_criada', {
+        titulo: `Novo agendamento pelo WhatsApp: ${servico ? servico.nome : 'serviço'}`,
+        detalhe: `${profissional.nome} — ${new Date(params.dataHoraISO).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
+      }).catch(() => {});
       return { ok: true, agendamentoId: novo[0].id };
     } catch (erro) {
       await client.query('ROLLBACK');
