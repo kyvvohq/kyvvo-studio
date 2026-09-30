@@ -16,8 +16,19 @@ const { EVENTOS_ANALYTICS_TIPOS_FRONTEND, registrarEvento } = require('../lib/ev
 // kyvvo-platform, o item de menu simplesmente não aparece — nunca deve
 // quebrar o carregamento do painel por causa disso.
 const PRODUTOS_CRUZADOS = {
-  crm: { nome: 'CRM', url: 'https://crm.kyvvo.com.br' },
-  people: { nome: 'People', url: 'https://people.kyvvo.com.br' },
+  crm: { chave: 'crm', nome: 'CRM', url: 'https://crm.kyvvo.com.br' },
+  people: { chave: 'people', nome: 'People', url: 'https://people.kyvvo.com.br' },
+};
+
+// Login automático ao trocar de produto (handoff via kyvvo-platform, ver
+// POST /api/meus-produtos/handoff e GET /sso abaixo). Mesmo INTERNAL_HANDOFF_
+// TOKEN precisa estar configurado aqui e no kyvvo-platform (e no par
+// simétrico em kyvvo-crm/kyvvo-people) — sem ele, o platform recusa a
+// chamada e o link cai pra landing pública do produto (best-effort).
+const PLATFORM_URL = process.env.PLATFORM_URL || 'http://platform:3003';
+const PRODUTOS_HANDOFF_DESTINO = {
+  crm: 'https://crm.kyvvo.com.br/crm/sso',
+  people: 'https://people.kyvvo.com.br/people/sso',
 };
 
 async function buscarOutrosProdutos(pool, tenantId) {
@@ -130,6 +141,86 @@ function registerContaRoutes(fastify, pool) {
     }
     await registrarEvento(request.user.tenantId, tipo);
     return { ok: true };
+  });
+
+  // "Trocar de produto" (menu de perfil) — gera um código de handoff de
+  // curta duração no kyvvo-platform, que o outro produto troca por uma
+  // sessão já autenticada (ver GET /sso abaixo e o par simétrico em
+  // kyvvo-crm/kyvvo-people). Best-effort: se o platform estiver fora do ar,
+  // o link cai pra landing pública do produto — nunca trava o clique.
+  fastify.post('/api/meus-produtos/handoff', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const destino = PRODUTOS_HANDOFF_DESTINO[(request.body || {}).produto];
+    if (!destino) {
+      return reply.code(400).send({ error: 'Produto inválido' });
+    }
+    const { tenantId, userId, email } = request.user;
+    const { rows } = await pool.query('SELECT nome FROM usuarios WHERE id = $1', [userId]);
+    const nome = rows[0] ? rows[0].nome : null;
+
+    try {
+      const res = await fetch(`${PLATFORM_URL}/internal/handoff`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Token': process.env.INTERNAL_HANDOFF_TOKEN },
+        body: JSON.stringify({ tenantId, userId, email, nome }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) throw new Error(`platform respondeu ${res.status}`);
+      const { code } = await res.json();
+      return { url: `${destino}?code=${encodeURIComponent(code)}` };
+    } catch (err) {
+      request.log.error(`Falha ao gerar handoff: ${err.message}`);
+      return reply.code(502).send({ error: 'Não foi possível gerar o login automático agora.' });
+    }
+  });
+
+  // Consome um código de handoff vindo de outro produto (CRM/People) — CA
+  // "clicar no produto já deve entrar logado". Sem preHandler de auth: é
+  // exatamente o ponto de entrada de quem AINDA não tem sessão no Studio.
+  // Studio não pode confiar cegamente no userId recebido — seu espaço de
+  // IDs é local (usuarios.id, tabela própria deste serviço), diferente do
+  // que CRM/People usam (derivado do kyvvo-platform) — resolve o usuário de
+  // verdade por tenant_id + email, estável entre os 3 produtos.
+  fastify.get('/sso', async (request, reply) => {
+    const { code } = request.query || {};
+    if (!code) return reply.code(400).redirect('/login');
+
+    try {
+      const res = await fetch(`${PLATFORM_URL}/internal/handoff/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Token': process.env.INTERNAL_HANDOFF_TOKEN },
+        body: JSON.stringify({ code }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return reply.redirect('/login');
+      const { tenantId, email } = await res.json();
+
+      const { rows } = await pool.query(
+        `SELECT u.id, u.email, u.nome, u.token_version, u.email_verified, u.role, u.ativo AS usuario_ativo, t.ativo AS tenant_ativo
+         FROM usuarios u JOIN tenants t ON t.id = u.tenant_id
+         WHERE u.tenant_id = $1 AND u.email = $2`,
+        [tenantId, email]
+      );
+      const usuario = rows[0];
+      if (!usuario || !usuario.usuario_ativo || !usuario.tenant_ativo) {
+        return reply.redirect('/login');
+      }
+
+      const token = fastify.jwt.sign(
+        { userId: usuario.id, tenantId, email: usuario.email, tokenVersion: usuario.token_version },
+        { expiresIn: '7d' }
+      );
+      reply.type('text/html');
+      return `<!doctype html><html><body><script>
+        localStorage.setItem('kyvvo_token', ${JSON.stringify(token)});
+        localStorage.setItem('kyvvo_nome', ${JSON.stringify(usuario.nome || '')});
+        localStorage.setItem('kyvvo_email', ${JSON.stringify(usuario.email)});
+        localStorage.setItem('kyvvo_email_verified', ${JSON.stringify(String(usuario.email_verified !== false))});
+        location.href = '/painel';
+      </script></body></html>`;
+    } catch (err) {
+      request.log.error(`Falha ao consumir handoff: ${err.message}`);
+      return reply.redirect('/login');
+    }
   });
 }
 
