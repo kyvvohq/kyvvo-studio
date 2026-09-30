@@ -70,8 +70,18 @@ test.describe('Minha Empresa (PR12)', () => {
     await expect(page.locator('label[for="endereco-complemento"] .obrigatorio')).toHaveCount(0);
   });
 
+  test('botão Salvar começa desabilitado e só habilita com uma alteração de fato', async ({ page }) => {
+    await entrarNoPainel(page);
+    await expect(page.locator('#btn-salvar-empresa')).toBeDisabled();
+    await page.fill('#nome_segmento', 'Salão da Ana 2');
+    await expect(page.locator('#btn-salvar-empresa')).toBeEnabled();
+  });
+
   test('endereço incompleto mostra mensagem única de erro (CA03/CA04)', async ({ page }) => {
     await entrarNoPainel(page, { ...PERFIL_BASE, endereco_bairro: '' });
+    // Botão Salvar só habilita com alguma alteração de fato — reafirma o
+    // número (não é o que falta) só pra tirar o botão do estado desabilitado.
+    await page.fill('#endereco-numero', PERFIL_BASE.endereco_numero + '1');
     await page.click('#btn-salvar-empresa');
     await expect(page.locator('#erro-endereco')).toHaveText('Preencha todos os campos do endereço.');
   });
@@ -129,6 +139,7 @@ test.describe('Minha Empresa (PR12)', () => {
       return route.fulfill({ status: 500, json: { error: 'Erro ao salvar. Tente novamente.' } });
     });
 
+    await page.fill('#nome_segmento', 'Salão da Ana 2');
     await page.click('#btn-salvar-empresa');
     await expect(page.locator('.toast-erro')).toHaveText(/Erro ao salvar/);
   });

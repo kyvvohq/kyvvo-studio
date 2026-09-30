@@ -3154,9 +3154,12 @@ function abrirModalPagamento(dadosAtuais) {
 async function render() {
   // Telas de agenda (Início/Dia/Semana/Mês) precisam de mais largura pra
   // grade de horários e, principalmente, pras colunas da Semana caberem sem
-  // scroll horizontal — as demais telas (Perfil, Fatura, Serviços...)
-  // continuam nos 720px padrão, estreitos de propósito pra formulário.
-  conteudo.classList.toggle('conteudo-largo', menuAtual === 'inicio' || menuAtual === 'quadro' || menuAtual === 'agendamento' || menuAtual === 'clientes' || menuAtual === 'modulo:dashboards' || menuAtual === 'automacoes');
+  // scroll horizontal — as demais telas (Perfil, Fatura...) continuam nos
+  // 720px padrão, estreitos de propósito pra formulário. Preferências e Meu
+  // negócio entraram aqui também (achado 2026-09-29): grids de dias/horário/
+  // formas de pagamento ficavam espremidos nos 720px, "ocupando só parte da
+  // tela" com bastante espaço vazio ao redor.
+  conteudo.classList.toggle('conteudo-largo', menuAtual === 'inicio' || menuAtual === 'quadro' || menuAtual === 'agendamento' || menuAtual === 'clientes' || menuAtual === 'modulo:dashboards' || menuAtual === 'automacoes' || menuAtual === 'configuracao' || menuAtual === 'empresa' || menuAtual === 'notificacoes');
 
   if (menuAtual === 'inicio') return renderInicio();
   if (menuAtual === 'quadro') return renderQuadro();
@@ -6298,6 +6301,30 @@ function abrirModalRemoverMembro(membro) {
 // Minha Empresa (dados do negócio, PR12) — Nome do [segmento] + Endereço
 // completo. Reaproveita a mesma máscara de CEP/autocomplete ViaCEP que
 // antes vivia em renderPerfil.
+// Botão "Salvar" só habilita quando algum campo do form muda de verdade em
+// relação ao estado carregado (pedido explícito pra Meu Negócio/Preferências:
+// botão sempre fixo no topo à direita, desabilitado até haver alteração).
+// Não usa FormData (exigiria `name` em cada campo — este app usa só `id`);
+// em vez disso tira uma "foto" de id+valor de todo input/select/textarea
+// dentro do form e compara a cada input/change.
+function ativarSalvarSoQuandoAlterado(form, btn) {
+  // Comparação posicional (não por id/name) de propósito — alguns campos
+  // aqui são checkboxes sem id próprio (ex.: dias da semana em Preferências),
+  // e a ORDEM deles no DOM não muda entre a "foto" inicial e as seguintes.
+  const campos = () => Array.from(form.querySelectorAll('input, select, textarea'));
+  const snapshot = () => campos()
+    .map((el) => (el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value))
+    .join('|');
+  let valorInicial = snapshot();
+  btn.disabled = true;
+  function verificar() {
+    btn.disabled = snapshot() === valorInicial;
+  }
+  form.addEventListener('input', verificar);
+  form.addEventListener('change', verificar);
+  return { resetar: () => { valorInicial = snapshot(); verificar(); } };
+}
+
 async function renderMinhaEmpresa() {
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
   const perfil = await api('/api/perfil');
@@ -6307,6 +6334,10 @@ async function renderMinhaEmpresa() {
   const nomeCampoSegmento = infoSegmento(perfil.segmento).nomeCampo;
 
   conteudo.innerHTML = `
+    <div class="inicio-cabecalho">
+      <h2>Meu negócio</h2>
+      <button type="submit" form="form-empresa" class="btn-novo-agendamento" id="btn-salvar-empresa">Salvar alterações</button>
+    </div>
     <form class="perfil-form" id="form-empresa" novalidate>
       <label for="nome_segmento">${nomeCampoSegmento} <span class="obrigatorio">*</span></label>
       <input type="text" id="nome_segmento" value="${perfil.nome_segmento || ''}">
@@ -6346,10 +6377,12 @@ async function renderMinhaEmpresa() {
         </div>
       </div>
       <div class="field-error" id="erro-endereco"></div>
-
-      <button type="submit" id="btn-salvar-empresa">Salvar alterações</button>
     </form>
   `;
+
+  const formEmpresa = document.getElementById('form-empresa');
+  const btnSalvarEmpresa = document.getElementById('btn-salvar-empresa');
+  const controleSalvarEmpresa = ativarSalvarSoQuandoAlterado(formEmpresa, btnSalvarEmpresa);
 
   const cepInput = document.getElementById('endereco-cep');
   cepInput.addEventListener('input', () => {
@@ -6372,6 +6405,9 @@ async function renderMinhaEmpresa() {
       document.getElementById('endereco-bairro').value = dados.bairro || '';
       document.getElementById('endereco-cidade').value = dados.localidade || '';
       document.getElementById('endereco-uf').value = dados.uf || '';
+      // ViaCEP seta os campos direto (sem disparar 'input'/'change') — força
+      // uma checagem manual do botão Salvar, que só escuta esses eventos.
+      formEmpresa.dispatchEvent(new Event('input'));
     } catch (erro) {
       // Falha de rede na consulta ao ViaCEP: deixa o usuário preencher os
       // subcampos manualmente em vez de bloquear o formulário.
@@ -7164,7 +7200,10 @@ async function renderConfiguracao() {
   `).join('');
 
   conteudo.innerHTML = `
-    <h2>Preferências</h2>
+    <div class="inicio-cabecalho">
+      <h2>Preferências</h2>
+      <button type="submit" form="form-config" class="btn-novo-agendamento" id="btn-salvar-config">Salvar</button>
+    </div>
     <form class="perfil-form" id="form-config">
       <label>Dias em que ${infoSegmento(configuracao.segmento).dias} funciona (aparecem na agenda)</label>
       <div class="dias-grid">${toggleDias}</div>
@@ -7211,10 +7250,10 @@ async function renderConfiguracao() {
       <label style="margin-top:16px">Formas de pagamento</label>
       <div class="modal-texto" style="margin-top:0">Habilite as formas aceitas no salão e a taxa (%) que a maquininha/gateway cobra em cada uma — usada pra calcular o valor líquido do atendimento ao confirmar o pagamento. Dinheiro nunca tem taxa.</div>
       <div class="formas-pagamento-config">${formasPagamentoConfigHtml(formasPagamento)}</div>
-
-      <button type="submit" id="btn-salvar-config">Salvar</button>
     </form>
   `;
+
+  const controleSalvarConfig = ativarSalvarSoQuandoAlterado(document.getElementById('form-config'), document.getElementById('btn-salvar-config'));
 
   const almocoAtivoInput = document.getElementById('config-almoco-ativo');
   const almocoCampos = document.getElementById('config-almoco-campos');
@@ -7248,11 +7287,16 @@ async function renderConfiguracao() {
           : 'Salvo com sucesso!',
         'sucesso'
       );
+      btn.textContent = 'Salvar';
+      // Depois de salvar com sucesso os campos já refletem o que acabou de
+      // ser persistido — sem isso o botão continuaria "sujo" (habilitado)
+      // comparando com o snapshot de ANTES da edição, mesmo já salvo.
+      controleSalvarConfig.resetar();
     } else {
       mostrarToast((resultado && resultado.error) || 'Erro ao salvar configuração.', 'erro');
+      btn.disabled = false;
+      btn.textContent = 'Salvar';
     }
-    btn.disabled = false;
-    btn.textContent = 'Salvar';
   }
 
   document.getElementById('form-config').addEventListener('submit', (e) => {
