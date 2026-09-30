@@ -18,7 +18,7 @@ async function definirProfissionaisDoServico(client, tenantId, servicoId, profis
   if (profissionalIds.length === 0) return;
   await client.query(
     `INSERT INTO profissionais_servicos (profissional_id, servico_id)
-     SELECT p.id, $1 FROM profissionais p WHERE p.tenant_id = $2 AND p.id = ANY($3::uuid[])`,
+     SELECT p.id, $1 FROM profissionais p WHERE p.tenant_id = $2 AND p.excluido_em IS NULL AND p.id = ANY($3::uuid[])`,
     [servicoId, tenantId, profissionalIds]
   );
 }

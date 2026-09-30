@@ -303,7 +303,7 @@ function registerAgendaRoutes(fastify, pool) {
     const fimDiaISO = new Date(new Date(inicioDiaISO).getTime() + 24 * 60 * 60000).toISOString();
     const { rows: bloqueios } = await pool.query(
       `SELECT inicio, fim, motivo FROM bloqueios_agenda
-       WHERE tenant_id = $1 AND (profissional_id IS NULL OR profissional_id = $2)
+       WHERE tenant_id = $1 AND ativo AND (profissional_id IS NULL OR profissional_id = $2)
          AND inicio < $4::timestamptz
          AND $3::timestamptz < fim`,
       [tenantId, profissional, inicioDiaISO, fimDiaISO]

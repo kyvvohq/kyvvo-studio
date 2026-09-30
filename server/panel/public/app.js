@@ -1829,6 +1829,26 @@ document.addEventListener('ds-acoes-escolher', (e) => {
     return;
   }
 
+  // Profissionais (US17, redesenho pro CRUD padrão).
+  if (caixa.dataset.profissionalId) {
+    const profissional = profissionaisAtuais.find((p) => p.id === caixa.dataset.profissionalId);
+    if (!profissional) return;
+    if (acao === 'editar') abrirModalProfissional(profissional);
+    else if (acao === 'excluir') abrirModalExcluirProfissional(profissional);
+    else if (acao === 'desabilitar' || acao === 'habilitar') alternarAtivoProfissional(profissional);
+    return;
+  }
+
+  // Bloqueio de agenda (redesenho pro CRUD padrão).
+  if (caixa.dataset.bloqueioId) {
+    const bloqueio = bloqueiosAtuais.find((b) => b.id === caixa.dataset.bloqueioId);
+    if (!bloqueio) return;
+    if (acao === 'editar') abrirModalBloqueio(bloqueio);
+    else if (acao === 'excluir') abrirModalExcluirBloqueio(bloqueio);
+    else if (acao === 'desabilitar' || acao === 'habilitar') alternarAtivoBloqueio(bloqueio);
+    return;
+  }
+
   const clienteId = caixa.dataset.clienteId;
   const cliente = clientesAtuais.find((x) => x.id === clienteId);
   if (!cliente) return;
@@ -2017,22 +2037,21 @@ conteudo.addEventListener('click', (e) => {
     return;
   }
 
-  const acaoProfissionalBtn = e.target.closest('[data-acao-profissional]');
-  if (acaoProfissionalBtn) {
-    document.querySelectorAll('.menu-acoes.aberto').forEach((m) => m.classList.remove('aberto'));
-    const profissional = profissionaisAtuais.find((p) => p.id === acaoProfissionalBtn.dataset.id);
-    if (!profissional) return;
-    if (acaoProfissionalBtn.dataset.acaoProfissional === 'editar') abrirModalProfissional(profissional);
-    if (acaoProfissionalBtn.dataset.acaoProfissional === 'excluir') abrirModalExcluirProfissional(profissional);
+  // Profissionais (US17) — clicar na linha abre a edição, mesmo padrão
+  // data-servico-abrir/linha-clicavel usado em Serviços.
+  const linhaProfissionalEl = e.target.closest('[data-profissional-abrir]');
+  if (linhaProfissionalEl) {
+    const profissional = profissionaisAtuais.find((p) => p.id === linhaProfissionalEl.dataset.profissionalAbrir);
+    if (profissional) abrirModalProfissional(profissional);
+    return;
   }
 
-  // US61 — exclusão de bloqueio manual de agenda.
-  const acaoBloqueioBtn = e.target.closest('[data-acao-bloqueio]');
-  if (acaoBloqueioBtn) {
-    document.querySelectorAll('.menu-acoes.aberto').forEach((m) => m.classList.remove('aberto'));
-    const bloqueio = bloqueiosAtuais.find((b) => b.id === acaoBloqueioBtn.dataset.id);
-    if (!bloqueio) return;
-    if (acaoBloqueioBtn.dataset.acaoBloqueio === 'excluir') abrirModalExcluirBloqueio(bloqueio);
+  // Bloqueio de agenda — clicar na linha abre a edição.
+  const linhaBloqueioEl = e.target.closest('[data-bloqueio-abrir]');
+  if (linhaBloqueioEl) {
+    const bloqueio = bloqueiosAtuais.find((b) => b.id === linhaBloqueioEl.dataset.bloqueioAbrir);
+    if (bloqueio) abrirModalBloqueio(bloqueio);
+    return;
   }
 });
 
@@ -3249,7 +3268,7 @@ async function renderServicos() {
   } else {
     html += `
       <div class="tabela-wrapper">
-        <table class="tabela-tenants tabela-servicos">
+        <table class="tabela-tenants tabela-crud-compacta">
           <thead>
             <tr>
               <th>Serviço</th>
@@ -3405,23 +3424,42 @@ function abrirModalExcluirServico(servico) {
 // ---------- Profissionais (US17/ST17.4) ----------
 let profissionaisAtuais = [];
 
-function renderProfissionalItem(p) {
+// Linha de tabela no padrão CRUD compartilhado (mesmo de Serviços/Clientes):
+// clicar na linha abre a edição, o "⋯" é o componente .ds-acoes do design
+// system (tratado no listener global ds-acoes-escolher).
+function renderProfissionalLinha(p) {
   const qtd = (p.servicos || []).length;
+  const desabilitado = p.ativo === false;
   return `
-    <div class="agendamento-item" data-id="${p.id}">
-      <div class="agendamento-linha-principal" data-acoes-toggle="${p.id}">
-        <div>
-          <div class="agendamento-hora">${p.nome}</div>
-          <div class="agendamento-detalhe">${qtd} serviço${qtd === 1 ? '' : 's'} atendido${qtd === 1 ? '' : 's'}</div>
-        </div>
-        <button class="btn-acoes" aria-label="Ações">⋮</button>
-      </div>
-      <div class="menu-acoes" id="menu-acoes-${p.id}">
-        <button data-acao-profissional="editar" data-id="${p.id}">Editar</button>
-        <button data-acao-profissional="excluir" data-id="${p.id}" class="acao-perigo">Excluir</button>
-      </div>
-    </div>
+    <tr class="linha-clicavel" data-profissional-abrir="${p.id}">
+      <td>${escapeHtml(p.nome)}</td>
+      <td>${qtd} serviço${qtd === 1 ? '' : 's'} atendido${qtd === 1 ? '' : 's'}</td>
+      <td>${desabilitado ? '<span class="badge badge-status-inativo">Desabilitado</span>' : '<span class="badge badge-status-ativo">Ativo</span>'}</td>
+      <td>
+        <span class="ds-acoes" data-profissional-id="${p.id}">
+          <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações">⋯</button>
+          <div class="ds-acoes-menu" role="menu" hidden>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="editar">Editar</button>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="${desabilitado ? 'habilitar' : 'desabilitar'}">${desabilitado ? 'Habilitar' : 'Desabilitar'}</button>
+            <button type="button" role="menuitem" class="ds-acoes-item ds-acoes-item-perigo" data-acao="excluir">Excluir</button>
+          </div>
+        </span>
+      </td>
+    </tr>
   `;
+}
+
+async function alternarAtivoProfissional(profissional) {
+  const resultado = await api(`/api/profissionais/${profissional.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ ativo: !profissional.ativo }),
+  });
+  if (resultado && !resultado.error) {
+    mostrarToast(resultado.ativo ? 'Profissional habilitado.' : 'Profissional desabilitado.', 'sucesso');
+    renderProfissionais();
+  } else {
+    mostrarToast((resultado && resultado.error) || 'Erro ao atualizar profissional.', 'erro');
+  }
 }
 
 async function renderProfissionais() {
@@ -3431,14 +3469,33 @@ async function renderProfissionais() {
   profissionaisAtuais = data.profissionais;
 
   let html = `
-    <div class="nav-periodo">
-      <strong>Profissionais</strong>
+    <div class="inicio-cabecalho">
+      <h2>Profissionais</h2>
       <button class="btn-novo-agendamento" id="btn-novo-profissional">+ Novo profissional</button>
     </div>
   `;
-  html += profissionaisAtuais.length
-    ? profissionaisAtuais.map(renderProfissionalItem).join('')
-    : '<div class="vazio">Nenhum profissional cadastrado ainda.</div>';
+
+  if (!profissionaisAtuais.length) {
+    html += '<div class="vazio">Nenhum profissional cadastrado ainda.</div>';
+  } else {
+    html += `
+      <div class="tabela-wrapper">
+        <table class="tabela-tenants tabela-crud-compacta">
+          <thead>
+            <tr>
+              <th>Profissional</th>
+              <th>Serviços atendidos</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${profissionaisAtuais.map(renderProfissionalLinha).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
   conteudo.innerHTML = html;
   document.getElementById('btn-novo-profissional').addEventListener('click', () => abrirModalProfissional(null));
@@ -4051,20 +4108,45 @@ function abrirModalDisparoLimiteExcedido(clienteIds, cota) {
 // ---------- Bloqueios manuais de agenda (US61) ----------
 let bloqueiosAtuais = [];
 
-function renderBloqueioItem(b) {
+// Linha de tabela no padrão CRUD compartilhado (mesmo de Serviços/
+// Profissionais): clicar na linha abre a edição, o "⋯" é o componente
+// .ds-acoes do design system.
+function renderBloqueioLinha(b) {
   const periodo = `${formatarDataCurta(b.inicio)} ${formatarHora(b.inicio)} – ${formatarDataCurta(b.fim)} ${formatarHora(b.fim)}`;
+  const desabilitado = b.ativo === false;
   return `
-    <div class="agendamento-item servico-item" data-id="${b.id}">
-      <div class="servico-info">
-        <div class="agendamento-detalhe">Período: <strong>${periodo}</strong></div>
-        <div class="agendamento-detalhe">${b.profissional ? `Profissional: ${b.profissional}` : 'Toda a agenda'}</div>
-        ${b.motivo ? `<div class="agendamento-detalhe">${b.motivo}</div>` : ''}
-      </div>
-      <div class="servico-acoes">
-        <button class="btn-secundario acao-perigo" data-acao-bloqueio="excluir" data-id="${b.id}">Excluir</button>
-      </div>
-    </div>
+    <tr class="linha-clicavel" data-bloqueio-abrir="${b.id}">
+      <td>
+        <div>${periodo}</div>
+        ${b.motivo ? `<div class="cliente-linha-telefone">${escapeHtml(b.motivo)}</div>` : ''}
+      </td>
+      <td>${b.profissional ? escapeHtml(b.profissional) : 'Toda a agenda'}</td>
+      <td>${desabilitado ? '<span class="badge badge-status-inativo">Desabilitado</span>' : '<span class="badge badge-status-ativo">Ativo</span>'}</td>
+      <td>
+        <span class="ds-acoes" data-bloqueio-id="${b.id}">
+          <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações">⋯</button>
+          <div class="ds-acoes-menu" role="menu" hidden>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="editar">Editar</button>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="${desabilitado ? 'habilitar' : 'desabilitar'}">${desabilitado ? 'Habilitar' : 'Desabilitar'}</button>
+            <button type="button" role="menuitem" class="ds-acoes-item ds-acoes-item-perigo" data-acao="excluir">Excluir</button>
+          </div>
+        </span>
+      </td>
+    </tr>
   `;
+}
+
+async function alternarAtivoBloqueio(bloqueio) {
+  const resultado = await api(`/api/bloqueios/${bloqueio.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ ativo: !bloqueio.ativo }),
+  });
+  if (resultado && !resultado.error) {
+    mostrarToast(resultado.ativo ? 'Bloqueio habilitado.' : 'Bloqueio desabilitado.', 'sucesso');
+    renderBloqueios();
+  } else {
+    mostrarToast((resultado && resultado.error) || 'Erro ao atualizar bloqueio.', 'erro');
+  }
 }
 
 async function renderBloqueios() {
@@ -4077,8 +4159,8 @@ async function renderBloqueios() {
   bloqueiosAtuais = dataBloqueios.bloqueios;
 
   let html = `
-    <div class="nav-periodo">
-      <strong>Bloqueio de agenda</strong>
+    <div class="inicio-cabecalho">
+      <h2>Bloqueio de agenda</h2>
       <button class="btn-novo-agendamento" id="btn-novo-bloqueio">+ Novo bloqueio</button>
     </div>
 
@@ -4107,9 +4189,28 @@ async function renderBloqueios() {
     <div class="pagamento-secao-divisor"></div>
     <h3 class="inicio-secao-titulo">Bloqueios manuais</h3>
   `;
-  html += bloqueiosAtuais.length
-    ? bloqueiosAtuais.map(renderBloqueioItem).join('')
-    : '<div class="vazio">Nenhum bloqueio cadastrado ainda.</div>';
+
+  if (!bloqueiosAtuais.length) {
+    html += '<div class="vazio">Nenhum bloqueio cadastrado ainda.</div>';
+  } else {
+    html += `
+      <div class="tabela-wrapper">
+        <table class="tabela-tenants tabela-crud-compacta">
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Profissional</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bloqueiosAtuais.map(renderBloqueioLinha).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
 
   conteudo.innerHTML = html;
   document.getElementById('btn-novo-bloqueio').addEventListener('click', () => abrirModalBloqueio());
@@ -4175,7 +4276,8 @@ function wireToggleFeriados() {
   });
 }
 
-function abrirModalBloqueio() {
+function abrirModalBloqueio(bloqueio) {
+  const editando = !!bloqueio;
   const hoje = formatarDataISO(new Date());
   // Campo de profissional é uma diferenciação por plano (não pela contagem
   // de profissionais como em mostrar_profissional, usado no resto do app) —
@@ -4183,24 +4285,32 @@ function abrirModalBloqueio() {
   // bloquear a agenda de um profissional específico; no Essencial o bloqueio
   // sempre vale pra agenda inteira.
   const mostrarProfissional = contaStatus && contaStatus.plano !== 'starter';
+
+  const horaInputValor = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo' });
+  const periodoInicioValor = editando ? formatarDataISO(new Date(bloqueio.inicio)) : hoje;
+  const periodoFimValor = editando ? formatarDataISO(new Date(bloqueio.fim)) : hoje;
+  const horaInicioValor = editando ? horaInputValor(bloqueio.inicio) : '';
+  const horaFimValor = editando ? horaInputValor(bloqueio.fim) : '';
+  const diaTodoChecked = editando && periodoInicioValor === periodoFimValor && horaInicioValor === '00:00' && horaFimValor === '23:59';
+
   abrirModal(
-    '<h3>Novo bloqueio</h3>',
+    `<h3>${editando ? 'Editar bloqueio' : 'Novo bloqueio'}</h3>`,
     `
       <form id="form-bloqueio">
         <div class="modal-erro" id="bloqueio-erro"></div>
         <label for="bloqueio-periodo-inicio">Período *</label>
         <div class="campo-periodo">
-          <input type="date" id="bloqueio-periodo-inicio" data-obrigatorio min="${hoje}" value="${hoje}">
+          <input type="date" id="bloqueio-periodo-inicio" data-obrigatorio min="${editando ? '' : hoje}" value="${periodoInicioValor}">
           <span class="periodo-separador">até</span>
-          <input type="date" id="bloqueio-periodo-fim" data-obrigatorio min="${hoje}" value="${hoje}">
+          <input type="date" id="bloqueio-periodo-fim" data-obrigatorio min="${editando ? '' : hoje}" value="${periodoFimValor}">
         </div>
         <label for="bloqueio-hora-inicio">Hora de início *</label>
-        <input type="time" id="bloqueio-hora-inicio" data-obrigatorio>
+        <input type="time" id="bloqueio-hora-inicio" data-obrigatorio value="${diaTodoChecked ? '' : horaInicioValor}">
         <label for="bloqueio-hora-fim">Hora de fim *</label>
-        <input type="time" id="bloqueio-hora-fim" data-obrigatorio>
+        <input type="time" id="bloqueio-hora-fim" data-obrigatorio value="${diaTodoChecked ? '' : horaFimValor}">
         <label class="toggle-linha">
           <span class="toggle-switch">
-            <input type="checkbox" id="bloqueio-dia-todo">
+            <input type="checkbox" id="bloqueio-dia-todo" ${diaTodoChecked ? 'checked' : ''}>
             <span class="toggle-switch-trilho"></span>
           </span>
           Dia todo
@@ -4209,10 +4319,10 @@ function abrirModalBloqueio() {
         <label for="bloqueio-profissional"${mostrarProfissional ? '' : ' hidden style="display:none"'}>Profissional (opcional)</label>
         <select id="bloqueio-profissional"${mostrarProfissional ? '' : ' hidden style="display:none"'}><option value="">Toda a agenda</option></select>
         <label for="bloqueio-motivo">Motivo (opcional)</label>
-        <input type="text" id="bloqueio-motivo" placeholder="Ex: Férias, Feriado, Compromisso pessoal">
+        <input type="text" id="bloqueio-motivo" placeholder="Ex: Férias, Feriado, Compromisso pessoal" value="${editando && bloqueio.motivo ? escapeHtml(bloqueio.motivo) : ''}">
         <div class="modal-acoes">
           <button type="button" class="btn-secundario" id="btn-cancelar-bloqueio">Cancelar</button>
-          <button type="submit" class="btn-primario" id="btn-salvar-bloqueio">Criar bloqueio</button>
+          <button type="submit" class="btn-primario" id="btn-salvar-bloqueio">${editando ? 'Salvar' : 'Criar bloqueio'}</button>
         </div>
       </form>
     `
@@ -4226,6 +4336,7 @@ function abrirModalBloqueio() {
       if (!resultado || !resultado.profissionais) return;
       select.innerHTML = '<option value="">Toda a agenda</option>' +
         resultado.profissionais.map((p) => `<option value="${p.id}">${p.nome}</option>`).join('');
+      if (editando && bloqueio.profissional_id) select.value = bloqueio.profissional_id;
     });
   }
 
@@ -4320,16 +4431,19 @@ function abrirModalBloqueio() {
       motivo: document.getElementById('bloqueio-motivo').value.trim() || null,
     };
 
-    const resultado = await api('/api/bloqueios', { method: 'POST', body: JSON.stringify(payload) });
+    const resultado = await api(editando ? `/api/bloqueios/${bloqueio.id}` : '/api/bloqueios', {
+      method: editando ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload),
+    });
 
     if (resultado && !resultado.error) {
       fecharModal();
-      mostrarToast('Bloqueio criado com sucesso.', 'sucesso');
+      mostrarToast(editando ? 'Bloqueio atualizado com sucesso.' : 'Bloqueio criado com sucesso.', 'sucesso');
       renderBloqueios();
     } else {
-      erroEl.textContent = (resultado && resultado.error) || 'Erro ao criar bloqueio.';
+      erroEl.textContent = (resultado && resultado.error) || 'Erro ao salvar bloqueio.';
       btn.disabled = false;
-      btn.textContent = 'Criar bloqueio';
+      btn.textContent = editando ? 'Salvar' : 'Criar bloqueio';
     }
   });
 }

@@ -234,16 +234,89 @@ test.describe('Novo agendamento — profissional exclusivo e serviço desabilita
   });
 });
 
+// Abre o menu "⋯" (componente .ds-acoes do design system) de uma linha de
+// profissional e clica na ação pedida — mesmo padrão de escolherAcaoServico.
+async function escolherAcaoProfissional(page, id, acao) {
+  const caixa = page.locator(`.ds-acoes[data-profissional-id="${id}"]`);
+  await caixa.locator('.ds-acoes-btn').click();
+  await caixa.locator(`.ds-acoes-item[data-acao="${acao}"]`).click();
+}
+
 test.describe('Profissionais — CRUD (US17)', () => {
-  test('lista os profissionais com a contagem de serviços atendidos', async ({ page }) => {
+  test('lista os profissionais numa tabela com a contagem de serviços atendidos', async ({ page }) => {
     await entrarNoPainel(page, {
-      profissionais: [{ id: 'p1', nome: 'Bruna', servicos: ['s1', 's2'] }],
+      profissionais: [{ id: 'p1', nome: 'Bruna', servicos: ['s1', 's2'], ativo: true }],
     });
     await page.click('.menu-item[data-menu="cadastro"]');
     await page.click('#subtabs-cadastro .tab[data-aba-cadastro="profissionais"]');
-    const item = page.locator('.agendamento-item');
-    await expect(item).toContainText('Bruna');
-    await expect(item).toContainText('2 serviços atendidos');
+    const linha = page.locator('tr[data-profissional-abrir="p1"]');
+    await expect(linha).toContainText('Bruna');
+    await expect(linha).toContainText('2 serviços atendidos');
+    await expect(linha.locator('.badge-status-ativo')).toHaveText('Ativo');
+  });
+
+  test('profissional desabilitado mostra o badge e o kebab oferece "Habilitar"', async ({ page }) => {
+    await entrarNoPainel(page, {
+      profissionais: [{ id: 'p1', nome: 'Bruna', servicos: [], ativo: false }],
+    });
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await page.click('#subtabs-cadastro .tab[data-aba-cadastro="profissionais"]');
+    const linha = page.locator('tr[data-profissional-abrir="p1"]');
+    await expect(linha.locator('.badge-status-inativo')).toHaveText('Desabilitado');
+    const caixa = linha.locator('.ds-acoes');
+    await caixa.locator('.ds-acoes-btn').click();
+    await expect(caixa.locator('.ds-acoes-item[data-acao="habilitar"]')).toHaveText('Habilitar');
+  });
+
+  test('clicar na linha do profissional abre a edição', async ({ page }) => {
+    await entrarNoPainel(page, {
+      profissionais: [{ id: 'p1', nome: 'Bruna', servicos: ['s1'], ativo: true }],
+    });
+    await page.route('**/api/servicos', (route) => {
+      if (route.request().method() !== 'GET') return route.fallback();
+      return route.fulfill({ json: { servicos: [{ id: 's1', nome: 'Corte', duracao_minutos: 30, preco: 50 }] } });
+    });
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await page.click('#subtabs-cadastro .tab[data-aba-cadastro="profissionais"]');
+    await page.click('tr[data-profissional-abrir="p1"]');
+    await expect(page.locator('#profissional-nome')).toHaveValue('Bruna');
+  });
+
+  test('desabilitar um profissional pelo kebab chama PATCH com ativo invertido', async ({ page }) => {
+    await entrarNoPainel(page, {
+      profissionais: [{ id: 'p1', nome: 'Bruna', servicos: [], ativo: true }],
+    });
+    let corpoEnviado = null;
+    await page.route('**/api/profissionais/p1', (route) => {
+      corpoEnviado = route.request().postDataJSON();
+      return route.fulfill({ json: { id: 'p1', nome: 'Bruna', ativo: false } });
+    });
+
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await page.click('#subtabs-cadastro .tab[data-aba-cadastro="profissionais"]');
+    await escolherAcaoProfissional(page, 'p1', 'desabilitar');
+
+    await expect(page.locator('.toast-sucesso')).toHaveText(/desabilitado/);
+    expect(corpoEnviado).toMatchObject({ ativo: false });
+  });
+
+  test('excluir um profissional pelo kebab chama DELETE', async ({ page }) => {
+    await entrarNoPainel(page, {
+      profissionais: [{ id: 'p1', nome: 'Bruna', servicos: [], ativo: true }],
+    });
+    let metodoRecebido = null;
+    await page.route('**/api/profissionais/p1', (route) => {
+      metodoRecebido = route.request().method();
+      return route.fulfill({ json: { ok: true } });
+    });
+
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await page.click('#subtabs-cadastro .tab[data-aba-cadastro="profissionais"]');
+    await escolherAcaoProfissional(page, 'p1', 'excluir');
+    await page.click('#btn-confirmar-excluir-profissional');
+
+    await expect(page.locator('.toast-sucesso')).toHaveText(/excluído com sucesso/);
+    expect(metodoRecebido).toBe('DELETE');
   });
 
   test('cria profissional novo com serviços selecionados', async ({ page }) => {

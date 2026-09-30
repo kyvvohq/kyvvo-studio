@@ -39,7 +39,7 @@ function init(poolInstance) {
 // avisado — vale checar os logs/Sentry entre a fase 1 e esta fase.
 async function calcularDisponibilidadeIA(tenant) {
   const { rows: profissionais } = await pool.query(
-    'SELECT id, nome FROM profissionais WHERE tenant_id = $1 ORDER BY nome',
+    'SELECT id, nome FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL AND ativo ORDER BY nome',
     [tenant.id]
   );
   if (!profissionais.length) return [];
@@ -99,7 +99,7 @@ async function calcularDisponibilidadeIA(tenant) {
 // prompt da IA; aqui o número precisa ser o total real).
 async function contarHorariosLivresNoDia(tenant, dataISO) {
   const { rows: profissionais } = await pool.query(
-    'SELECT id FROM profissionais WHERE tenant_id = $1',
+    'SELECT id FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL AND ativo',
     [tenant.id]
   );
   if (!profissionais.length) return 0;
@@ -151,7 +151,7 @@ async function contarHorariosLivresNoDia(tenant, dataISO) {
 const DURACAO_HORA_CHEIA_MINUTOS = 60;
 async function contarHorariosLivresPorProfissionalNoDia(tenant, dataISO) {
   const { rows: profissionais } = await pool.query(
-    'SELECT id, nome FROM profissionais WHERE tenant_id = $1 ORDER BY nome',
+    'SELECT id, nome FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL AND ativo ORDER BY nome',
     [tenant.id]
   );
   if (!profissionais.length) return [];

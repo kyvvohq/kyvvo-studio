@@ -24,12 +24,12 @@ function registerProfissionaisRoutes(fastify, pool) {
     const { tenantId } = request.user;
     await garantirProfissionalPadrao(tenantId);
     const { rows } = await pool.query(
-      `SELECT p.id, p.nome, p.email, p.telefone, p.pix,
+      `SELECT p.id, p.nome, p.email, p.telefone, p.pix, p.ativo,
               COALESCE(array_agg(ps.servico_id) FILTER (WHERE ps.servico_id IS NOT NULL), '{}') AS servicos
        FROM profissionais p
        LEFT JOIN profissionais_servicos ps ON ps.profissional_id = p.id
-       WHERE p.tenant_id = $1
-       GROUP BY p.id, p.nome, p.email, p.telefone, p.pix
+       WHERE p.tenant_id = $1 AND p.excluido_em IS NULL
+       GROUP BY p.id, p.nome, p.email, p.telefone, p.pix, p.ativo
        ORDER BY p.nome`,
       [tenantId]
     );
@@ -65,7 +65,7 @@ function registerProfissionaisRoutes(fastify, pool) {
     const limite = limiteRows[0] ? limiteRows[0].valor : null;
     if (limite != null) {
       const { rows: contagemRows } = await pool.query(
-        'SELECT COUNT(*)::int AS total FROM profissionais WHERE tenant_id = $1',
+        'SELECT COUNT(*)::int AS total FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL',
         [tenantId]
       );
       if (contagemRows[0].total >= limite) {
@@ -80,7 +80,7 @@ function registerProfissionaisRoutes(fastify, pool) {
       await client.query('BEGIN');
       const { rows } = await client.query(
         `INSERT INTO profissionais (tenant_id, nome, email, telefone, pix)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id, nome, email, telefone, pix`,
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, nome, email, telefone, pix, ativo`,
         [tenantId, nome.trim(), email ? email.trim() : null, telefone ? telefone.trim() : null, pix ? pix.trim() : null]
       );
       await definirServicosDoProfissional(client, tenantId, rows[0].id, servicos);
@@ -98,7 +98,7 @@ function registerProfissionaisRoutes(fastify, pool) {
   fastify.patch('/api/profissionais/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { tenantId } = request.user;
     const { id } = request.params;
-    const { nome, servicos, email, telefone, pix } = request.body || {};
+    const { nome, servicos, email, telefone, pix, ativo } = request.body || {};
 
     if (nome !== undefined && !nome.trim()) {
       return reply.code(400).send({ error: 'Campo "nome" não pode ficar vazio' });
@@ -115,14 +115,16 @@ function registerProfissionaisRoutes(fastify, pool) {
            nome = COALESCE($3, nome),
            email = CASE WHEN $4 THEN $5 ELSE email END,
            telefone = CASE WHEN $6 THEN $7 ELSE telefone END,
-           pix = CASE WHEN $8 THEN $9 ELSE pix END
-         WHERE id = $1 AND tenant_id = $2
-         RETURNING id, nome, email, telefone, pix`,
+           pix = CASE WHEN $8 THEN $9 ELSE pix END,
+           ativo = COALESCE($10, ativo)
+         WHERE id = $1 AND tenant_id = $2 AND excluido_em IS NULL
+         RETURNING id, nome, email, telefone, pix, ativo`,
         [
           id, tenantId, nome ? nome.trim() : null,
           email !== undefined, email ? email.trim() : null,
           telefone !== undefined, telefone ? telefone.trim() : null,
           pix !== undefined, pix ? pix.trim() : null,
+          ativo ?? null,
         ]
       );
       if (!rows[0]) {
@@ -156,7 +158,14 @@ function registerProfissionaisRoutes(fastify, pool) {
       });
     }
 
-    const { rowCount } = await pool.query('DELETE FROM profissionais WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
+    // Soft delete (mesmo padrão de Serviços, 031_servicos_ativo_exclusao.sql
+    // /084_profissionais_bloqueios_crud_padrao.sql): profissional_id tem ON
+    // DELETE CASCADE em agendamentos (001_init.sql) — um DELETE de verdade
+    // apagaria o histórico de agendamentos antigos desse profissional.
+    const { rowCount } = await pool.query(
+      'UPDATE profissionais SET excluido_em = now() WHERE id = $1 AND tenant_id = $2 AND excluido_em IS NULL',
+      [id, tenantId]
+    );
     if (!rowCount) {
       return reply.code(404).send({ error: 'Profissional não encontrado' });
     }

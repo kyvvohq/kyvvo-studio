@@ -21,7 +21,7 @@ function init(poolInstance) {
 // vazio, ou a IA pergunta um profissional que não faz diferença nenhuma).
 async function garantirProfissionalPadrao(tenantId) {
   const { rows: existentes } = await pool.query(
-    'SELECT id, nome FROM profissionais WHERE tenant_id = $1 ORDER BY nome',
+    'SELECT id, nome FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL ORDER BY nome',
     [tenantId]
   );
   if (existentes.length === 1) return { ...existentes[0], unico: true };

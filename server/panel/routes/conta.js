@@ -66,7 +66,7 @@ function registerContaRoutes(fastify, pool) {
     const { rows: contagem } = await pool.query(
       `SELECT
          (SELECT COUNT(*)::int FROM servicos WHERE tenant_id = $1 AND ativo = true AND excluido_em IS NULL) AS servicos,
-         (SELECT COUNT(*)::int FROM profissionais WHERE tenant_id = $1) AS profissionais,
+         (SELECT COUNT(*)::int FROM profissionais WHERE tenant_id = $1 AND ativo = true AND excluido_em IS NULL) AS profissionais,
          (SELECT meta_phone_number_id FROM tenants WHERE id = $1) AS meta_phone_number_id`,
       [tenantId]
     );

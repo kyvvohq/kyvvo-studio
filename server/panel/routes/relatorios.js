@@ -169,7 +169,7 @@ function registerRelatoriosRoutes(fastify, pool) {
            FROM lancamentos_financeiros WHERE tenant_id = $1 AND to_char(data,'YYYY-MM') = $2`,
           [tenantId, mes]
         ),
-        pool.query('SELECT count(*)::int AS total FROM profissionais WHERE tenant_id = $1', [tenantId]),
+        pool.query('SELECT count(*)::int AS total FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL', [tenantId]),
         // Minutos bloqueados no mês (bloqueios_agenda), separando bloqueio
         // geral (profissional_id nulo, vale pra todos) de individual — pro
         // cálculo de capacidade da agenda logo abaixo.
@@ -177,7 +177,7 @@ function registerRelatoriosRoutes(fastify, pool) {
           `SELECT
              COALESCE(SUM(EXTRACT(EPOCH FROM (LEAST(fim, $3::timestamptz) - GREATEST(inicio, $2::timestamptz))) / 60) FILTER (WHERE profissional_id IS NULL), 0) AS minutos_geral,
              COALESCE(SUM(EXTRACT(EPOCH FROM (LEAST(fim, $3::timestamptz) - GREATEST(inicio, $2::timestamptz))) / 60) FILTER (WHERE profissional_id IS NOT NULL), 0) AS minutos_individual
-           FROM bloqueios_agenda WHERE tenant_id = $1 AND inicio < $3::timestamptz AND fim > $2::timestamptz`,
+           FROM bloqueios_agenda WHERE tenant_id = $1 AND ativo AND inicio < $3::timestamptz AND fim > $2::timestamptz`,
           [tenantId, mesInicio, mesFim]
         ),
         // Atendimentos confirmados/concluídos por dia da semana — pro
