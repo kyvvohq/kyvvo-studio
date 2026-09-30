@@ -149,7 +149,8 @@ function registerContaRoutes(fastify, pool) {
   // kyvvo-crm/kyvvo-people). Best-effort: se o platform estiver fora do ar,
   // o link cai pra landing pública do produto — nunca trava o clique.
   fastify.post('/api/meus-produtos/handoff', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const destino = PRODUTOS_HANDOFF_DESTINO[(request.body || {}).produto];
+    const produtoDestino = (request.body || {}).produto;
+    const destino = PRODUTOS_HANDOFF_DESTINO[produtoDestino];
     if (!destino) {
       return reply.code(400).send({ error: 'Produto inválido' });
     }
@@ -157,11 +158,21 @@ function registerContaRoutes(fastify, pool) {
     const { rows } = await pool.query('SELECT nome FROM usuarios WHERE id = $1', [userId]);
     const nome = rows[0] ? rows[0].nome : null;
 
+    // outrosProdutos do PONTO DE VISTA DO DESTINO (bug real em produção,
+    // 2026-09-30: CRM/People, ao contrário do Studio, nunca fazem uma query
+    // "ao vivo" pro menu — o dado vem do JWT, montado só no login normal via
+    // GET /entitlements. Uma sessão criada por handoff nunca passava por lá,
+    // então "trocar de produto" chegava sem o próprio Studio na lista de
+    // volta. O Studio já sabe os módulos ativos do tenant de graça (mesma
+    // query cross-schema do seu próprio menu) — só falta excluir o destino
+    // da lista (ele não precisa aparecer linkando pra si mesmo).
+    const outrosProdutos = (await buscarOutrosProdutos(pool, tenantId)).filter((p) => p.chave !== produtoDestino);
+
     try {
       const res = await fetch(`${PLATFORM_URL}/internal/handoff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Internal-Token': process.env.INTERNAL_HANDOFF_TOKEN },
-        body: JSON.stringify({ tenantId, userId, email, nome }),
+        body: JSON.stringify({ tenantId, userId, email, nome, outrosProdutos }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) throw new Error(`platform respondeu ${res.status}`);
