@@ -55,6 +55,19 @@ test.describe('Menu dinâmico por módulo (ST10.3)', () => {
     await expect(page.locator('.menu-item[data-menu="modulo:financeiro"]')).toHaveCount(0);
   });
 
+  // "crm"/"people" são OUTROS PRODUTOS Kyvvo, não módulos internos do Studio
+  // — mesmo ativos, não podem virar item de sidebar (isso vive no menu de
+  // perfil, ver renderOutrosProdutos em app.js).
+  test('módulos de outros produtos (crm/people) não aparecem na sidebar', async ({ page }) => {
+    await entrarNoPainel(page, [
+      { key: 'agenda_inteligente', nome: 'Agendamento', preco_mensal: null },
+      { key: 'crm', nome: 'Kyvvo CRM', preco_mensal: null },
+      { key: 'people', nome: 'Kyvvo People', preco_mensal: null },
+    ]);
+    await expect(page.locator('.menu-item[data-menu="modulo:crm"]')).toHaveCount(0);
+    await expect(page.locator('.menu-item[data-menu="modulo:people"]')).toHaveCount(0);
+  });
+
   test('clicar no item do módulo mostra aviso de "em breve"', async ({ page }) => {
     // "financeiro" não serve mais de exemplo aqui — desde a US18 ele tem tela
     // própria (ver financeiro.spec.js). "estoque" continua sem tela.
