@@ -67,7 +67,7 @@ async function montarContextoIA(tenant, cliente, primeiraMensagem) {
     `SELECT a.data_hora, s.nome AS servico_nome
        FROM agendamentos a
        LEFT JOIN servicos s ON s.id = a.servico_id
-      WHERE a.tenant_id = $1 AND a.cliente_id = $2 AND a.status = 'confirmado' AND a.data_hora > now()
+      WHERE a.tenant_id = $1 AND a.cliente_id = $2 AND a.status IN ('confirmado', 'a_confirmar') AND a.data_hora > now()
       ORDER BY a.data_hora ASC LIMIT 10`,
     [tenant.id, cliente.id]
   );
@@ -223,7 +223,7 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
       `SELECT a.id
          FROM agendamentos a
          LEFT JOIN servicos s ON s.id = a.servico_id
-        WHERE a.tenant_id = $1 AND a.profissional_id = $2 AND a.status = 'confirmado'
+        WHERE a.tenant_id = $1 AND a.profissional_id = $2 AND a.status IN ('confirmado', 'a_confirmar')
           AND a.data_hora < $3::timestamptz + ($4 * interval '1 minute')
           AND $3::timestamptz < a.data_hora + (COALESCE(s.duracao_minutos, $5) * interval '1 minute')`,
       [tenantId, profissional.id, params.dataHoraISO, duracao, IA_DURACAO_PADRAO_MINUTOS]
@@ -241,23 +241,26 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
 
       if (intent === 'reagendar') {
         const { rows: candidatos } = await client.query(
-          `SELECT a.id, s.nome AS servico_nome, s.preco AS servico_preco, a.data_hora
+          `SELECT a.id, a.status, s.nome AS servico_nome, s.preco AS servico_preco, a.data_hora
              FROM agendamentos a
              LEFT JOIN servicos s ON s.id = a.servico_id
-            WHERE a.tenant_id = $1 AND a.cliente_id = $2 AND a.status = 'confirmado' AND a.data_hora > now()
+            WHERE a.tenant_id = $1 AND a.cliente_id = $2 AND a.status IN ('confirmado', 'a_confirmar') AND a.data_hora > now()
             ORDER BY a.data_hora ASC`,
           [tenantId, clienteId]
         );
         const existente = escolherAgendamentoAlvoIA(candidatos, params.dataHoraAlvoISO);
         if (existente) {
           await client.query('UPDATE agendamentos SET data_hora = $1, profissional_id = $2, updated_at = now() WHERE id = $3', [params.dataHoraISO, profissional.id, existente.id]);
+          // Reagendar mantém o status que o atendimento já tinha
+          // ('a_confirmar' ou 'confirmado') — não força pra 'confirmado' (a
+          // remarcação por si só não é uma confirmação do cliente).
           await sincronizarLancamentoFinanceiro(client, {
             tenantId,
             agendamentoId: existente.id,
             servicoNome: existente.servico_nome,
             servicoPreco: existente.servico_preco,
             dataHora: params.dataHoraISO,
-            statusAgendamento: 'confirmado',
+            statusAgendamento: existente.status,
           });
           await client.query('COMMIT');
           // Configurações > Notificações ("Agendamento remarcado") —
@@ -273,6 +276,12 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
         // "agendar" (já era assim antes desta revisão).
       }
 
+      // Nasce 'confirmado' direto (não 'a_confirmar'/migration 086) — ao
+      // contrário de um agendamento criado pelo painel, aqui o próprio
+      // cliente já confirmou tudo na conversa (a IA só cria depois de
+      // reunir serviço/profissional/data-hora e o cliente confirmar
+      // explicitamente, ver montarContextoIA) — mandar OUTRO "Confirme seu
+      // horário" pelo WhatsApp logo em seguida seria redundante.
       const { rows: novo } = await client.query(
         `INSERT INTO agendamentos (tenant_id, cliente_id, profissional_id, servico_id, data_hora, status, origem)
          VALUES ($1, $2, $3, $4, $5, 'confirmado', 'whatsapp')
@@ -308,7 +317,7 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
       `SELECT a.id, a.data_hora, s.nome AS servico_nome, s.preco AS servico_preco
          FROM agendamentos a
          LEFT JOIN servicos s ON s.id = a.servico_id
-        WHERE a.tenant_id = $1 AND a.cliente_id = $2 AND a.status = 'confirmado' AND a.data_hora > now()
+        WHERE a.tenant_id = $1 AND a.cliente_id = $2 AND a.status IN ('confirmado', 'a_confirmar') AND a.data_hora > now()
         ORDER BY a.data_hora ASC`,
       [tenantId, clienteId]
     );

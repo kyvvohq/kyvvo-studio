@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
   renderizar, montarParametrosWhatsapp, telefoneParaE164, formatarDataHora,
   dadosDoAgendamento, detectarOptOut, SEEDS, registrarDisparo, limiteDoPlanoExcedido,
-  renderizarCorpoTemplate,
+  renderizarCorpoTemplate, confirmarAgendamentoPorBotao,
 } = require('../lib/automacoes');
 const { dentroDoHorario } = require('../lib/horario-comercial');
 const planosCatalogo = require('../lib/planos');
@@ -184,6 +184,58 @@ describe('registrarDisparo (histórico pro admin — US WhatsApp > Disparos)', (
     await registrarDisparo(pool, { tenantId: 't1', telefoneE164: '+5534999998888', status: 'enviado' });
     assert.equal(chamadas[0].params[6], 'Oi Ana!');
     assert.equal(chamadas[1].params[6], null);
+  });
+});
+
+describe('confirmarAgendamentoPorBotao (botão "Confirmar" — a_confirmar -> confirmado)', () => {
+  function fakePool({ candidato = null } = {}) {
+    const chamadas = [];
+    return {
+      chamadas,
+      query: async (sql, params) => {
+        chamadas.push({ sql, params });
+        if (/SELECT a\.id, a\.data_hora, s\.nome AS servico/.test(sql)) return { rows: candidato ? [candidato] : [] };
+        if (/UPDATE agendamentos SET status = 'confirmado'/.test(sql)) return { rows: [] };
+        if (/INSERT INTO lancamentos_financeiros/.test(sql)) return { rows: [] };
+        if (/SELECT notificacoes_ativas, whatsapp FROM tenants/.test(sql)) return { rows: [] }; // tenant "não encontrado" — dispararNotificacaoEvento só retorna cedo, best-effort
+        throw new Error(`query inesperada no teste: ${sql}`);
+      },
+    };
+  }
+
+  const CANDIDATO = {
+    id: 'ag1', data_hora: '2026-08-10T13:00:00.000Z', servico: 'Corte', servico_preco: '50.00',
+    profissional: 'Bia', cliente: 'Ana Souza', cliente_telefone: '5534999990001',
+  };
+
+  test('sem nenhum atendimento a_confirmar pro telefone: devolve null, não faz UPDATE', async () => {
+    const pool = fakePool({ candidato: null });
+    const resultado = await confirmarAgendamentoPorBotao(pool, { tenantId: 't1', telefone: '5534999990001' });
+    assert.equal(resultado, null);
+    assert.equal(pool.chamadas.length, 1); // só o SELECT, nada mais
+  });
+
+  test('acha o atendimento a_confirmar mais próximo: atualiza status e devolve os dados dele', async () => {
+    const pool = fakePool({ candidato: CANDIDATO });
+    const resultado = await confirmarAgendamentoPorBotao(pool, { tenantId: 't1', telefone: '5534999990001' });
+    assert.equal(resultado.id, 'ag1');
+    assert.equal(resultado.servico, 'Corte');
+
+    const update = pool.chamadas.find((c) => /UPDATE agendamentos/.test(c.sql));
+    assert.ok(update, 'devia ter atualizado o agendamento');
+    assert.deepEqual(update.params, ['ag1']);
+
+    const insertFinanceiro = pool.chamadas.find((c) => /INSERT INTO lancamentos_financeiros/.test(c.sql));
+    assert.ok(insertFinanceiro, 'devia ter sincronizado o lançamento financeiro (previsto continua previsto)');
+  });
+
+  test('SELECT filtra por status = a_confirmar, telefone e só atendimentos futuros', async () => {
+    const pool = fakePool({ candidato: CANDIDATO });
+    await confirmarAgendamentoPorBotao(pool, { tenantId: 't1', telefone: '5534999990001' });
+    const select = pool.chamadas[0];
+    assert.match(select.sql, /status = 'a_confirmar'/);
+    assert.match(select.sql, /a\.data_hora > now\(\)/);
+    assert.deepEqual(select.params, ['t1', '5534999990001']);
   });
 });
 

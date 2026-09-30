@@ -24,6 +24,8 @@
 const crypto = require('crypto');
 const { estaNoHorarioComercial } = require('./horario-comercial');
 const planosCatalogo = require('./planos');
+const { sincronizarLancamentoFinanceiro } = require('./financeiro');
+const { dispararNotificacaoEvento } = require('./notificacoes');
 
 // Lazy: os testes unitários exercitam só as funções puras (renderizar,
 // montarParametrosWhatsapp, telefoneParaE164...) sem precisar do pacote
@@ -295,6 +297,46 @@ async function dispararAutomacoes(pool, { tenantId, gatilho, agendamento }) {
   }
 }
 
+// --- Botão "Confirmar" da automação de Confirmação de agenda ---------------
+
+// Chamado pelo webhook (routes/webhook-whatsapp.js) quando o cliente toca o
+// botão de resposta rápida "Confirmar" no template da automação
+// `agendamento_criado`. Confirma o atendimento 'a_confirmar' mais próximo do
+// cliente (telefone já no formato salvo em clientes.telefone, sem tratar
+// E.164 — mesmo valor que chega em `msg.from` do webhook da Meta). Não
+// precisa de contexto de IA nenhum: é uma ação direta, sem conversa. Devolve
+// o agendamento confirmado (pro chamador montar a mensagem de resposta) ou
+// null se não achou nenhum 'a_confirmar' pendente pra esse telefone.
+async function confirmarAgendamentoPorBotao(pool, { tenantId, telefone }) {
+  const { rows } = await pool.query(
+    `SELECT a.id, a.data_hora, s.nome AS servico, s.preco AS servico_preco,
+            p.nome AS profissional, c.nome AS cliente, c.telefone AS cliente_telefone
+     FROM agendamentos a
+     JOIN clientes c ON c.id = a.cliente_id
+     JOIN servicos s ON s.id = a.servico_id
+     JOIN profissionais p ON p.id = a.profissional_id
+     WHERE a.tenant_id = $1 AND c.telefone = $2 AND a.status = 'a_confirmar' AND a.data_hora > now()
+     ORDER BY a.data_hora ASC LIMIT 1`,
+    [tenantId, telefone]
+  );
+  const ag = rows[0];
+  if (!ag) return null;
+
+  await pool.query("UPDATE agendamentos SET status = 'confirmado', updated_at = now() WHERE id = $1", [ag.id]);
+  await sincronizarLancamentoFinanceiro(pool, {
+    tenantId, agendamentoId: ag.id, servicoNome: ag.servico, servicoPreco: ag.servico_preco,
+    dataHora: ag.data_hora, statusAgendamento: 'confirmado',
+  });
+
+  const dataFormatada = new Date(ag.data_hora).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+  dispararNotificacaoEvento(pool, tenantId, 'agenda_confirmada', {
+    titulo: 'Agendamento confirmado',
+    detalhe: `${ag.servico} com ${ag.cliente || ag.cliente_telefone} — ${ag.profissional}, ${dataFormatada}`,
+  }).catch(() => {});
+
+  return ag;
+}
+
 // clientes.telefone no Studio guarda com DDI 55 (ver 056_clientes_telefone_ddi);
 // a Meta quer E.164 com o '+'. Aceita também o formato sem DDI (10-11 díg) por
 // segurança — nesse caso assume BR e prefixa 55.
@@ -376,7 +418,7 @@ async function processarInativos(pool) {
        where c.tenant_id = $1 and c.excluido_em is null
          and not exists (
            select 1 from agendamentos ag
-           where ag.cliente_id = c.id and ag.status in ('confirmado', 'concluido')
+           where ag.cliente_id = c.id and ag.status in ('confirmado', 'a_confirmar', 'concluido')
              and ag.data_hora > now() - ($2 * interval '1 day')
          )
          and exists (
@@ -468,6 +510,7 @@ module.exports = {
   garantirAutomacoesPadrao,
   dispararAutomacoes,
   detectarOptOut,
+  confirmarAgendamentoPorBotao,
   processarAniversarios,
   processarInativos,
   processarFilaWhatsapp,

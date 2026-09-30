@@ -5102,11 +5102,16 @@ async function renderInicio() {
 let filtroProfissionalDia = null;
 
 // Tom de cor por status do agendamento (borda esquerda + fundo sutil +
-// pílula). Enum real: confirmado/concluido/falta/cancelado/reagendado
-// (migrations 001/042/060) — o mock do canvas tinha "aguardando"/"em
-// atendimento" que não existem no nosso modelo.
+// pílula). Enum real: a_confirmar/confirmado/concluido/falta/cancelado/
+// reagendado (migrations 001/042/060/086) — o mock do canvas tinha
+// "aguardando"/"em atendimento" que não existem no nosso modelo.
+// a_confirmar (migration 086) — estágio inicial, amarelo, até o cliente
+// confirmar pelo botão do WhatsApp (ver lib/automacoes.js); ao confirmar
+// vira 'confirmado', verde — pedido explícito (antes 'confirmado' não tinha
+// cor/pílula própria, ficava neutro).
 const TOM_STATUS_AGENDA = {
-  confirmado: { classe: 'agenda-tom-neutro', pill: '', pillClasse: '' },
+  a_confirmar: { classe: 'agenda-tom-warn', pill: 'A confirmar', pillClasse: 'badge-a-confirmar' },
+  confirmado: { classe: 'agenda-tom-ok', pill: 'Confirmado', pillClasse: 'badge-confirmado' },
   concluido: { classe: 'agenda-tom-ok', pill: 'Concluído', pillClasse: 'badge-concluido' },
   falta: { classe: 'agenda-tom-warn', pill: 'Falta', pillClasse: 'badge-falta' },
   cancelado: { classe: 'agenda-tom-bad', pill: 'Cancelado', pillClasse: 'badge-cancelado' },

@@ -149,7 +149,7 @@ function registerProfissionaisRoutes(fastify, pool) {
     // ST17.5 — mesma proteção do DELETE de serviço.
     const { rows: futuros } = await pool.query(
       `SELECT COUNT(*)::int AS total FROM agendamentos
-       WHERE tenant_id = $1 AND profissional_id = $2 AND status = 'confirmado' AND data_hora > now()`,
+       WHERE tenant_id = $1 AND profissional_id = $2 AND status IN ('confirmado', 'a_confirmar') AND data_hora > now()`,
       [tenantId, id]
     );
     if (futuros[0].total > 0) {

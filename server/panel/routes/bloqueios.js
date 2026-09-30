@@ -56,7 +56,7 @@ function registerBloqueiosRoutes(fastify, pool) {
        FROM agendamentos a
        JOIN servicos s ON s.id = a.servico_id
        WHERE a.tenant_id = $1
-         AND a.status = 'confirmado'
+         AND a.status IN ('confirmado', 'a_confirmar')
          AND ($2::uuid IS NULL OR a.profissional_id = $2)
          AND a.data_hora < $4::timestamptz
          AND $3::timestamptz < a.data_hora + (s.duracao_minutos * interval '1 minute')`,
@@ -127,7 +127,7 @@ function registerBloqueiosRoutes(fastify, pool) {
          FROM agendamentos a
          JOIN servicos s ON s.id = a.servico_id
          WHERE a.tenant_id = $1
-           AND a.status = 'confirmado'
+           AND a.status IN ('confirmado', 'a_confirmar')
            AND ($2::uuid IS NULL OR a.profissional_id = $2)
            AND a.data_hora < $4::timestamptz
            AND $3::timestamptz < a.data_hora + (s.duracao_minutos * interval '1 minute')`,
@@ -212,7 +212,7 @@ function registerBloqueiosRoutes(fastify, pool) {
         // tomada pro caso de dias_funcionamento). O frontend já confirmou
         // essa consequência num popup antes de chamar este PATCH.
         const { rows: futuros } = await client.query(
-          `SELECT id, data_hora FROM agendamentos WHERE tenant_id = $1 AND status = 'confirmado' AND data_hora > now()`,
+          `SELECT id, data_hora FROM agendamentos WHERE tenant_id = $1 AND status IN ('confirmado', 'a_confirmar') AND data_hora > now()`,
           [tenantId]
         );
         for (const ag of futuros) {

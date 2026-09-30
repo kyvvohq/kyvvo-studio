@@ -46,7 +46,7 @@ async function calcularDisponibilidadeIA(tenant) {
 
   const { rows: agendamentosFuturos } = await pool.query(
     `SELECT profissional_id, data_hora FROM agendamentos
-     WHERE tenant_id = $1 AND status = 'confirmado' AND data_hora > now()
+     WHERE tenant_id = $1 AND status IN ('confirmado', 'a_confirmar') AND data_hora > now()
        AND data_hora < now() + ($2 * interval '1 day')`,
     [tenant.id, IA_DIAS_DISPONIBILIDADE]
   );
@@ -106,7 +106,7 @@ async function contarHorariosLivresNoDia(tenant, dataISO) {
 
   const { rows: agendamentosDia } = await pool.query(
     `SELECT profissional_id, data_hora FROM agendamentos
-     WHERE tenant_id = $1 AND status = 'confirmado'
+     WHERE tenant_id = $1 AND status IN ('confirmado', 'a_confirmar')
        AND (data_hora AT TIME ZONE 'America/Sao_Paulo')::date = $2::date`,
     [tenant.id, dataISO]
   );
@@ -158,7 +158,7 @@ async function contarHorariosLivresPorProfissionalNoDia(tenant, dataISO) {
 
   const { rows: agendamentosDia } = await pool.query(
     `SELECT profissional_id, data_hora FROM agendamentos
-     WHERE tenant_id = $1 AND status = 'confirmado'
+     WHERE tenant_id = $1 AND status IN ('confirmado', 'a_confirmar')
        AND (data_hora AT TIME ZONE 'America/Sao_Paulo')::date = $2::date`,
     [tenant.id, dataISO]
   );

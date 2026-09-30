@@ -91,12 +91,12 @@ function registerRelatoriosRoutes(fastify, pool) {
           `SELECT
              count(*) FILTER (WHERE data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS total,
              count(*) FILTER (WHERE data_hora >= $4::timestamptz AND data_hora < $2::timestamptz)::int AS total_anterior,
-             count(*) FILTER (WHERE status = 'confirmado' AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS agendados,
+             count(*) FILTER (WHERE status IN ('confirmado', 'a_confirmar') AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS agendados,
              count(*) FILTER (WHERE status = 'concluido' AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS realizados,
              count(*) FILTER (WHERE status = 'concluido' AND data_hora >= $4::timestamptz AND data_hora < $2::timestamptz)::int AS realizados_anterior,
              count(*) FILTER (WHERE status = 'cancelado' AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS cancelados,
              count(*) FILTER (WHERE status = 'falta' AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS faltas,
-             count(*) FILTER (WHERE status IN ('confirmado','concluido') AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS ocupados
+             count(*) FILTER (WHERE status IN ('confirmado','a_confirmar','concluido') AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz)::int AS ocupados
            FROM agendamentos WHERE tenant_id = $1`,
           [tenantId, mesInicio, mesFim, mesAnteriorInicio]
         ),
@@ -187,7 +187,7 @@ function registerRelatoriosRoutes(fastify, pool) {
           `SELECT extract(dow from data_hora)::int AS dow, count(*)::int AS total
            FROM agendamentos
            WHERE tenant_id = $1 AND data_hora >= $2::timestamptz AND data_hora < $3::timestamptz
-             AND status IN ('confirmado', 'concluido')
+             AND status IN ('confirmado', 'a_confirmar', 'concluido')
            GROUP BY 1`,
           [tenantId, mesInicio, mesFim]
         ),

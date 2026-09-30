@@ -4,7 +4,7 @@
 // pro n8n pra tecnologia='bot').
 const metaWhatsappService = require('../meta-whatsapp-service');
 const { processarMensagemIA } = require('../lib/ia-engine');
-const { detectarOptOut } = require('../lib/automacoes');
+const { detectarOptOut, confirmarAgendamentoPorBotao } = require('../lib/automacoes');
 
 // Achado numa avaliação do bot (2026-08-19): antes, qualquer exceção não
 // tratada no pipeline (Anthropic fora do ar, timeout, erro de banco) só
@@ -12,6 +12,22 @@ const { detectarOptOut } = require('../lib/automacoes');
 // salão tinha ignorado a mensagem dele. Ver uso no handler POST
 // /webhook/whatsapp.
 const MENSAGEM_ERRO_GENERICO_IA = 'Desculpa, tive um probleminha aqui agora. Pode mandar sua mensagem de novo em instantes? 🙏';
+
+// Botões de resposta rápida (payload fixo, configurado no template aprovado
+// na Meta — Business Manager > WhatsApp Manager > Templates): a Confirmação
+// de agenda ganha "Confirmar"/"Remarcar", e Aniversário do cliente/Clientes
+// inativos ganham "Agendar atendimento". O payload não carrega o id do
+// agendamento (Quick Reply buttons de template não suportam parâmetro
+// dinâmico por envio) — o alvo é sempre resolvido pelo telefone de quem
+// respondeu (ver confirmarAgendamentoPorBotao / processarMensagemIA).
+const BOTAO_CONFIRMAR = 'CONFIRMAR';
+const BOTAO_REMARCAR = 'REMARCAR';
+const BOTAO_AGENDAR = 'AGENDAR';
+const MENSAGEM_CONFIRMAR_SEM_ATENDIMENTO = 'Não encontrei nenhum agendamento seu aguardando confirmação por aqui. Se quiser marcar um horário, é só me chamar! 😊';
+function mensagemConfirmarSucesso(ag) {
+  const primeiroNome = ag.cliente ? `, ${ag.cliente.split(' ')[0]}` : '';
+  return `Prontinho${primeiroNome}! Seu horário de ${ag.servico} com ${ag.profissional} está confirmado. Até lá! 💜`;
+}
 
 function registerWebhookWhatsappRoutes(fastify, pool) {
   const TENANT_CAMPOS_WEBHOOK = `id, nome, telefone, meta_phone_number_id, tecnologia,
@@ -49,20 +65,29 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
     let tenant = null;
     let telefone = null;
     let mensagem = null;
+    let botaoPayload = null;
     let pushName = null;
     let enviarResposta = null;
 
     if (ehMeta && value) {
       const phoneNumberId = value.metadata && value.metadata.phone_number_id;
       const msg = (value.messages || [])[0];
-      if (phoneNumberId && msg && msg.type === 'text') {
+      // 'button' = clique num botão de resposta rápida de um template
+      // (Confirmação de agenda/Aniversário/Clientes inativos, ver
+      // lib/automacoes.js) — a Meta manda o payload configurado no template
+      // em `msg.button.payload`, sem texto livre nenhum.
+      if (phoneNumberId && msg && (msg.type === 'text' || msg.type === 'button')) {
         const { rows } = await pool.query(
           `SELECT ${TENANT_CAMPOS_WEBHOOK} FROM tenants WHERE meta_phone_number_id = $1 AND ativo = true LIMIT 1`,
           [phoneNumberId]
         );
         tenant = rows[0] || null;
         telefone = msg.from;
-        mensagem = (msg.text && msg.text.body) || '';
+        if (msg.type === 'text') {
+          mensagem = (msg.text && msg.text.body) || '';
+        } else {
+          botaoPayload = (msg.button && msg.button.payload) || null;
+        }
         const contato = (value.contacts || [])[0];
         pushName = (contato && contato.profile && contato.profile.name) || null;
         enviarResposta = (numero, texto) => metaWhatsappService.enviarTexto(tenant.meta_phone_number_id, numero, texto);
@@ -82,6 +107,35 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
          WHERE tenant_id = $1 AND telefone = $2 AND whatsapp_opt_out = false`,
         [tenant.id, String(telefone).replace(/\D/g, '')]
       ).catch((err) => fastify.log.error({ err: err.message, tenantId: tenant.id }, 'automacao opt-out'));
+    }
+
+    // Botão de resposta rápida — só tenants no motor de IA por ora
+    // (tecnologia='bot'/n8n tem workflow próprio, edição separada, fora
+    // deste repositório). "Confirmar" é ação direta (sem IA); "Remarcar" e
+    // "Agendar atendimento" viram uma mensagem sintética pro MESMO motor
+    // conversacional que já sabe reagendar/agendar em linguagem natural —
+    // reaproveita listar horários livres, confirmar com o cliente e
+    // encerrar com uma resposta natural, sem duplicar esse fluxo aqui.
+    if (tenant && tenant.tecnologia === 'ia' && telefone && botaoPayload) {
+      try {
+        if (botaoPayload === BOTAO_CONFIRMAR) {
+          const agendamento = await confirmarAgendamentoPorBotao(pool, { tenantId: tenant.id, telefone });
+          await enviarResposta(telefone, agendamento ? mensagemConfirmarSucesso(agendamento) : MENSAGEM_CONFIRMAR_SEM_ATENDIMENTO);
+        } else if (botaoPayload === BOTAO_REMARCAR) {
+          await processarMensagemIA({ tenant, telefone, mensagem: 'Quero remarcar meu horário, pode me ajudar?', pushName, enviarResposta });
+        } else if (botaoPayload === BOTAO_AGENDAR) {
+          await processarMensagemIA({ tenant, telefone, mensagem: 'Quero marcar um novo horário.', pushName, enviarResposta });
+        }
+        return reply.code(200).send({ ok: true });
+      } catch (erro) {
+        fastify.log.error({ erro: erro.message, tenantId: tenant.id, botaoPayload }, 'Falha ao processar botão do WhatsApp (Confirmar/Remarcar/Agendar)');
+        try {
+          await enviarResposta(telefone, MENSAGEM_ERRO_GENERICO_IA);
+        } catch (erroEnvio) {
+          fastify.log.error({ erro: erroEnvio.message, tenantId: tenant.id }, 'Falha ao enviar mensagem de erro genérica do botão');
+        }
+        return reply.code(200).send({ ok: true });
+      }
     }
 
     if (tenant && tenant.tecnologia === 'ia' && telefone && mensagem && mensagem.trim()) {

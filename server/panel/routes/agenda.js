@@ -123,7 +123,7 @@ function registerAgendaRoutes(fastify, pool) {
     // realizada (CA "Cenário 5"). 'falta' (no-show, migration 060) — cliente
     // não compareceu; sincronizarLancamentoFinanceiro trata igual 'cancelado'
     // pro financeiro, mas o status do agendamento fica distinto pro relatório.
-    if (status !== undefined && !['confirmado', 'cancelado', 'reagendado', 'concluido', 'falta'].includes(status)) {
+    if (status !== undefined && !['a_confirmar', 'confirmado', 'cancelado', 'reagendado', 'concluido', 'falta'].includes(status)) {
       return reply.code(400).send({ error: 'status inválido' });
     }
     if (formaPagamento !== undefined && !FORMA_PAGAMENTO_VALIDAS.includes(formaPagamento)) {
@@ -172,7 +172,7 @@ function registerAgendaRoutes(fastify, pool) {
          JOIN servicos s ON s.id = a.servico_id
          WHERE a.tenant_id = $1
            AND a.profissional_id = $2
-           AND a.status IN ('confirmado', 'concluido')
+           AND a.status IN ('confirmado', 'a_confirmar', 'concluido')
            AND a.id <> $3
            AND a.data_hora < $4::timestamptz + ($5 * interval '1 minute')
            AND $4::timestamptz < a.data_hora + (s.duracao_minutos * interval '1 minute')`,
@@ -305,7 +305,7 @@ function registerAgendaRoutes(fastify, pool) {
        FROM agendamentos a
        JOIN servicos s ON s.id = a.servico_id
        WHERE a.tenant_id = $1 AND a.profissional_id = $2
-         AND a.status IN ('confirmado', 'concluido')
+         AND a.status IN ('confirmado', 'a_confirmar', 'concluido')
          AND (a.data_hora AT TIME ZONE 'America/Sao_Paulo')::date = $3::date`,
       [tenantId, profissional, data]
     );
@@ -471,7 +471,7 @@ function registerAgendaRoutes(fastify, pool) {
          JOIN servicos s ON s.id = a.servico_id
          WHERE a.tenant_id = $1
            AND a.profissional_id = $2
-           AND a.status IN ('confirmado', 'concluido')
+           AND a.status IN ('confirmado', 'a_confirmar', 'concluido')
            AND a.data_hora < $3::timestamptz + ($4 * interval '1 minute')
            AND $3::timestamptz < a.data_hora + (s.duracao_minutos * interval '1 minute')`,
         [tenantId, profissionalId, dataHora, servicoInfo.duracao_minutos]
@@ -539,7 +539,7 @@ function registerAgendaRoutes(fastify, pool) {
            JOIN servicos s ON s.id = a.servico_id
            WHERE a.tenant_id = $1
              AND a.profissional_id = $2
-             AND a.status IN ('confirmado', 'concluido')
+             AND a.status IN ('confirmado', 'a_confirmar', 'concluido')
              AND a.data_hora < $3::timestamptz + ($4 * interval '1 minute')
              AND $3::timestamptz < a.data_hora + (s.duracao_minutos * interval '1 minute')`,
           [tenantId, profissionalId, dataHoraOcorrencia, servicoInfo.duracao_minutos]
@@ -585,15 +585,17 @@ function registerAgendaRoutes(fastify, pool) {
       );
       agendamentoId = criado[0].id;
 
-      // Agendamento nasce sempre 'confirmado' (default da coluna) — receita
-      // prevista, nunca realizada, na criação.
+      // Agendamento nasce sempre 'a_confirmar' (migration 086, default da
+      // coluna) — receita prevista, nunca realizada, na criação; vira
+      // 'previsto' no financeiro igual 'confirmado' (financeiro.js só trata
+      // 'concluido'/'cancelado'/'falta' como exceção).
       await sincronizarLancamentoFinanceiro(client, {
         tenantId,
         agendamentoId,
         servicoNome: servicoInfo.nome,
         servicoPreco: servicoInfo.preco,
         dataHora,
-        statusAgendamento: 'confirmado',
+        statusAgendamento: 'a_confirmar',
       });
 
       // Ocorrências seguintes da recorrência (já validadas/resolvidas acima) —
@@ -613,7 +615,7 @@ function registerAgendaRoutes(fastify, pool) {
           servicoNome: servicoInfo.nome,
           servicoPreco: servicoInfo.preco,
           dataHora: dataHoraOcorrencia,
-          statusAgendamento: 'confirmado',
+          statusAgendamento: 'a_confirmar',
         });
       }
 
