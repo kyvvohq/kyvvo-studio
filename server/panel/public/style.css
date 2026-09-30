@@ -158,106 +158,24 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 /* Painel */
-/* Cartão flutuante (Kyvvo DS · "Barra superior") — antes era uma barra full-
-   width com só borda inferior; agora radius/fundo/borda seguem o mesmo
-   tratamento de cartão do resto do DS (US57). Só na área admin: o topbar
-   do painel do tenant reaproveita a mesma classe e ganha o visual novo de
-   graça, não tinha motivo pra divergir. */
-/* Cabeçalho — padrão Kyvvo People: barra fixa no topo, logo à esquerda,
-   menu de perfil à direita, borda inferior (não é um cartão flutuante). */
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 40;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  height: 64px;
-  padding: 0 var(--space-5);
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
-}
-
-.topbar-esquerda { display: flex; align-items: center; gap: 10px; }
-.topbar-textos { display: flex; flex-direction: column; gap: 2px; }
-.topbar .logo { margin: 0; font-size: 20px; }
+/* Topbar — migrado pro componente `.ds-topbar` do DS (v2.16.0): marca do
+   produto (letras de destaque + "kyvvo") à esquerda, sino + perfil à
+   direita. `.ds-topbar-marca` é um <button> (reset abaixo) pra manter o
+   clique "voltar pro Início" que o antigo `.topbar-logo` já tinha.
+   `.user-menu-toggle` ganha a classe `.ds-topbar-perfil` do DS (avatar+nome)
+   mas mantém id/estrutura próprios porque o dropdown (dados, itens, tema,
+   sair) não é coberto pelo componente — só o visual do gatilho é. */
 .saudacao { font-size: 13px; color: var(--muted-strong); }
 
-/* Nome do produto ao lado do logo (paridade com o Kyvvo People, que mostra
-   "People" como tag). A marca é única (@kyvvohq/design-system) — o que
-   diferencia é o nome do produto. */
-.topbar-produto-tag {
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted-strong);
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  line-height: 1;
-}
-
-/* Título da página (DS: "Página" 19px Space Grotesk + eyebrow abaixo) —
-   só as páginas admin passam essa div; o painel do tenant continua sem
-   título (ela é opcional, .topbar-textos funciona vazia também). */
-.topbar-titulo {
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.topbar-direita { display: flex; align-items: center; gap: 10px; }
-
-/* Botão de ícone genérico do topbar (DS: "Ação bell"/"Ação life-buoy") —
-   38x38, fundo sutil, usado hoje só pelo toggle de tema, mas serve pra
-   qualquer ação futura de ícone único no topbar. */
-.btn-topbar-icone {
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  color: var(--muted-strong);
-  cursor: pointer;
-}
-.btn-topbar-icone:hover { color: var(--text); border-color: var(--border-strong); }
-.btn-topbar-icone svg { width: 18px; height: 18px; }
-
-/* Logo e botão de ocultar sidebar migraram pro topbar (antes viviam só na
-   sidebar) — ambos são <button>, então precisam desfazer o reset genérico
-   de `button` (largura 100%, fundo roxo, padding grande) antes de herdar a
-   aparência de .logo / virar um ícone compacto. */
-.topbar-logo {
+.ds-topbar-marca {
   width: auto;
   margin: 0;
   padding: 0;
   background: none;
   border: none;
   cursor: pointer;
-  display: flex;
-  align-items: center;
 }
-.topbar-logo:hover { background: none; opacity: 0.85; }
-
-/* Wordmark como imagem — mesmo asset do Kyvvo People
-   (@kyvvohq/design-system logo.svg/logo-dark.svg). Cor é gravada no SVG, não
-   currentColor (um <img src> não herda cor da página) — o tema troca o
-   arquivo inteiro via .js-logo-kyvvo, ver aplicarLogo() no app.js. */
-.topbar-logo-img { height: 22px; width: auto; display: block; }
-
-/* .topbar-nav-link — desde a US53 o admin não usa mais nav no topbar (virou
-   sidebar, como o painel do tenant); a classe sobrevive só pro link "←
-   Voltar para lista" dentro do detalhe do tenant (tenant-detalhe.js). */
-.topbar-nav-link { color: var(--muted-strong); font-size: 14px; text-decoration: none; }
-.topbar-nav-link:hover { color: var(--text); }
+.ds-topbar-marca:hover { opacity: 0.85; }
 
 /* Área admin da Kyvvo (US16) — distintivo visual pra nunca confundir com o
    portal do tenant (CA04). */
@@ -619,23 +537,17 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .user-menu-toggle:hover { background: var(--surface-hover); }
 
-.user-menu-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
+/* Avatar e nome agora vêm do DS (.ds-topbar-avatar/.ds-topbar-nome, aplicadas
+   direto nos elementos em painel.html) — só a legenda de empresa embaixo do
+   nome (o DS não tem esse campo) continua local. */
 .user-menu-textos { display: flex; flex-direction: column; text-align: left; }
-.user-menu-nome { font-weight: 700; font-size: 14px; color: var(--text); }
 .user-menu-empresa { font-size: 12px; color: var(--muted-strong); }
+
+/* Mesmo corte do DS pro nome (.ds-topbar-nome some em 640px) — sem isso a
+   legenda de empresa ficaria órfã ao lado do avatar, sem o nome acima. */
+@media (max-width: 640px) {
+  .user-menu-empresa { display: none; }
+}
 
 .user-menu-chevron { color: var(--muted-strong); font-size: 11px; margin-left: 2px; transition: transform 0.15s; }
 .user-menu-toggle.aberto .user-menu-chevron { transform: rotate(180deg); }
