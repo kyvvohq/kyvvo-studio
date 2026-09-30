@@ -1,8 +1,11 @@
 const { test, expect } = require('@playwright/test');
 
-// Quadro (kanban: colunas = profissionais) — filtros por profissional e por
-// serviço, e a linha vermelha de "agora" (só aparece no dia de hoje, dentro
-// do horário comercial). API mockada via page.route — sem Postgres real.
+// Quadro (kanban: colunas = profissionais) — sem filtros (removidos no PR#85,
+// o Quadro sempre mostra todos os profissionais/agendamentos), linha vermelha
+// de "agora" (só no dia de hoje, dentro do horário comercial) e blocos de
+// duração real (PR 2026-09-30, mesma técnica da view Dia — ver
+// calcularBlocosDia/minutoAjustadoDia no app.js). API mockada via
+// page.route — sem Postgres real.
 
 const PROFISSIONAIS = [{ id: 'p1', nome: 'Ana' }, { id: 'p2', nome: 'Bia' }];
 const SERVICOS = [{ id: 's1', nome: 'Corte' }, { id: 's2', nome: 'Escova' }];
@@ -45,31 +48,12 @@ async function entrarNoQuadro(page, { agendamentos = AGENDAMENTOS, hora = '2026-
   await page.click('.menu-item[data-menu="quadro"]');
 }
 
-test.describe('Quadro — filtros e linha de agora', () => {
-  test('sem filtro, mostra os 2 profissionais e os 2 agendamentos', async ({ page }) => {
+test.describe('Quadro — colunas e linha de agora', () => {
+  test('mostra os 2 profissionais e os 2 agendamentos', async ({ page }) => {
     await entrarNoQuadro(page);
     await expect(page.locator('.quadro-cab')).toHaveCount(2);
     await expect(page.locator('.quadro-grade')).toContainText('Cliente Um');
     await expect(page.locator('.quadro-grade')).toContainText('Cliente Dois');
-  });
-
-  test('filtro por profissional deixa só a coluna dele', async ({ page }) => {
-    await entrarNoQuadro(page);
-    await page.selectOption('#quadro-filtro-profissional', 'p1');
-    await expect(page.locator('.quadro-cab')).toHaveCount(1);
-    await expect(page.locator('.quadro-cab')).toContainText('Ana');
-    await expect(page.locator('.quadro-grade')).toContainText('Cliente Um');
-    await expect(page.locator('.quadro-grade')).not.toContainText('Cliente Dois');
-  });
-
-  test('filtro por serviço esconde o agendamento de outro serviço (célula some "Disponível")', async ({ page }) => {
-    await entrarNoQuadro(page);
-    await page.selectOption('#quadro-filtro-servico', 's2');
-    // Continuam as 2 colunas (o filtro de serviço não mexe em profissionais)...
-    await expect(page.locator('.quadro-cab')).toHaveCount(2);
-    // ...mas só o agendamento de Escova (s2) aparece; o de Corte (s1) some.
-    await expect(page.locator('.quadro-grade')).toContainText('Cliente Dois');
-    await expect(page.locator('.quadro-grade')).not.toContainText('Cliente Um');
   });
 
   test('no dia de hoje, dentro do horário comercial, mostra a linha de agora', async ({ page }) => {
@@ -80,5 +64,37 @@ test.describe('Quadro — filtros e linha de agora', () => {
   test('fora do horário comercial (antes de abrir), não mostra a linha de agora', async ({ page }) => {
     await entrarNoQuadro(page, { hora: '2026-07-17T06:00:00-03:00' });
     await expect(page.locator('.quadro-linha-agora')).toHaveCount(0);
+  });
+});
+
+test.describe('Quadro — duração real do atendimento', () => {
+  const AGENDAMENTO_LONGO = [{
+    id: 'a3', data_hora: '2026-07-17T10:00:00-03:00', status: 'confirmado', encaixe: false,
+    cliente_id: 'c3', cliente: 'Cliente Longo', cliente_telefone: '5511999990003',
+    profissional_id: 'p1', profissional: 'Ana', servico_id: 's1', servico: 'Micro Pigmentação', duracao_minutos: 240, preco: 400,
+  }];
+
+  test('um atendimento de 4h ocupa as 4 horas seguintes, não só a primeira', async ({ page }) => {
+    await entrarNoQuadro(page, { agendamentos: AGENDAMENTO_LONGO, hora: '2026-07-17T09:00:00-03:00' });
+    // Só 1 bloco desenhado (não um card recortado por hora).
+    await expect(page.locator('.quadro-grade .agenda-bloco')).toHaveCount(1);
+    // 11h/12h/13h (dentro das 4h do atendimento) não podem deixar agendar por
+    // cima — o botão "+" só existe em horários livres.
+    await expect(page.locator('[data-add-horario="11:00"]')).toHaveCount(0);
+    await expect(page.locator('[data-add-horario="12:00"]')).toHaveCount(0);
+    await expect(page.locator('[data-add-horario="13:00"]')).toHaveCount(0);
+    // Fora do atendimento, o horário continua livre normalmente.
+    await expect(page.locator('[data-add-horario="08:00"]')).toHaveCount(1);
+    await expect(page.locator('[data-add-horario="14:00"]')).toHaveCount(1);
+  });
+
+  test('o bloco de 4h é visualmente mais alto que um de 30min', async ({ page }) => {
+    await entrarNoQuadro(page, {
+      agendamentos: [...AGENDAMENTO_LONGO, AGENDAMENTOS[1]],
+      hora: '2026-07-17T09:00:00-03:00',
+    });
+    const alturaLonga = await page.locator('.quadro-grade .agenda-bloco').first().evaluate((el) => el.getBoundingClientRect().height);
+    // 240min de duração real: bem mais que uma única linha de hora (60px).
+    expect(alturaLonga).toBeGreaterThan(180);
   });
 });
