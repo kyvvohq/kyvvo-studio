@@ -1749,6 +1749,10 @@ a.user-menu-item { display: block; text-decoration: none; }
 /* Falta (no-show, migration 060) — âmbar, distinto do verde de concluído e
    do vermelho de cancelado; mesmo tom já usado em .trial-barra-amarela. */
 .badge-falta { background: rgba(var(--warning-rgb), 0.15); color: var(--warning); }
+/* A confirmar/Confirmado (migration 086) — amarelo até o cliente confirmar
+   pelo WhatsApp, verde depois (mesmo tom de .badge-concluido). */
+.badge-a-confirmar { background: rgba(var(--warning-rgb), 0.15); color: var(--warning); }
+.badge-confirmado { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
 
 .agendamento-cancelado { opacity: 0.55; }
 .agendamento-cancelado .agendamento-hora { text-decoration: line-through; }

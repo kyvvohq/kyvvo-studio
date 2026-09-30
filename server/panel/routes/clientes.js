@@ -17,7 +17,7 @@ const CLIENTES_STATUS_VALIDOS = new Set(['todos', 'ativo', 'novo', 'inativo']);
 // quem usa isso (cliente_inativo_dias/cliente_novo_dias vêm de lá).
 const CLIENTE_ULTIMO_ATENDIMENTO_SQL = `(
   SELECT max(a2.data_hora) FROM agendamentos a2
-  WHERE a2.cliente_id = c.id AND a2.status IN ('confirmado', 'concluido')
+  WHERE a2.cliente_id = c.id AND a2.status IN ('confirmado', 'a_confirmar', 'concluido')
 )`;
 
 // Predicados independentes (não é um CASE de bucket único) — cada quadro da
@@ -79,7 +79,7 @@ function registerClientesRoutes(fastify, pool) {
          SELECT s.nome AS servico_nome, a.data_hora
          FROM agendamentos a
          JOIN servicos s ON s.id = a.servico_id
-         WHERE a.cliente_id = c.id AND a.status IN ('confirmado', 'concluido') AND a.data_hora < now()
+         WHERE a.cliente_id = c.id AND a.status IN ('confirmado', 'a_confirmar', 'concluido') AND a.data_hora < now()
          ORDER BY a.data_hora DESC
          LIMIT 1
        ) ultimo ON true
@@ -87,7 +87,7 @@ function registerClientesRoutes(fastify, pool) {
          SELECT s.nome AS servico_nome, a.data_hora
          FROM agendamentos a
          JOIN servicos s ON s.id = a.servico_id
-         WHERE a.cliente_id = c.id AND a.status = 'confirmado' AND a.data_hora >= now()
+         WHERE a.cliente_id = c.id AND a.status IN ('confirmado', 'a_confirmar') AND a.data_hora >= now()
          ORDER BY a.data_hora ASC
          LIMIT 1
        ) proximo ON true
@@ -224,7 +224,7 @@ function registerClientesRoutes(fastify, pool) {
        FROM agendamentos a
        JOIN servicos s ON s.id = a.servico_id
        LEFT JOIN profissionais p ON p.id = a.profissional_id
-       WHERE a.cliente_id = $1 AND a.tenant_id = $2 AND a.status = 'confirmado' AND a.data_hora >= now()
+       WHERE a.cliente_id = $1 AND a.tenant_id = $2 AND a.status IN ('confirmado', 'a_confirmar') AND a.data_hora >= now()
        ORDER BY a.data_hora ASC
        LIMIT 1`,
       [id, tenantId]
@@ -242,7 +242,7 @@ function registerClientesRoutes(fastify, pool) {
        FROM agendamentos a
        JOIN servicos s ON s.id = a.servico_id
        LEFT JOIN lancamentos_financeiros l ON l.agendamento_id = a.id
-       WHERE a.cliente_id = $1 AND a.tenant_id = $2 AND a.status IN ('confirmado', 'concluido')
+       WHERE a.cliente_id = $1 AND a.tenant_id = $2 AND a.status IN ('confirmado', 'a_confirmar', 'concluido')
          AND a.data_hora < now()
        ORDER BY a.data_hora DESC`,
       [id, tenantId]

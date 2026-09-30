@@ -191,7 +191,7 @@ function registerConfiguracaoRoutes(fastify, pool) {
 
       if (diasRemovidos.length > 0) {
         const { rows: futuros } = await client.query(
-          `SELECT id, data_hora FROM agendamentos WHERE tenant_id = $1 AND status = 'confirmado' AND data_hora > now()`,
+          `SELECT id, data_hora FROM agendamentos WHERE tenant_id = $1 AND status IN ('confirmado', 'a_confirmar') AND data_hora > now()`,
           [tenantId]
         );
         for (const ag of futuros) {

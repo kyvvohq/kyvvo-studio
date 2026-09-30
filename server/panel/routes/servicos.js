@@ -157,18 +157,18 @@ function registerServicosRoutes(fastify, pool) {
     // lancamentos_financeiros.valor — sem isso, mudar nome/preço aqui nunca
     // alcançava agendamentos futuros já criados: o lançamento ficava travado
     // no preço da hora da criação pra sempre (achado 2026-09-17). Só
-    // agendamentos ainda não concluídos/cancelados ('confirmado' ==
-    // lancamento 'previsto') — os já concluídos são histórico, não mexe.
+    // agendamentos ainda não concluídos/cancelados ('confirmado'/'a_confirmar'
+    // == lancamento 'previsto') — os já concluídos são histórico, não mexe.
     if (nome !== undefined || preco !== undefined) {
       const { rows: agsAfetados } = await pool.query(
-        `SELECT id, data_hora FROM agendamentos WHERE tenant_id = $1 AND servico_id = $2 AND status = 'confirmado'`,
+        `SELECT id, data_hora, status FROM agendamentos WHERE tenant_id = $1 AND servico_id = $2 AND status IN ('confirmado', 'a_confirmar')`,
         [tenantId, id]
       );
       for (const ag of agsAfetados) {
         // eslint-disable-next-line no-await-in-loop
         await sincronizarLancamentoFinanceiro(pool, {
           tenantId, agendamentoId: ag.id, servicoNome: servico.nome, servicoPreco: servico.preco,
-          dataHora: ag.data_hora, statusAgendamento: 'confirmado', formaPagamento: null,
+          dataHora: ag.data_hora, statusAgendamento: ag.status, formaPagamento: null,
         });
       }
     }
