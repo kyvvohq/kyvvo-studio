@@ -5,6 +5,33 @@ const configSistema = require('../lib/configuracoes-sistema');
 const { calcularTrialTenant, calcularBloqueioAssinatura } = require('../lib/trial-conta');
 const { EVENTOS_ANALYTICS_TIPOS_FRONTEND, registrarEvento } = require('../lib/eventos');
 
+// "Trocar de produto" no menu de perfil: outros produtos Kyvvo que o MESMO
+// tenant também tem ativo (ex.: um salão que também usa o CRM). A fonte de
+// verdade de módulos cross-produto é o kyvvo-platform, mas seu Postgres
+// (schema `platform`) vive no MESMO banco físico que este serviço já usa
+// (mesma DATABASE_URL, schemas irmãos) — dá pra consultar direto pelo pool
+// já existente, sem round-trip HTTP nem serviço/segredo novo. Best-effort de
+// propósito (try/catch): se a role de banco deste serviço não tiver SELECT
+// no schema platform, ou a tabela mudar de formato num deploy futuro do
+// kyvvo-platform, o item de menu simplesmente não aparece — nunca deve
+// quebrar o carregamento do painel por causa disso.
+const PRODUTOS_CRUZADOS = {
+  crm: { nome: 'CRM', url: 'https://crm.kyvvo.com.br' },
+  people: { nome: 'People', url: 'https://people.kyvvo.com.br' },
+};
+
+async function buscarOutrosProdutos(pool, tenantId) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT modulo_key FROM platform.tenant_modulos WHERE tenant_id = $1 AND ativo AND modulo_key = ANY($2::text[])',
+      [tenantId, Object.keys(PRODUTOS_CRUZADOS)]
+    );
+    return rows.map((r) => PRODUTOS_CRUZADOS[r.modulo_key]);
+  } catch {
+    return [];
+  }
+}
+
 function registerContaRoutes(fastify, pool) {
   // Status do tenant logado: usado pela tela de validação e pelo banner de
   // trial no portal (CA09). Devolve dias restantes do trial.
@@ -44,6 +71,7 @@ function registerContaRoutes(fastify, pool) {
       [tenantId]
     );
     const configInfo = contagem[0];
+    const outrosProdutos = await buscarOutrosProdutos(pool, tenantId);
 
     return {
       tenant_id: tenantId,
@@ -78,6 +106,7 @@ function registerContaRoutes(fastify, pool) {
       // Bloqueios, Encaixe), não só no menu Profissionais.
       mostrar_profissional: configInfo.profissionais > 1,
       onboarding_dispensado: !!info.onboarding_dispensado,
+      outros_produtos: outrosProdutos,
     };
   });
 
