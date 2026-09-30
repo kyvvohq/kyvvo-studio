@@ -37,10 +37,10 @@ function fakePool() {
       if (/FROM servicos WHERE/.test(sql)) {
         return { rows: [{ id: 'servico-1', nome: 'Micro Pigmentação', preco: 2700, duracao_minutos: 240 }] };
       }
-      if (/FROM profissionais WHERE tenant_id = \$1 AND nome ILIKE/.test(sql)) {
+      if (/FROM profissionais WHERE tenant_id = \$1.*AND nome ILIKE/.test(sql)) {
         return { rows: [{ id: 'prof-1', nome: 'Fred' }] };
       }
-      if (/FROM profissionais WHERE tenant_id = \$1 ORDER BY nome/.test(sql)) {
+      if (/FROM profissionais WHERE tenant_id = \$1.*ORDER BY nome/.test(sql)) {
         return { rows: [{ id: 'prof-1', nome: 'Fred' }] };
       }
       if (/FROM bloqueios_agenda/.test(sql)) {

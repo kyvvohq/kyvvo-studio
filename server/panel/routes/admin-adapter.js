@@ -57,7 +57,7 @@ function registerAdminAdapterRoutes(fastify, pool) {
     const { rows } = await pool.query(
       `SELECT
          (SELECT count(*)::int FROM servicos       WHERE tenant_id = $1) AS servicos,
-         (SELECT count(*)::int FROM profissionais  WHERE tenant_id = $1) AS profissionais,
+         (SELECT count(*)::int FROM profissionais  WHERE tenant_id = $1 AND excluido_em IS NULL) AS profissionais,
          (SELECT count(*)::int FROM clientes       WHERE tenant_id = $1 AND excluido_em IS NULL) AS clientes,
          (SELECT count(*)::int FROM agendamentos   WHERE tenant_id = $1) AS agendamentos_total,
          (SELECT count(*)::int FROM agendamentos   WHERE tenant_id = $1 AND data_hora >= now() - interval '30 days') AS agendamentos_30d,

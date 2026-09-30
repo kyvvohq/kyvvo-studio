@@ -11,7 +11,7 @@ function registerBloqueiosRoutes(fastify, pool) {
   fastify.get('/api/bloqueios', { preHandler: [fastify.authenticate] }, async (request) => {
     const { tenantId } = request.user;
     const { rows } = await pool.query(
-      `SELECT b.id, b.profissional_id, p.nome AS profissional, b.inicio, b.fim, b.motivo
+      `SELECT b.id, b.profissional_id, p.nome AS profissional, b.inicio, b.fim, b.motivo, b.ativo
        FROM bloqueios_agenda b
        LEFT JOIN profissionais p ON p.id = b.profissional_id
        WHERE b.tenant_id = $1
@@ -39,7 +39,7 @@ function registerBloqueiosRoutes(fastify, pool) {
 
     if (profissionalId) {
       const { rows: profissionalRows } = await pool.query(
-        'SELECT id FROM profissionais WHERE id = $1 AND tenant_id = $2',
+        'SELECT id FROM profissionais WHERE id = $1 AND tenant_id = $2 AND excluido_em IS NULL',
         [profissionalId, tenantId]
       );
       if (!profissionalRows[0]) {
@@ -71,10 +71,92 @@ function registerBloqueiosRoutes(fastify, pool) {
     const { rows } = await pool.query(
       `INSERT INTO bloqueios_agenda (tenant_id, profissional_id, inicio, fim, motivo)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, profissional_id, inicio, fim, motivo`,
+       RETURNING id, profissional_id, inicio, fim, motivo, ativo`,
       [tenantId, profissionalId || null, inicio, fim, motivo ? motivo.trim() : null]
     );
     reply.code(201);
+    return rows[0];
+  });
+
+  // CRUD padrão (Editar/Desativar/Excluir, mesmo de Serviços) — edita
+  // inicio/fim/motivo/profissional/ativo. Reaplica as mesmas validações do
+  // POST quando o período ou o profissional mudam (mesclando com os valores
+  // atuais via COALESCE antes de checar), pra não deixar salvar uma edição
+  // que colidiria com um agendamento confirmado.
+  fastify.patch('/api/bloqueios/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const { tenantId } = request.user;
+    const { id } = request.params;
+    const { inicio, fim, motivo, profissional_id: profissionalId, ativo } = request.body || {};
+
+    const { rows: atuais } = await pool.query(
+      'SELECT id, profissional_id, inicio, fim, motivo FROM bloqueios_agenda WHERE id = $1 AND tenant_id = $2',
+      [id, tenantId]
+    );
+    if (!atuais[0]) {
+      return reply.code(404).send({ error: 'Bloqueio não encontrado' });
+    }
+    const atual = atuais[0];
+    const novoInicio = inicio !== undefined ? inicio : atual.inicio;
+    const novoFim = fim !== undefined ? fim : atual.fim;
+    const novoProfissionalId = profissionalId !== undefined ? profissionalId : atual.profissional_id;
+
+    if (inicio !== undefined || fim !== undefined) {
+      const inicioData = new Date(novoInicio);
+      const fimData = new Date(novoFim);
+      if (Number.isNaN(inicioData.getTime()) || Number.isNaN(fimData.getTime())) {
+        return reply.code(400).send({ error: 'Datas inválidas' });
+      }
+      if (fimData <= inicioData) {
+        return reply.code(400).send({ error: 'O fim do bloqueio deve ser depois do início' });
+      }
+    }
+
+    if (novoProfissionalId) {
+      const { rows: profissionalRows } = await pool.query(
+        'SELECT id FROM profissionais WHERE id = $1 AND tenant_id = $2 AND excluido_em IS NULL',
+        [novoProfissionalId, tenantId]
+      );
+      if (!profissionalRows[0]) {
+        return reply.code(404).send({ error: 'Profissional não encontrado' });
+      }
+    }
+
+    if (inicio !== undefined || fim !== undefined || profissionalId !== undefined) {
+      const { rows: conflitos } = await pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM agendamentos a
+         JOIN servicos s ON s.id = a.servico_id
+         WHERE a.tenant_id = $1
+           AND a.status = 'confirmado'
+           AND ($2::uuid IS NULL OR a.profissional_id = $2)
+           AND a.data_hora < $4::timestamptz
+           AND $3::timestamptz < a.data_hora + (s.duracao_minutos * interval '1 minute')`,
+        [tenantId, novoProfissionalId || null, novoInicio, novoFim]
+      );
+      if (conflitos[0].total > 0) {
+        return reply.code(409).send({
+          error: `Não é possível bloquear: há ${conflitos[0].total} agendamento(s) confirmado(s) nesse período.`,
+        });
+      }
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE bloqueios_agenda SET
+         profissional_id = CASE WHEN $3 THEN $4 ELSE profissional_id END,
+         inicio = COALESCE($5, inicio),
+         fim = COALESCE($6, fim),
+         motivo = CASE WHEN $7 THEN $8 ELSE motivo END,
+         ativo = COALESCE($9, ativo)
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING id, profissional_id, inicio, fim, motivo, ativo`,
+      [
+        id, tenantId,
+        profissionalId !== undefined, profissionalId || null,
+        inicio || null, fim || null,
+        motivo !== undefined, motivo ? motivo.trim() : null,
+        ativo ?? null,
+      ]
+    );
     return rows[0];
   });
 

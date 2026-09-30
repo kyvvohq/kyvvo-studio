@@ -62,7 +62,7 @@ function dentroDoHorarioFuncionamento(tenant, dataHoraISO, duracaoMinutos = 0) {
 async function buscarBloqueioConflitante(tenantId, profissionalId, dataHoraISO, duracaoMinutos) {
   const { rows } = await pool.query(
     `SELECT motivo FROM bloqueios_agenda
-     WHERE tenant_id = $1 AND (profissional_id IS NULL OR profissional_id = $2)
+     WHERE tenant_id = $1 AND ativo AND (profissional_id IS NULL OR profissional_id = $2)
        AND inicio < $3::timestamptz + ($4 * interval '1 minute')
        AND $3::timestamptz < fim
      LIMIT 1`,

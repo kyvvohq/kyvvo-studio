@@ -186,11 +186,11 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
       : { rows: [] };
     const servico = servicoRows[0] || null;
     const { rows: profRows } = params.profissionalNome
-      ? await pool.query('SELECT id, nome FROM profissionais WHERE tenant_id = $1 AND nome ILIKE $2 LIMIT 1', [tenantId, `%${params.profissionalNome}%`])
+      ? await pool.query('SELECT id, nome FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL AND ativo AND nome ILIKE $2 LIMIT 1', [tenantId, `%${params.profissionalNome}%`])
       : { rows: [] };
     let profissional = profRows[0] || null;
     if (!profissional) {
-      const { rows: qualquer } = await pool.query('SELECT id, nome FROM profissionais WHERE tenant_id = $1 ORDER BY nome LIMIT 1', [tenantId]);
+      const { rows: qualquer } = await pool.query('SELECT id, nome FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL AND ativo ORDER BY nome LIMIT 1', [tenantId]);
       profissional = qualquer[0] || null;
     }
     if (!profissional) throw new Error('SemProfissionalDisponivel');

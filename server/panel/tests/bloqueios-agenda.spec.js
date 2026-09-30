@@ -56,6 +56,14 @@ async function abrirTelaBloqueios(page) {
   await page.click('#subtabs-cadastro .tab[data-aba-cadastro="bloqueios"]');
 }
 
+// Abre o menu "⋯" (componente .ds-acoes do design system) de uma linha de
+// bloqueio e clica na ação pedida — mesmo padrão de escolherAcaoServico.
+async function escolherAcaoBloqueio(page, id, acao) {
+  const caixa = page.locator(`.ds-acoes[data-bloqueio-id="${id}"]`);
+  await caixa.locator('.ds-acoes-btn').click();
+  await caixa.locator(`.ds-acoes-item[data-acao="${acao}"]`).click();
+}
+
 test.describe('Bloqueios de agenda — CRUD (US61)', () => {
   test('lista bloqueios com período, profissional e motivo', async ({ page }) => {
     await entrarNoPainel(page, {
@@ -64,9 +72,9 @@ test.describe('Bloqueios de agenda — CRUD (US61)', () => {
       ],
     });
     await abrirTelaBloqueios(page);
-    const item = page.locator('.servico-item');
-    await expect(item).toContainText('Profissional: Bruna');
-    await expect(item).toContainText('Consulta médica');
+    const linha = page.locator('tr[data-bloqueio-abrir="b1"]');
+    await expect(linha).toContainText('Bruna');
+    await expect(linha).toContainText('Consulta médica');
   });
 
   test('bloqueio sem profissional mostra "Toda a agenda"', async ({ page }) => {
@@ -74,7 +82,7 @@ test.describe('Bloqueios de agenda — CRUD (US61)', () => {
       bloqueios: [{ id: 'b1', profissional_id: null, profissional: null, inicio: '2026-07-20T13:00:00.000Z', fim: '2026-07-21T13:00:00.000Z', motivo: null }],
     });
     await abrirTelaBloqueios(page);
-    await expect(page.locator('.servico-item')).toContainText('Toda a agenda');
+    await expect(page.locator('tr[data-bloqueio-abrir="b1"]')).toContainText('Toda a agenda');
   });
 
   test('sem bloqueios cadastrados, mostra mensagem vazia', async ({ page }) => {
@@ -237,12 +245,76 @@ test.describe('Bloqueios de agenda — CRUD (US61)', () => {
     });
 
     await abrirTelaBloqueios(page);
-    await page.click('[data-acao-bloqueio="excluir"]');
+    await escolherAcaoBloqueio(page, 'b1', 'excluir');
     await expect(page.locator('.modal-card')).toContainText('A agenda volta a ficar disponível');
     await page.click('#btn-confirmar-excluir-bloqueio');
 
     await expect(page.locator('.toast-sucesso')).toHaveText(/excluído com sucesso/);
     expect(metodoRecebido).toBe('DELETE');
+  });
+
+  test('clicar na linha do bloqueio abre a edição pré-preenchida', async ({ page }) => {
+    await entrarNoPainel(page, {
+      bloqueios: [{ id: 'b1', profissional_id: null, profissional: null, inicio: '2026-08-10T12:00:00.000Z', fim: '2026-08-10T15:00:00.000Z', motivo: 'Manutenção' }],
+    });
+    await abrirTelaBloqueios(page);
+    await page.click('tr[data-bloqueio-abrir="b1"]');
+
+    await expect(page.locator('h3')).toHaveText('Editar bloqueio');
+    await expect(page.locator('#bloqueio-periodo-inicio')).toHaveValue('2026-08-10');
+    await expect(page.locator('#bloqueio-hora-inicio')).toHaveValue('09:00');
+    await expect(page.locator('#bloqueio-motivo')).toHaveValue('Manutenção');
+  });
+
+  test('editar um bloqueio chama PATCH em vez de POST', async ({ page }) => {
+    await entrarNoPainel(page, {
+      bloqueios: [{ id: 'b1', profissional_id: null, profissional: null, inicio: '2026-08-10T12:00:00.000Z', fim: '2026-08-10T15:00:00.000Z', motivo: 'Manutenção' }],
+    });
+    let metodoRecebido = null;
+    let corpoEnviado = null;
+    await page.route('**/api/bloqueios/b1', (route) => {
+      metodoRecebido = route.request().method();
+      corpoEnviado = route.request().postDataJSON();
+      return route.fulfill({ json: { id: 'b1', ...corpoEnviado } });
+    });
+
+    await abrirTelaBloqueios(page);
+    await page.click('tr[data-bloqueio-abrir="b1"]');
+    await page.fill('#bloqueio-motivo', 'Manutenção elétrica');
+    await page.click('#btn-salvar-bloqueio');
+
+    await expect(page.locator('.toast-sucesso')).toHaveText(/atualizado com sucesso/);
+    expect(metodoRecebido).toBe('PATCH');
+    expect(corpoEnviado.motivo).toBe('Manutenção elétrica');
+  });
+
+  test('desabilitar um bloqueio pelo kebab chama PATCH com ativo invertido', async ({ page }) => {
+    await entrarNoPainel(page, {
+      bloqueios: [{ id: 'b1', profissional_id: null, profissional: null, inicio: '2026-08-10T12:00:00.000Z', fim: '2026-08-10T15:00:00.000Z', motivo: null, ativo: true }],
+    });
+    let corpoEnviado = null;
+    await page.route('**/api/bloqueios/b1', (route) => {
+      corpoEnviado = route.request().postDataJSON();
+      return route.fulfill({ json: { id: 'b1', ativo: false } });
+    });
+
+    await abrirTelaBloqueios(page);
+    await escolherAcaoBloqueio(page, 'b1', 'desabilitar');
+
+    await expect(page.locator('.toast-sucesso')).toHaveText(/desabilitado/);
+    expect(corpoEnviado).toMatchObject({ ativo: false });
+  });
+
+  test('bloqueio desabilitado mostra o badge e o kebab oferece "Habilitar"', async ({ page }) => {
+    await entrarNoPainel(page, {
+      bloqueios: [{ id: 'b1', profissional_id: null, profissional: null, inicio: '2026-08-10T12:00:00.000Z', fim: '2026-08-10T15:00:00.000Z', motivo: null, ativo: false }],
+    });
+    await abrirTelaBloqueios(page);
+    const linha = page.locator('tr[data-bloqueio-abrir="b1"]');
+    await expect(linha.locator('.badge-status-inativo')).toHaveText('Desabilitado');
+    const caixa = linha.locator('.ds-acoes');
+    await caixa.locator('.ds-acoes-btn').click();
+    await expect(caixa.locator('.ds-acoes-item[data-acao="habilitar"]')).toHaveText('Habilitar');
   });
 
   test('cancelar a exclusão fecha o popup sem chamar a API', async ({ page }) => {
@@ -256,7 +328,7 @@ test.describe('Bloqueios de agenda — CRUD (US61)', () => {
     });
 
     await abrirTelaBloqueios(page);
-    await page.click('[data-acao-bloqueio="excluir"]');
+    await escolherAcaoBloqueio(page, 'b1', 'excluir');
     await page.click('#btn-voltar-excluir-bloqueio');
 
     await expect(page.locator('.modal-overlay')).toHaveCount(0);

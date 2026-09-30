@@ -239,7 +239,7 @@ function registerAdminTenantsRoutes(fastify, pool) {
     const { rows: contagemRows } = await pool.query(
       `SELECT
          (SELECT COUNT(*)::int FROM servicos WHERE tenant_id = $1) AS servicos,
-         (SELECT COUNT(*)::int FROM profissionais WHERE tenant_id = $1) AS profissionais,
+         (SELECT COUNT(*)::int FROM profissionais WHERE tenant_id = $1 AND excluido_em IS NULL) AS profissionais,
          (SELECT COUNT(*)::int FROM agendamentos WHERE tenant_id = $1) AS total_agendamentos,
          (SELECT MAX(data_hora) FROM agendamentos WHERE tenant_id = $1) AS ultimo_agendamento,
          (SELECT COUNT(*)::int FROM clientes WHERE tenant_id = $1) AS total_clientes`,
