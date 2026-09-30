@@ -459,19 +459,47 @@ async function carregarConfiguracao() {
 // whatsapp_aguardando_humano é uma página separada da SPA (atendimento.html)
 // e disparos_acabando é uma aba dentro da própria SPA (Automações >
 // Disparos, sem URL própria pra linkar direto).
-function abrirNotificacaoItem(tipo, id) {
+// dataHoraISO (bug real: clicar numa notificação de agendamento sempre abria
+// a Agenda no dia de HOJE, nunca no dia do atendimento em si) — vem do
+// data-data-hora do item (dataAgendamento da API, ver carregarNotificacoes).
+// Força a visão Dia (a mais direta pra ver o atendimento específico) e passa
+// a data pra selecionarMenu em vez de deixar cair no "hoje" padrão.
+function abrirNotificacaoItem(tipo, id, dataHoraISO) {
   if (tipo === 'whatsapp_aguardando_humano') {
     window.location.href = `/atendimento.html?clienteId=${id}`;
   } else if (tipo === 'disparos_acabando') {
     automacoesAbaAtiva = 'disparos';
     selecionarMenu('automacoes');
   } else if (tipo === 'agenda_criada' || tipo === 'agenda_confirmada' || tipo === 'agenda_remarcada') {
-    selecionarMenu('agendamento');
+    if (dataHoraISO) {
+      abaAtual = 'dia';
+      tabs.forEach((t) => t.classList.toggle('agenda-visao-ativa', t.dataset.tab === 'dia'));
+      selecionarMenu('agendamento', { dataAlvo: new Date(dataHoraISO) });
+    } else {
+      selecionarMenu('agendamento');
+    }
   }
 }
+
+async function marcarNotificacaoLida(id) {
+  const resultado = await api(`/api/notificacoes/${id}/lida`, { method: 'PATCH' });
+  if (resultado && !resultado.error) carregarNotificacoes();
+}
+
 document.addEventListener('click', (e) => {
+  // Botão "marcar como lida" fica DENTRO do <a> do item (pra ficar junto do
+  // título/detalhe sem precisar de outra linha) — precisa vir antes do
+  // closest('.ds-notificacoes-item') abaixo e nunca deixar o clique também
+  // navegar (senão marcaria como lida E abriria o item ao mesmo tempo).
+  const btnLida = e.target.closest('.ds-notificacoes-item-marcar-lida');
+  if (btnLida) {
+    e.preventDefault();
+    e.stopPropagation();
+    marcarNotificacaoLida(btnLida.dataset.id);
+    return;
+  }
   const item = e.target.closest('.ds-notificacoes-item');
-  if (item) { e.preventDefault(); abrirNotificacaoItem(item.dataset.tipo, item.dataset.id); }
+  if (item) { e.preventDefault(); abrirNotificacaoItem(item.dataset.tipo, item.dataset.id, item.dataset.dataHora); }
 });
 
 async function carregarNotificacoes() {
@@ -488,9 +516,10 @@ async function carregarNotificacoes() {
     : grupos.map((g) => `
         <div class="ds-notificacoes-grupo-titulo">${escapeHtml(g.titulo)}</div>
         ${g.itens.map((item) => `
-          <a class="ds-notificacoes-item" href="#" data-tipo="${g.tipo}" data-id="${item.id}">
+          <a class="ds-notificacoes-item" href="#" data-tipo="${g.tipo}" data-id="${item.id}"${item.dataAgendamento ? ` data-data-hora="${item.dataAgendamento}"` : ''}>
             <div class="ds-notificacoes-item-titulo">${escapeHtml(item.titulo)}</div>
             <div class="ds-notificacoes-item-meta">${escapeHtml(item.detalhe)}${item.desde ? ' · desde ' + new Date(item.desde).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</div>
+            ${g.eventoUnico ? `<button type="button" class="ds-notificacoes-item-marcar-lida" data-id="${item.id}" aria-label="Marcar como lida" title="Marcar como lida">✓</button>` : ''}
           </a>
         `).join('')}
       `).join('');
@@ -643,7 +672,7 @@ function menuDoCaminho(caminho) {
 // inicial da URL no carregamento (abaixo) — nesses dois casos a URL já é a
 // fonte da verdade, empurrar de novo criaria uma entrada redundante no
 // histórico (ou um loop, no caso do popstate).
-function selecionarMenu(novoMenu, { atualizarUrl = true } = {}) {
+function selecionarMenu(novoMenu, { atualizarUrl = true, dataAlvo = null } = {}) {
   // Sai da tela Quadro (ou troca de dia dentro dela, que re-renderiza do
   // zero) — limpa o intervalo da linha de "agora" antes de decidir a
   // próxima tela; renderQuadro cria um novo se for o caso.
@@ -687,7 +716,11 @@ function selecionarMenu(novoMenu, { atualizarUrl = true } = {}) {
   subtabsEl.style.display = menuAtual === 'agendamento' ? 'flex' : 'none';
   subtabsCadastroEl.style.display = menuAtual === 'cadastro' ? 'flex' : 'none';
   if (menuAtual === 'cadastro') sincronizarAbasCadastro();
-  dataRef = new Date();
+  // dataAlvo (bug real: clicar numa notificação de agendamento sempre abria
+  // a Agenda no dia de HOJE, nunca no dia do atendimento) — usado só pelo
+  // clique em item do balão de notificações (ver abrirNotificacaoItem);
+  // qualquer outra navegação continua caindo em "hoje" como sempre foi.
+  dataRef = dataAlvo || new Date();
   if (atualizarUrl) {
     const caminho = caminhoDoMenu(novoMenu);
     if (caminho && window.location.pathname !== caminho) {
@@ -7500,12 +7533,37 @@ function renderNotificacaoLinha(tipo) {
   `;
 }
 
+// "Notificações" em 2 abas (Regras / Histórico), mesmo componente data-ds-abas
+// já usado em Plano e cobrança — Regras é a tabela de canais que já existia
+// (renomeada, comportamento igual); Histórico é novo: log de tudo que já foi
+// disparado (lido ou não), pra auditoria — GET /api/notificacoes/historico.
+let abaNotificacoesAtiva = 'regras';
+
+function renderHistoricoNotificacaoLinha(item) {
+  const dataLabel = new Date(item.criadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `
+    <tr>
+      <td>${dataLabel}</td>
+      <td>${escapeHtml(item.tipoTitulo)}</td>
+      <td>
+        <div>${escapeHtml(item.titulo)}</div>
+        ${item.detalhe ? `<div class="notificacao-historico-detalhe">${escapeHtml(item.detalhe)}</div>` : ''}
+      </td>
+      <td>
+        ${item.lida
+          ? '<span class="badge badge-status-inativo">Lida</span>'
+          : `<button type="button" class="btn-secundario btn-pequeno notificacao-historico-marcar-lida" data-id="${item.id}">Marcar como lida</button>`}
+      </td>
+    </tr>
+  `;
+}
+
 async function renderNotificacoes() {
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  await carregarConfiguracao();
+  const [, historicoResp] = await Promise.all([carregarConfiguracao(), api('/api/notificacoes/historico')]);
+  const historico = (historicoResp && historicoResp.historico) || [];
 
-  conteudo.innerHTML = `
-    <h2>Notificações</h2>
+  const regrasHtml = `
     <div class="tabela-wrapper">
       <table class="tabela-tenants tabela-crud-compacta">
         <thead>
@@ -7522,6 +7580,33 @@ async function renderNotificacoes() {
       </table>
     </div>
   `;
+  const historicoHtml = `
+    <div class="tabela-wrapper">
+      <table class="tabela-tenants tabela-crud-compacta">
+        <thead>
+          <tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          ${historico.length ? historico.map(renderHistoricoNotificacaoLinha).join('') : '<tr><td colspan="4">Nenhuma notificação registrada ainda.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  conteudo.innerHTML = `
+    <div class="inicio-cabecalho"><h2>Notificações</h2></div>
+    <div class="ds-abas" data-ds-abas>
+      <div class="ds-abas-lista">
+        <button type="button" class="ds-aba" id="aba-notificacoes-regras" aria-controls="painel-notificacoes-regras" aria-selected="${abaNotificacoesAtiva === 'regras' ? 'true' : 'false'}">Regras</button>
+        <button type="button" class="ds-aba" id="aba-notificacoes-historico" aria-controls="painel-notificacoes-historico" aria-selected="${abaNotificacoesAtiva === 'historico' ? 'true' : 'false'}">Histórico</button>
+      </div>
+      <div class="ds-abas-painel" id="painel-notificacoes-regras" aria-labelledby="aba-notificacoes-regras" ${abaNotificacoesAtiva === 'regras' ? '' : 'hidden'}>${regrasHtml}</div>
+      <div class="ds-abas-painel" id="painel-notificacoes-historico" aria-labelledby="aba-notificacoes-historico" ${abaNotificacoesAtiva === 'historico' ? '' : 'hidden'}>${historicoHtml}</div>
+    </div>
+  `;
+  conteudo.querySelector('.ds-abas').addEventListener('ds-abas-alterar', (e) => {
+    abaNotificacoesAtiva = e.detail.id === 'painel-notificacoes-historico' ? 'historico' : 'regras';
+  });
 
   // Cada mudança (canal ou número) manda o objeto INTEIRO daquela chave já
   // mesclado — mesmo padrão de formas_pagamento (PATCH substitui o objeto
@@ -7562,6 +7647,16 @@ async function renderNotificacoes() {
       const chave = input.dataset.chave;
       const canaisAtuais = canaisAtivosNotificacao(notificacaoConfigAtual(chave));
       await salvar(chave, { canais: canaisAtuais, [input.dataset.campo]: valor });
+    });
+  });
+
+  conteudo.querySelectorAll('.notificacao-historico-marcar-lida').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const resultado = await api(`/api/notificacoes/${btn.dataset.id}/lida`, { method: 'PATCH' });
+      if (resultado && !resultado.error) {
+        renderNotificacoes();
+        carregarNotificacoes();
+      }
     });
   });
 }

@@ -1,6 +1,9 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { TIPOS_NOTIFICACAO, canaisAtivos, listarNotificacoesPendentes, dispararNotificacaoEvento } = require('../lib/notificacoes');
+const {
+  TIPOS_NOTIFICACAO, canaisAtivos, listarNotificacoesPendentes, dispararNotificacaoEvento,
+  marcarNotificacaoLida, marcarTodasNotificacoesLidas, listarHistoricoNotificacoes,
+} = require('../lib/notificacoes');
 const planosCatalogo = require('../lib/planos');
 
 // fakePool devolve `rows` fixo pra query de clientes (whatsapp_aguardando_
@@ -177,6 +180,7 @@ describe('listarNotificacoesPendentes — tipos orientados a evento', () => {
     const item = r.find((x) => x.tipo === 'agenda_criada');
     assert.ok(item);
     assert.equal(item.itens[0].titulo, 'Corte às 10h');
+    assert.equal(item.eventoUnico, true);
   });
 
   test('sem eventos recentes, o tipo não aparece', async () => {
@@ -189,6 +193,82 @@ describe('listarNotificacoesPendentes — tipos orientados a evento', () => {
     const pool = fakePoolEventos([{ id: 'e1', titulo: 'Corte às 10h', detalhe: null, criado_em: new Date() }]);
     const r = await listarNotificacoesPendentes(pool, 't1', { agenda_criada: { canais: { studio: false } } });
     assert.ok(!r.some((x) => x.tipo === 'agenda_criada'));
+  });
+
+  test('só busca eventos NÃO lidos (lida = false na query)', async () => {
+    let sqlCapturado = null;
+    const pool = {
+      query: async (sql) => {
+        if (/FROM notificacoes_eventos/.test(sql)) { sqlCapturado = sql; return { rows: [] }; }
+        return { rows: [] };
+      },
+    };
+    await listarNotificacoesPendentes(pool, 't1', {});
+    assert.match(sqlCapturado, /lida = false/);
+  });
+
+  test('referencia_data_hora vem no item como dataAgendamento', async () => {
+    const dataHora = new Date('2026-08-10T13:00:00.000Z');
+    const pool = fakePoolEventos([{ id: 'e1', titulo: 'Corte às 10h', detalhe: 'Bruna', criado_em: new Date(), referencia_data_hora: dataHora }]);
+    const r = await listarNotificacoesPendentes(pool, 't1', {});
+    const item = r.find((x) => x.tipo === 'agenda_criada');
+    assert.equal(item.itens[0].dataAgendamento, dataHora);
+  });
+});
+
+describe('marcarNotificacaoLida', () => {
+  test('UPDATE escopado por tenant_id e lida=false, devolve true quando acha a linha', async () => {
+    const chamadas = [];
+    const pool = {
+      query: async (sql, params) => {
+        chamadas.push({ sql, params });
+        return { rows: [{ id: 'e1' }] };
+      },
+    };
+    const ok = await marcarNotificacaoLida(pool, 't1', 'e1');
+    assert.equal(ok, true);
+    assert.match(chamadas[0].sql, /UPDATE notificacoes_eventos SET lida = true/);
+    assert.match(chamadas[0].sql, /tenant_id = \$2/);
+    assert.deepEqual(chamadas[0].params, ['e1', 't1']);
+  });
+
+  test('id inexistente/de outro tenant/já lida: devolve false', async () => {
+    const pool = { query: async () => ({ rows: [] }) };
+    const ok = await marcarNotificacaoLida(pool, 't1', 'e-que-nao-existe');
+    assert.equal(ok, false);
+  });
+});
+
+describe('marcarTodasNotificacoesLidas', () => {
+  test('devolve o número de linhas afetadas', async () => {
+    const pool = { query: async () => ({ rowCount: 3 }) };
+    const marcadas = await marcarTodasNotificacoesLidas(pool, 't1');
+    assert.equal(marcadas, 3);
+  });
+});
+
+describe('listarHistoricoNotificacoes', () => {
+  test('mapeia as colunas do banco pro formato da API, com o título do tipo resolvido', async () => {
+    const pool = {
+      query: async () => ({
+        rows: [{
+          id: 'e1', chave: 'agenda_criada', titulo: 'Novo agendamento: Corte', detalhe: 'Bruna — 10/08 10:00',
+          criado_em: new Date('2026-08-10T10:00:00Z'), lida: true, lida_em: new Date('2026-08-10T11:00:00Z'),
+          referencia_data_hora: new Date('2026-08-10T13:00:00Z'),
+        }],
+      }),
+    };
+    const [item] = await listarHistoricoNotificacoes(pool, 't1');
+    assert.equal(item.tipo, 'agenda_criada');
+    assert.equal(item.tipoTitulo, 'Novo agendamento criado');
+    assert.equal(item.lida, true);
+    assert.ok(item.dataAgendamento);
+  });
+
+  test('chave sem tipo correspondente (nunca deveria acontecer) usa a própria chave como título', async () => {
+    const pool = { query: async () => ({ rows: [{ id: 'e1', chave: 'tipo_removido', titulo: 't', detalhe: null, criado_em: new Date(), lida: false, lida_em: null, referencia_data_hora: null }] }) };
+    const [item] = await listarHistoricoNotificacoes(pool, 't1');
+    assert.equal(item.tipoTitulo, 'tipo_removido');
   });
 });
 
@@ -230,5 +310,18 @@ describe('dispararNotificacaoEvento', () => {
     const pool = fakePoolTenant({ notificacoesAtivas: {} });
     await dispararNotificacaoEvento(pool, 't1', 'agenda_criada', { titulo: 'Novo agendamento' });
     assert.ok(pool.chamadas.some((c) => /INSERT INTO notificacoes_eventos/.test(c.sql)));
+  });
+
+  test('referenciaDataHora vai pro INSERT; ausente vira null (não undefined)', async () => {
+    const poolCom = fakePoolTenant({ notificacoesAtivas: { agenda_criada: { canais: { studio: true } } } });
+    const dataHora = '2026-08-10T13:00:00.000Z';
+    await dispararNotificacaoEvento(poolCom, 't1', 'agenda_criada', { titulo: 'x', referenciaDataHora: dataHora });
+    const insertCom = poolCom.chamadas.find((c) => /INSERT INTO notificacoes_eventos/.test(c.sql));
+    assert.equal(insertCom.params[4], dataHora);
+
+    const poolSem = fakePoolTenant({ notificacoesAtivas: { agenda_criada: { canais: { studio: true } } } });
+    await dispararNotificacaoEvento(poolSem, 't1', 'agenda_criada', { titulo: 'x' });
+    const insertSem = poolSem.chamadas.find((c) => /INSERT INTO notificacoes_eventos/.test(c.sql));
+    assert.equal(insertSem.params[4], null);
   });
 });

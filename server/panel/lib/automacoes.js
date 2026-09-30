@@ -332,6 +332,7 @@ async function confirmarAgendamentoPorBotao(pool, { tenantId, telefone }) {
   dispararNotificacaoEvento(pool, tenantId, 'agenda_confirmada', {
     titulo: 'Agendamento confirmado',
     detalhe: `${ag.servico} com ${ag.cliente || ag.cliente_telefone} — ${ag.profissional}, ${dataFormatada}`,
+    referenciaDataHora: ag.data_hora,
   }).catch(() => {});
 
   return ag;

@@ -1754,6 +1754,40 @@ a.user-menu-item { display: block; text-decoration: none; }
 .badge-a-confirmar { background: rgba(var(--warning-rgb), 0.15); color: var(--warning); }
 .badge-confirmado { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
 
+/* "Marcar como lida" no balão de notificações — só nos tipos orientados a
+   evento (única categoria com uma linha real pra marcar, ver
+   lib/notificacoes.js). `.ds-notificacoes-item` (componente do DS) não tem
+   position:relative por padrão — liga aqui, escopado à própria classe, sem
+   afetar outro consumidor futuro do componente. Canto superior direito,
+   hover-revelado (mesmo padrão de .grade-linha-add já usado no resto do
+   painel) — não compete visualmente com o texto do item. */
+.ds-notificacoes-item { position: relative; padding-right: 34px; }
+.ds-notificacoes-item-marcar-lida {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  color: var(--muted-strong);
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.ds-notificacoes-item:hover .ds-notificacoes-item-marcar-lida,
+.ds-notificacoes-item:focus-within .ds-notificacoes-item-marcar-lida { opacity: 1; pointer-events: auto; }
+.ds-notificacoes-item-marcar-lida:hover { color: var(--success); border-color: var(--success); }
+
+/* Aba Histórico (Configurações > Notificações) — detalhe da linha abaixo do
+   título, mesmo tratamento visual do resto das tabelas de listagem. */
+.notificacao-historico-detalhe { margin-top: 2px; font-size: 12.5px; color: var(--muted-strong); }
+
 .agendamento-cancelado { opacity: 0.55; }
 .agendamento-cancelado .agendamento-hora { text-decoration: line-through; }
 

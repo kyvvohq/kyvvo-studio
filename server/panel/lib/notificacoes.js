@@ -157,10 +157,13 @@ async function enviarWhatsappNotificacao(whatsappNacional, texto) {
 
 // Dispara uma notificação de EVENTO ÚNICO (agenda criada/confirmada/
 // remarcada — diferente dos tipos "de estado" acima). Chamado no momento em
-// que o fato acontece (routes/agenda.js, lib/ia-engine.js). Best-effort de
-// propósito (try/catch amplo): nunca deve interromper a criação/atualização
-// do agendamento que disparou a notificação.
-async function dispararNotificacaoEvento(pool, tenantId, chave, { titulo, detalhe }) {
+// que o fato acontece (routes/agenda.js, lib/ia-engine.js, lib/automacoes.js
+// no botão "Confirmar" do WhatsApp). Best-effort de propósito (try/catch
+// amplo): nunca deve interromper a criação/atualização do agendamento que
+// disparou a notificação. `referenciaDataHora` (opcional) é o data_hora do
+// agendamento em questão — guardado pra "abrir na data certa" ao clicar no
+// item no balão (ver GET /api/notificacoes e o clique em app.js).
+async function dispararNotificacaoEvento(pool, tenantId, chave, { titulo, detalhe, referenciaDataHora }) {
   try {
     const { rows: tenantRows } = await pool.query('SELECT notificacoes_ativas, whatsapp FROM tenants WHERE id = $1', [tenantId]);
     const tenant = tenantRows[0];
@@ -170,8 +173,8 @@ async function dispararNotificacaoEvento(pool, tenantId, chave, { titulo, detalh
 
     if (canais.studio) {
       await pool.query(
-        'INSERT INTO notificacoes_eventos (tenant_id, chave, titulo, detalhe) VALUES ($1, $2, $3, $4)',
-        [tenantId, chave, titulo, detalhe || null]
+        'INSERT INTO notificacoes_eventos (tenant_id, chave, titulo, detalhe, referencia_data_hora) VALUES ($1, $2, $3, $4, $5)',
+        [tenantId, chave, titulo, detalhe || null, referenciaDataHora || null]
       );
     }
     if (canais.email) {
@@ -191,8 +194,10 @@ async function dispararNotificacaoEvento(pool, tenantId, chave, { titulo, detalh
 
 // Chave ausente em `notificacoesAtivas` conta como ativa no Studio (default
 // seguro, mesmo comportamento de sempre) — só desliga com o canal Studio
-// explicitamente desmarcado. Tipos sem nenhum item pendente/evento recente
-// não entram no resultado.
+// explicitamente desmarcado. Tipos sem nenhum item pendente/evento não lido
+// não entram no resultado. Eventos já marcados como lidos somem daqui (ver
+// marcarNotificacaoLida) — "pendente" agora é de verdade "não visto ainda",
+// não só "dos últimos 7 dias".
 async function listarNotificacoesPendentes(pool, tenantId, notificacoesAtivas) {
   const todasConfigs = notificacoesAtivas || {};
   const resultado = [];
@@ -204,8 +209,8 @@ async function listarNotificacoesPendentes(pool, tenantId, notificacoesAtivas) {
     if (tipo.eventoUnico) {
       // eslint-disable-next-line no-await-in-loop
       const { rows } = await pool.query(
-        `SELECT id, titulo, detalhe, criado_em FROM notificacoes_eventos
-         WHERE tenant_id = $1 AND chave = $2 AND criado_em > now() - interval '7 days'
+        `SELECT id, titulo, detalhe, criado_em, referencia_data_hora FROM notificacoes_eventos
+         WHERE tenant_id = $1 AND chave = $2 AND lida = false
          ORDER BY criado_em DESC LIMIT 20`,
         [tenantId, tipo.chave]
       );
@@ -213,7 +218,11 @@ async function listarNotificacoesPendentes(pool, tenantId, notificacoesAtivas) {
         resultado.push({
           tipo: tipo.chave,
           titulo: tipo.titulo,
-          itens: rows.map((r) => ({ id: r.id, titulo: r.titulo, detalhe: r.detalhe, desde: r.criado_em })),
+          eventoUnico: true,
+          itens: rows.map((r) => ({
+            id: r.id, titulo: r.titulo, detalhe: r.detalhe, desde: r.criado_em,
+            dataAgendamento: r.referencia_data_hora,
+          })),
         });
       }
       continue;
@@ -221,9 +230,69 @@ async function listarNotificacoesPendentes(pool, tenantId, notificacoesAtivas) {
 
     // eslint-disable-next-line no-await-in-loop
     const itens = await tipo.calcular(pool, tenantId, config);
-    if (itens.length) resultado.push({ tipo: tipo.chave, titulo: tipo.titulo, itens });
+    if (itens.length) resultado.push({ tipo: tipo.chave, titulo: tipo.titulo, eventoUnico: false, itens });
   }
   return resultado;
 }
 
-module.exports = { TIPOS_NOTIFICACAO, canaisAtivos, listarNotificacoesPendentes, dispararNotificacaoEvento };
+// "Marcar como lida" — só existe pros tipos orientados a evento (só eles têm
+// uma linha real em notificacoes_eventos; os "de estado" — whatsapp_
+// aguardando_humano/disparos_acabando — são recalculados a cada consulta,
+// não têm o que marcar). Escopado por tenant_id (nunca deixa marcar/ver linha
+// de outro tenant) e `lida = false` na condição evita um segundo UPDATE
+// inofensivo, mas também deixa o RETURNING vazio indicar "não achou" pro
+// chamador (id errado ou já lida).
+async function marcarNotificacaoLida(pool, tenantId, id) {
+  const { rows } = await pool.query(
+    `UPDATE notificacoes_eventos SET lida = true, lida_em = now()
+     WHERE id = $1 AND tenant_id = $2 AND lida = false
+     RETURNING id`,
+    [id, tenantId]
+  );
+  return rows.length > 0;
+}
+
+async function marcarTodasNotificacoesLidas(pool, tenantId) {
+  const { rowCount } = await pool.query(
+    `UPDATE notificacoes_eventos SET lida = true, lida_em = now() WHERE tenant_id = $1 AND lida = false`,
+    [tenantId]
+  );
+  return rowCount;
+}
+
+// Histórico completo (lidas + não lidas) dos tipos orientados a evento — aba
+// "Histórico" da tela Configurações > Notificações. Sem filtro de canal
+// ativo de propósito (é um log/auditoria do que já aconteceu, não uma lista
+// de pendências — um tipo desligado depois não deve apagar o que já foi
+// registrado antes). Limite de 200 é só uma trava de bom senso.
+async function listarHistoricoNotificacoes(pool, tenantId) {
+  const { rows } = await pool.query(
+    `SELECT id, chave, titulo, detalhe, criado_em, lida, lida_em, referencia_data_hora
+     FROM notificacoes_eventos
+     WHERE tenant_id = $1
+     ORDER BY criado_em DESC LIMIT 200`,
+    [tenantId]
+  );
+  const tituloPorChave = Object.fromEntries(TIPOS_NOTIFICACAO.map((t) => [t.chave, t.titulo]));
+  return rows.map((r) => ({
+    id: r.id,
+    tipo: r.chave,
+    tipoTitulo: tituloPorChave[r.chave] || r.chave,
+    titulo: r.titulo,
+    detalhe: r.detalhe,
+    criadoEm: r.criado_em,
+    lida: r.lida,
+    lidaEm: r.lida_em,
+    dataAgendamento: r.referencia_data_hora,
+  }));
+}
+
+module.exports = {
+  TIPOS_NOTIFICACAO,
+  canaisAtivos,
+  listarNotificacoesPendentes,
+  dispararNotificacaoEvento,
+  marcarNotificacaoLida,
+  marcarTodasNotificacoesLidas,
+  listarHistoricoNotificacoes,
+};

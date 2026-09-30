@@ -244,11 +244,11 @@ function registerAgendaRoutes(fastify, pool) {
     const dataFormatada = new Date(detalhado[0].data_hora).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
     const quemEQuando = `${detalhado[0].servico} com ${detalhado[0].cliente || detalhado[0].cliente_telefone} — ${detalhado[0].profissional}, ${dataFormatada}`;
     if (dataHora !== undefined) {
-      dispararNotificacaoEvento(pool, tenantId, 'agenda_remarcada', { titulo: 'Agendamento remarcado', detalhe: quemEQuando })
+      dispararNotificacaoEvento(pool, tenantId, 'agenda_remarcada', { titulo: 'Agendamento remarcado', detalhe: quemEQuando, referenciaDataHora: detalhado[0].data_hora })
         .catch((err) => request.log.error({ err }, 'notificacao agenda_remarcada'));
     }
     if (status === 'confirmado' && status !== atual.status) {
-      dispararNotificacaoEvento(pool, tenantId, 'agenda_confirmada', { titulo: 'Agendamento confirmado', detalhe: quemEQuando })
+      dispararNotificacaoEvento(pool, tenantId, 'agenda_confirmada', { titulo: 'Agendamento confirmado', detalhe: quemEQuando, referenciaDataHora: detalhado[0].data_hora })
         .catch((err) => request.log.error({ err }, 'notificacao agenda_confirmada'));
     }
 
@@ -661,6 +661,7 @@ function registerAgendaRoutes(fastify, pool) {
     dispararNotificacaoEvento(pool, tenantId, 'agenda_criada', {
       titulo: `Novo agendamento: ${resposta.servico} com ${resposta.cliente || resposta.cliente_telefone}`,
       detalhe: `${resposta.profissional} — ${new Date(resposta.data_hora).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
+      referenciaDataHora: resposta.data_hora,
     }).catch((err) => request.log.error({ err }, 'notificacao agenda_criada'));
 
     return resposta;

@@ -268,6 +268,7 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
           dispararNotificacaoEvento(pool, tenant.id, 'agenda_remarcada', {
             titulo: 'Agendamento remarcado pelo WhatsApp',
             detalhe: `${existente.servico_nome || 'Serviço'} com ${profissional.nome} — ${new Date(params.dataHoraISO).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
+            referenciaDataHora: params.dataHoraISO,
           }).catch(() => {});
           return { ok: true, agendamentoId: existente.id };
         }
@@ -302,6 +303,7 @@ async function executarAcaoIA({ intent, params, tenant, clienteId }) {
       dispararNotificacaoEvento(pool, tenant.id, 'agenda_criada', {
         titulo: `Novo agendamento pelo WhatsApp: ${servico ? servico.nome : 'serviço'}`,
         detalhe: `${profissional.nome} — ${new Date(params.dataHoraISO).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' })}`,
+        referenciaDataHora: params.dataHoraISO,
       }).catch(() => {});
       return { ok: true, agendamentoId: novo[0].id };
     } catch (erro) {
