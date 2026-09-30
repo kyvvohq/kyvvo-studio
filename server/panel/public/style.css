@@ -926,11 +926,21 @@ a.user-menu-item { display: block; text-decoration: none; }
   margin-top: 2px;
 }
 
+/* `top:50%` + `translateY(-50%)` (jeito comum de centralizar) depende da
+   altura do contêiner ser "definida" pela spec do CSS — `.semana-grade-cel`
+   é um flex item com altura por min-height/conteúdo, não uma altura fixa,
+   então a porcentagem resolvia errado e o botão vazava pra célula/linha de
+   baixo (achado no Quadro: "+" pegando a linha de duas células). `top:0;
+   bottom:0; margin:auto 0` centraliza sem depender de porcentagem — o
+   sobrando de espaço (altura do contêiner menos os 26px fixos) é dividido
+   igualmente pelas margens automáticas, funciona com altura indefinida.
+*/
 .grade-linha-add {
   position: absolute;
-  top: 50%;
+  top: 0;
+  bottom: 0;
   right: 10px;
-  transform: translateY(-50%);
+  margin: auto 0;
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -2057,6 +2067,13 @@ a.user-menu-item { display: block; text-decoration: none; }
    .tabela-tenants direto, que o admin depende do nowrap+scroll pra caber
    colunas com texto longo. */
 .tabela-equipe td:last-child { white-space: normal; }
+
+/* Serviços (US17): colunas curtas (nome/duração/valor/profissionais), sem
+   texto longo que precise de nowrap+scroll — mesmo raciocínio da Equipe
+   acima, mas pra tabela inteira (nenhuma coluna aqui é candidata a estourar
+   largura como as do admin). Sem isso, a lista de profissionais separados
+   por vírgula forçava scroll horizontal na tela toda. */
+.tabela-servicos { white-space: normal; }
 
 /* Menu Clientes: busca unificada + seletor de tamanho de página, acima da
    tabela. */
