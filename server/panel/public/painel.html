@@ -24,14 +24,12 @@
 <body>
 <div id="trial-banner" class="trial-banner" hidden></div>
 <div id="avisos-painel"></div>
-<div class="topbar">
-  <div class="topbar-esquerda">
-    <button class="topbar-logo" id="topbar-logo" aria-label="Ir para o início">
-      <img class="js-logo-kyvvo topbar-logo-img" src="/ds/logo.svg" alt="Kyvvo">
-    </button>
-    <span class="topbar-produto-tag">Studio</span>
-  </div>
-  <div class="topbar-direita">
+<header class="ds-topbar">
+  <button type="button" class="ds-topbar-marca" id="topbar-logo" aria-label="Ir para o início">
+    <span class="ds-topbar-produto"><span class="ds-topbar-produto-acento">St</span>udio</span>
+    <span class="ds-topbar-kyvvo">kyvvo</span>
+  </button>
+  <div class="ds-topbar-acoes">
     <div class="ds-notificacoes" id="notificacoes-sino">
       <button class="ds-notificacoes-btn" id="notificacoes-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Notificações">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -45,10 +43,10 @@
       </div>
     </div>
     <div class="user-menu" id="user-menu">
-      <button class="user-menu-toggle" id="user-menu-toggle">
-        <div class="user-menu-avatar" id="user-menu-avatar"></div>
+      <button class="user-menu-toggle ds-topbar-perfil" id="user-menu-toggle">
+        <div class="ds-topbar-avatar" id="user-menu-avatar"></div>
         <div class="user-menu-textos">
-          <div class="user-menu-nome" id="user-menu-nome"></div>
+          <div class="ds-topbar-nome" id="user-menu-nome"></div>
           <div class="user-menu-empresa" id="user-menu-empresa"></div>
         </div>
         <span class="user-menu-chevron">▾</span>
@@ -67,7 +65,7 @@
     </div>
   </div>
   </div>
-</div>
+</header>
 <div id="cobranca-banner" class="cobranca-banner" hidden>
   <span class="cobranca-banner-texto" id="cobranca-banner-texto"></span>
   <button type="button" class="cobranca-banner-fechar" id="cobranca-banner-fechar" aria-label="Fechar aviso">×</button>
@@ -118,7 +116,7 @@
     <div class="conteudo" id="conteudo"></div>
   </div>
 </div>
-<footer data-ds-rodape></footer>
+<footer data-ds-rodape data-ds-produto="Studio"></footer>
 
 <script src="/pagamento-form.js"></script>
 <!-- components.js precisa vir ANTES de app.js: o boot do painel chama
