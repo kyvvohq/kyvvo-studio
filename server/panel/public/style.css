@@ -959,7 +959,16 @@ a.user-menu-item { display: block; text-decoration: none; }
   border-bottom: 1px solid var(--border-strong);
 }
 
+/* Altura de linha fixa (60px = ALTURA_LINHA_DIA_PX/pxPorMinuto no app.js) —
+   igual à view Dia (PR 2026-09-27): permite calcular top/height dos blocos
+   de duração real em JS e bater exatamente com a régua renderizada. Antes a
+   altura crescia com o conteúdo (agendamentos simultâneos empilhavam
+   verticalmente na mesma célula); agora sobreposições reais viram colunas
+   lado a lado dentro da camada de blocos (.quadro-bloco-camada, mesma
+   técnica de calcularBlocosDia da view Dia), então a linha nunca mais
+   precisa crescer. */
 .semana-grade-hora {
+  height: 60px;
   padding: 8px;
   font-size: 11px;
   font-family: ui-monospace, monospace;
@@ -967,9 +976,6 @@ a.user-menu-item { display: block; text-decoration: none; }
   background: var(--sunken);
   border-top: 1px solid var(--border);
   text-align: right;
-  /* A linha da hora não tem altura fixa (cresce conforme os agendamentos
-     da raia), então sem isso o rótulo ("09:00"...) fica grudado no topo de
-     uma célula alta em vez de centralizado nela. */
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -978,25 +984,30 @@ a.user-menu-item { display: block; text-decoration: none; }
 .semana-grade-cel {
   position: relative;
   min-width: 0;
-  min-height: 40px;
-  padding: 4px;
+  height: 60px;
+  padding: 6px 20px 6px 10px;
   display: flex;
   align-items: center;
   border-top: 1px solid var(--border);
   border-left: 1px solid var(--border);
-  cursor: pointer;
 }
+.semana-grade-cel .grade-linha-vazia { color: var(--muted); font-size: 12.5px; }
+.semana-grade-cel:hover .grade-linha-add { opacity: 1; pointer-events: auto; }
 
-.semana-grade-cel-ativa {
-  min-height: 54px;
-  padding: 6px 20px 6px 10px;
-  cursor: default;
-  align-items: stretch;
-}
-.semana-grade-cel-ativa .grade-linha-vazia { align-self: center; }
-.semana-grade-cel-ativa .grade-ag-card,
-.semana-grade-cel-ativa .grade-ag-grupo { width: 100%; }
-.semana-grade-cel-ativa:hover .grade-linha-add { opacity: 1; pointer-events: auto; }
+/* Camada de blocos do Quadro/Semana — mesma ideia de .agenda-bloco-camada da
+   view Dia, só que uma por coluna (profissional no Quadro, dia na Semana);
+   grid-column/grid-row vêm inline do app.js, um span cobrindo todas as
+   linhas de hora. */
+.grade-bloco-camada { position: relative; pointer-events: none; }
+.grade-bloco-camada .agenda-bloco { pointer-events: auto; }
+
+/* Semana da Agenda (.agenda-semana, componente do DS) — mesma altura de
+   linha fixa acima, escopada aqui pra não afetar outro eventual consumidor
+   do componente (hoje só o Studio usa). Pra bater com os 60px, a linha da
+   hora atual deixa de ganhar o min-height maior do DS (.agenda-linha-alta,
+   classe simplesmente não é mais aplicada em renderSemanaGrade) — só a cor
+   de destaque (.agenda-rail-agora) continua. */
+.agenda-semana-blocos .agenda-semana-celula { height: 60px; }
 
 /* Quadro (colunas = profissionais) — cabeçalho de coluna próprio (avatar +
    nome do profissional, .quadro-cab), sem accordion (o recorte já é um dia

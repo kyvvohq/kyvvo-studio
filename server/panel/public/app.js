@@ -5514,6 +5514,19 @@ async function renderSemana() {
 // Mês"): sem accordion próprio do Studio, a coluna de hoje já alarga
 // sozinha via CSS (v2.10.0, lê `.agenda-semana-cab-hoje`). `--agenda-dias`
 // informa quantas colunas o CSS deve desenhar.
+//
+// PR (bug real em produção, achado 2026-09-30): mesmo bug da view Dia antes
+// do PR #75 — cada agendamento só ocupava a célula do horário em que
+// COMEÇA. Agora todas as células (cabeçalho, régua, fundo dia×hora) usam
+// posição EXPLÍCITA (grid-column/grid-row inline) em vez de depender da
+// ordem de inserção no DOM — isso libera uma camada de blocos por dia
+// (.grade-bloco-camada, mesma técnica calcularBlocosDia/minutoAjustadoDia da
+// view Dia) que pode ocupar várias linhas (grid-row em span) sem brigar com
+// o posicionamento automático das outras células. Precisa da altura de
+// linha FIXA (.agenda-semana-celula a 60px, ver style.css/
+// .agenda-semana-blocos) pra bater com a régua — por isso a linha da hora
+// atual não ganha mais `.agenda-linha-alta` (só a cor de destaque
+// `.agenda-rail-agora` continua).
 function renderSemanaGrade(diasAbertos, porDia) {
   const hojeISO = formatarDataISO(new Date());
   const isoAbertos = diasAbertos.map(formatarDataISO);
@@ -5524,47 +5537,53 @@ function renderSemanaGrade(diasAbertos, porDia) {
     return '<div class="vazio">Nenhum horário configurado (confira Abertura/Fechamento em Configuração).</div>';
   }
 
-  let html = `<div class="agenda-semana" style="--agenda-dias:${diasAbertos.length}">`;
-  html += '<div class="agenda-semana-canto"></div>';
+  const pxPorMinuto = ALTURA_LINHA_DIA_PX / SLOT_INTERVALO_MINUTOS;
+
+  let html = `<div class="agenda-semana agenda-semana-blocos" style="--agenda-dias:${diasAbertos.length}">`;
+  html += '<div class="agenda-semana-canto" style="grid-column:1;grid-row:1"></div>';
   diasAbertos.forEach((d, i) => {
     const diaISO = isoAbertos[i];
     const hoje = diaISO === hojeISO;
     const dataLabel = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
     html += `
-      <div class="agenda-semana-cab${hoje ? ' agenda-semana-cab-hoje' : ''}">
+      <div class="agenda-semana-cab${hoje ? ' agenda-semana-cab-hoje' : ''}" style="grid-column:${i + 2};grid-row:1">
         <span class="agenda-dia-num${hoje ? ' agenda-dia-num-hoje' : ''}">${d.getDate()}</span>
         <span>${nomeDiaSemana(d).slice(0, 3)} ${dataLabel}</span>
       </div>
     `;
   });
 
-  for (const hora of horarios) {
+  horarios.forEach((hora, linha) => {
     const horaAtual = hora === horaAtualBucket;
-    html += `<div class="agenda-rail${horaAtual ? ' agenda-rail-agora agenda-linha-alta' : ''}"><span class="agenda-rail-hora">${hora}</span></div>`;
-    diasAbertos.forEach((d, i) => {
-      const diaISO = isoAbertos[i];
-      const itens = (porDia[diaISO] || []).filter((ag) => horaChaveGradeBucket(ag.data_hora) === hora);
-      html += renderSemanaCelula(diaISO, hora, itens, diaISO === hojeISO);
+    html += `<div class="agenda-rail${horaAtual ? ' agenda-rail-agora' : ''}" style="grid-column:1;grid-row:${linha + 2}"><span class="agenda-rail-hora">${hora}</span></div>`;
+  });
+
+  diasAbertos.forEach((d, i) => {
+    const diaISO = isoAbertos[i];
+    const hoje = diaISO === hojeISO;
+    const blocos = calcularBlocosDia(porDia[diaISO] || []);
+    horarios.forEach((hora, linha) => {
+      const horaMin = horarioParaMinutosFrontend(hora);
+      const horaFimMin = horaMin + SLOT_INTERVALO_MINUTOS;
+      const ocupada = blocos.some((b) => b.inicio < horaFimMin && horaMin < b.fim);
+      html += `
+        <div class="agenda-semana-celula${hoje ? ' agenda-semana-celula-hoje' : ''}" style="grid-column:${i + 2};grid-row:${linha + 2}">
+          ${ocupada ? '' : `<button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora} em ${diaISO}">+</button>`}
+        </div>
+      `;
     });
-  }
+    const camada = blocos.map(({ ag, coluna, totalColunas }) => {
+      const top = minutoAjustadoDia(ag.data_hora) * pxPorMinuto;
+      const altura = Math.max(Number(ag.duracao_minutos || 0) * pxPorMinuto - 4, 24);
+      const largura = 100 / totalColunas;
+      const esquerda = largura * coluna;
+      return `<div class="agenda-bloco" style="top:${top}px;height:${altura}px;left:${esquerda}%;width:calc(${largura}% - 4px)">${renderAgendaCardCompacto(ag)}</div>`;
+    }).join('');
+    html += `<div class="grade-bloco-camada" style="grid-column:${i + 2};grid-row:2 / span ${horarios.length}">${camada}</div>`;
+  });
+
   html += '</div>';
   return html;
-}
-
-// Cada célula mostra os cards direto (sem accordion) — no máximo 2, o resto
-// vira ".agenda-mais" (componente do DS), que leva pra visão Dia daquele dia
-// (wireado no listener global de [data-ver-dia]).
-function renderSemanaCelula(diaISO, hora, itens, hoje) {
-  const MAX_VISIVEIS = 2;
-  const visiveis = itens.slice(0, MAX_VISIVEIS);
-  const extra = itens.length - visiveis.length;
-  return `
-    <div class="agenda-semana-celula${hoje ? ' agenda-semana-celula-hoje' : ''}">
-      ${visiveis.map((ag) => renderAgendaCardCompacto(ag)).join('')}
-      ${extra > 0 ? `<span class="agenda-mais" data-ver-dia="${diaISO}">+${extra} mais</span>` : ''}
-      <button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora} em ${diaISO}">+</button>
-    </div>
-  `;
 }
 
 // ---------- Quadro (kanban: colunas = profissionais, raias = horários) ----------
@@ -5653,6 +5672,20 @@ function atualizarLinhaAgoraQuadro() {
 // não é conceito exclusivo de "semana") — só que aqui as colunas são
 // profissionais, fixas (não têm accordion: já é o recorte de um dia só,
 // não precisa recolher nada pra caber).
+//
+// PR (bug real em produção, achado 2026-09-30): a correção de duração da
+// view Dia (PR #75, 2026-09-27) nunca foi replicada aqui — cada agendamento
+// só ocupava a célula do horário em que COMEÇA, então um atendimento de
+// 240min continuava "contabilizando" só 1h: as horas seguintes apareciam
+// como "Disponível" (permitindo agendar por cima) e o card não mostrava a
+// duração real. Agora cada coluna de profissional usa a MESMA
+// calcularBlocosDia/minutoAjustadoDia da view Dia — células de fundo (que
+// só indicam "Disponível"/"+") viram uma camada, e os cards de agendamento
+// (posicionados por cima, altura/posição em px pela duração real) viram
+// outra, uma por profissional (.grade-bloco-camada, grid-row em span
+// cobrindo todas as linhas de hora). Precisa da altura de linha FIXA
+// (.semana-grade-hora/.semana-grade-cel a 60px, ver style.css) pra bater
+// com a régua.
 function renderQuadroGrade(diaISO, profissionais, agendamentos) {
   if (!profissionais.length) {
     return '<div class="vazio">Nenhum profissional encontrado — cadastre (ou ajuste o filtro) em Configurações → Cadastro → Profissionais.</div>';
@@ -5672,41 +5705,48 @@ function renderQuadroGrade(diaISO, profissionais, agendamentos) {
   const colunas = profissionais.map(() => 'minmax(160px,1fr)').join(' ');
   const ehHoje = diaISO === formatarDataISO(new Date());
   const horaAtualBucket = ehHoje ? horaChaveGradeBucket(new Date().toISOString()) : null;
+  const pxPorMinuto = ALTURA_LINHA_DIA_PX / SLOT_INTERVALO_MINUTOS;
 
   let html = `<div class="semana-grade quadro-grade" style="grid-template-columns:62px ${colunas}">`;
-  html += '<div class="semana-grade-canto"></div>';
-  profissionais.forEach((p) => {
+  html += '<div class="semana-grade-canto" style="grid-column:1;grid-row:1"></div>';
+  profissionais.forEach((p, i) => {
     html += `
-      <div class="quadro-cab">
+      <div class="quadro-cab" style="grid-column:${i + 2};grid-row:1">
         <span class="grade-ag-avatar" aria-hidden="true" style="background:${corProfissional(p.id)};color:#fff">${iniciaisNome(p.nome)}</span>
         <strong>${p.nome}</strong>
       </div>
     `;
   });
 
-  for (const hora of horarios) {
-    html += `<div class="semana-grade-hora${hora === horaAtualBucket ? ' quadro-hora-atual' : ''}">${hora}</div>`;
-    profissionais.forEach((p) => {
-      const itens = (porProfissional[p.id] || []).filter((ag) => horaChaveGradeBucket(ag.data_hora) === hora);
-      html += renderQuadroCelula(diaISO, hora, itens);
+  horarios.forEach((hora, linha) => {
+    html += `<div class="semana-grade-hora${hora === horaAtualBucket ? ' quadro-hora-atual' : ''}" style="grid-column:1;grid-row:${linha + 2}">${hora}</div>`;
+  });
+
+  profissionais.forEach((p, i) => {
+    const blocos = calcularBlocosDia(porProfissional[p.id] || []);
+    horarios.forEach((hora, linha) => {
+      const horaMin = horarioParaMinutosFrontend(hora);
+      const horaFimMin = horaMin + SLOT_INTERVALO_MINUTOS;
+      const ocupada = blocos.some((b) => b.inicio < horaFimMin && horaMin < b.fim);
+      html += `
+        <div class="semana-grade-cel" style="grid-column:${i + 2};grid-row:${linha + 2}">
+          ${ocupada ? '' : '<span class="grade-linha-vazia">Disponível</span>'}
+          ${ocupada ? '' : `<button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora}">+</button>`}
+        </div>
+      `;
     });
-  }
+    const camada = blocos.map(({ ag, coluna, totalColunas }) => {
+      const top = minutoAjustadoDia(ag.data_hora) * pxPorMinuto;
+      const altura = Math.max(Number(ag.duracao_minutos || 0) * pxPorMinuto - 4, 24);
+      const largura = 100 / totalColunas;
+      const esquerda = largura * coluna;
+      return `<div class="agenda-bloco" style="top:${top}px;height:${altura}px;left:${esquerda}%;width:calc(${largura}% - 4px)">${renderAgendamentoGradeCard(ag, { ocultarProfissional: true })}</div>`;
+    }).join('');
+    html += `<div class="grade-bloco-camada" style="grid-column:${i + 2};grid-row:2 / span ${horarios.length}">${camada}</div>`;
+  });
+
   html += '</div>';
   return html;
-}
-
-function renderQuadroCelula(diaISO, hora, itens) {
-  const conteudo = !itens.length
-    ? '<span class="grade-linha-vazia">Disponível</span>'
-    : itens.length === 1
-      ? renderAgendamentoGradeCard(itens[0], { ocultarProfissional: true })
-      : `<div class="grade-ag-grupo" style="grid-template-columns:repeat(${itens.length},1fr)">${itens.map((ag) => renderAgendamentoGradeCard(ag, { ocultarProfissional: true })).join('')}</div>`;
-  return `
-    <div class="semana-grade-cel semana-grade-cel-ativa">
-      ${conteudo}
-      <button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora}">+</button>
-    </div>
-  `;
 }
 
 async function renderMes() {
