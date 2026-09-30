@@ -3238,8 +3238,8 @@ async function renderServicos() {
   const mostrarProfissionais = !!(contaStatus && contaStatus.mostrar_profissional);
 
   let html = `
-    <div class="nav-periodo">
-      <strong>Serviços</strong>
+    <div class="inicio-cabecalho">
+      <h2>Serviços</h2>
       <button class="btn-novo-agendamento" id="btn-novo-servico">+ Novo serviço</button>
     </div>
   `;
@@ -3249,7 +3249,7 @@ async function renderServicos() {
   } else {
     html += `
       <div class="tabela-wrapper">
-        <table class="tabela-tenants">
+        <table class="tabela-tenants tabela-servicos">
           <thead>
             <tr>
               <th>Serviço</th>
