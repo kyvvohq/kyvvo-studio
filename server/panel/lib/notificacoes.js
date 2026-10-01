@@ -15,6 +15,7 @@
 //   agendamento criado/confirmado/remarcado) na tabela notificacoes_eventos e
 //   listado dali pro canal Studio.
 const planosCatalogo = require('./planos');
+const { enviarEmail } = require('./email');
 
 const LIMIAR_DISPAROS_PADRAO = 10;
 
@@ -89,38 +90,19 @@ function canaisAtivos(cfg) {
 }
 
 // --- Envio real (E-mail/WhatsApp), além do Studio (sino in-app) ----------
-// Mesmos provedores de token-service.js (Resend/Meta Cloud API), sem o
+// E-mail pelo serviço da plataforma (lib/email.js), WhatsApp pela Meta Cloud
+// API (mesmo provedor de token-service.js), sem o
 // conceito de token de 6 dígitos — mensagem livre. Best-effort: nunca lança,
 // cai num modo de log sem as variáveis de ambiente (mesmo espírito de
 // token-service.js), pra funcionar em dev/homologação sem serviço externo.
 async function enviarEmailNotificacao(email, assunto, corpoTexto) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'Kyvvo <no-reply@kyvvo.com.br>';
-  if (!apiKey) {
-    console.log(`[notificacoes] (dev) e-mail para ${email} — ${assunto}: ${corpoTexto}`);
-    return false;
-  }
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from,
-        to: [email],
-        subject: assunto,
-        html: `<div style="font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111"><p>${corpoTexto}</p></div>`,
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) {
-      console.error(`[notificacoes] Resend respondeu ${res.status} ao enviar para ${email}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error(`[notificacoes] Falha ao enviar e-mail para ${email}: ${err.message}`);
-    return false;
-  }
+  return enviarEmail({
+    to: email,
+    subject: assunto,
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111"><p>${corpoTexto}</p></div>`,
+    text: corpoTexto,
+    tag: 'notificacao',
+  });
 }
 
 async function enviarWhatsappNotificacao(whatsappNacional, texto) {
