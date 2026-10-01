@@ -5,6 +5,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { EMAIL_REGEX, SENHA_REGEX } = require('../lib/validadores');
+const { enviarEmail } = require('../lib/email');
 
 // Rede interna do compose — mesmo default de lib/platform.js.
 const PLATFORM_URL = process.env.PLATFORM_URL || 'http://platform:3003';
@@ -18,49 +19,37 @@ function registerEquipeRoutes(fastify, pool) {
     return crypto.randomBytes(32).toString('hex');
   }
 
-  // Best-effort, mesmo padrão do token-service.js: sem RESEND_API_KEY
-  // configurada, cai num modo de log (dev/homolog sem depender do provedor).
+  // Best-effort pelo serviço de e-mail da plataforma (lib/email.js) — sem
+  // provedor configurado cai em modo log (dev/homolog).
   async function enviarConviteEmail({ email, tenantNome, convidadoPorNome, link, role }) {
-    const apiKey = process.env.RESEND_API_KEY;
-    const from = process.env.RESEND_FROM || 'Kyvvo <no-reply@kyvvo.com.br>';
     const perfilLabel = role === 'administrador' ? 'administrador' : 'operador';
 
-    if (!apiKey) {
+    if (!process.env.PLATFORM_EMAIL_TOKEN && !process.env.RESEND_API_KEY) {
       console.log(`[equipe] (dev) convite para ${email} (${perfilLabel} de ${tenantNome}) — link: ${link}`);
       return;
     }
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from,
-          to: [email],
-          subject: `${convidadoPorNome || 'Alguém'} te convidou para o Kyvvo`,
-          html: `
-          <div style="font-family:Arial,Helvetica,sans-serif;background:#080b14;padding:32px;color:#f2f2f7">
-            <div style="max-width:420px;margin:0 auto;background:#12162a;border:1px solid #232847;border-radius:16px;padding:32px">
-              <div style="font-size:22px;font-weight:800;letter-spacing:-.03em;margin-bottom:24px">
-                ky<span style="color:#a688ff">vv</span>o
-              </div>
-              <h1 style="font-size:18px;margin:0 0 12px">Você foi convidado para ${tenantNome}</h1>
-              <p style="color:#a1a5c4;font-size:14px;line-height:1.6;margin:0 0 24px">
-                ${convidadoPorNome || 'Um administrador'} te convidou pra fazer parte da equipe no Kyvvo, como <strong>${perfilLabel}</strong>.
-              </p>
-              <a href="${link}" style="display:inline-block;background:#7c5cfc;color:white;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">Aceitar convite</a>
-              <p style="color:#6b7099;font-size:12px;line-height:1.6;margin:24px 0 0">
-                O convite expira em ${CONVITE_EXPIRACAO_DIAS} dias. Se não foi você quem esperava isso, ignore este e-mail.
-              </p>
-            </div>
-          </div>`,
-        }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) console.error(`[equipe] Resend respondeu ${res.status} ao convidar ${email}`);
-    } catch (erro) {
-      console.error(`[equipe] Falha ao enviar convite para ${email}: ${erro.message}`);
-    }
+    await enviarEmail({
+      to: email,
+      tag: 'convite_equipe',
+      subject: `${convidadoPorNome || 'Alguém'} te convidou para o Kyvvo`,
+      html: `
+      <div style="font-family:Arial,Helvetica,sans-serif;background:#080b14;padding:32px;color:#f2f2f7">
+        <div style="max-width:420px;margin:0 auto;background:#12162a;border:1px solid #232847;border-radius:16px;padding:32px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-.03em;margin-bottom:24px">
+            ky<span style="color:#a688ff">vv</span>o
+          </div>
+          <h1 style="font-size:18px;margin:0 0 12px">Você foi convidado para ${tenantNome}</h1>
+          <p style="color:#a1a5c4;font-size:14px;line-height:1.6;margin:0 0 24px">
+            ${convidadoPorNome || 'Um administrador'} te convidou pra fazer parte da equipe no Kyvvo, como <strong>${perfilLabel}</strong>.
+          </p>
+          <a href="${link}" style="display:inline-block;background:#7c5cfc;color:white;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600">Aceitar convite</a>
+          <p style="color:#6b7099;font-size:12px;line-height:1.6;margin:24px 0 0">
+            O convite expira em ${CONVITE_EXPIRACAO_DIAS} dias. Se não foi você quem esperava isso, ignore este e-mail.
+          </p>
+        </div>
+      </div>`,
+    });
   }
 
   // CA "convite possui status pendente/aceito/expirado" — 'expirado' nunca é

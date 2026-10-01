@@ -19,6 +19,7 @@
 // canal é logada e engolida, o outro canal ainda é tentado (CA04).
 
 const crypto = require('crypto');
+const { enviarEmail } = require('./lib/email');
 
 const TOKEN_EXPIRACAO_MINUTOS = 30;
 const MAX_TENTATIVAS = 5;
@@ -52,41 +53,20 @@ function mascararEmail(email) {
   return `${visivel}${'*'.repeat(Math.max(usuario.length - 2, 1))}@${dominio}`;
 }
 
-// Envia o token por e-mail via Resend, se configurado (CA02). Retorna true se
-// realmente despachou pra um provedor, false se caiu no modo de log.
+// Envia o token por e-mail pelo serviço de e-mail da plataforma (lib/email.js)
+// (CA02). Retorna true se realmente despachou pra um provedor, false se caiu
+// no modo de log.
 async function enviarTokenEmail(email, token, nome) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'Kyvvo <no-reply@kyvvo.com.br>';
-
-  if (!apiKey) {
+  const ok = await enviarEmail({
+    to: email,
+    subject: `Seu código de verificação Kyvvo — ${token}`,
+    html: emailHtml(token, nome),
+    tag: 'token_verificacao',
+  });
+  if (!ok && !process.env.PLATFORM_EMAIL_TOKEN && !process.env.RESEND_API_KEY) {
     console.log(`[token-service] (dev) e-mail para ${email} — código: ${token}`);
-    return false;
   }
-
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from,
-        to: [email],
-        subject: `Seu código de verificação Kyvvo — ${token}`,
-        html: emailHtml(token, nome),
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) {
-      console.error(`[token-service] Resend respondeu ${res.status} ao enviar para ${email}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error(`[token-service] Falha ao enviar e-mail para ${email}: ${err.message}`);
-    return false;
-  }
+  return ok;
 }
 
 // Envia o token por WhatsApp via API oficial da Meta (Cloud API), se
