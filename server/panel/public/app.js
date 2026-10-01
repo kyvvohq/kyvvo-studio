@@ -1916,14 +1916,6 @@ conteudo.addEventListener('click', (e) => {
     abrirModalClienteDetalhe(clienteItemEl.dataset.clienteId);
     return;
   }
-  // Botão WhatsApp na tabela de Clientes — checado antes de
-  // data-cliente-abrir (fica dentro da mesma <tr data-cliente-abrir>), senão
-  // o clique também abriria o perfil junto.
-  const whatsappClienteBtn = e.target.closest('[data-cliente-whatsapp]');
-  if (whatsappClienteBtn) {
-    window.open(`https://wa.me/${whatsappClienteBtn.dataset.clienteWhatsapp}`, '_blank');
-    return;
-  }
   // Checkbox de seleção (disparo em lote) — fica dentro da mesma <tr
   // data-cliente-abrir>; sem este corte, clicar nele também abriria o
   // perfil do cliente. A mudança de estado em si é tratada no listener de
@@ -3910,7 +3902,6 @@ function renderClienteLinha(c) {
         <div>${c.nome || 'Sem nome'}</div>
         <div class="cliente-linha-telefone">${c.telefone}</div>
       </td>
-      <td><button type="button" class="btn-tabela" data-cliente-whatsapp="${c.telefone}">WhatsApp</button></td>
       <td>${c.ultimo_atendimento_data ? formatarDataCurta(c.ultimo_atendimento_data) : '—'}</td>
       <td>${c.proximo_atendimento_data ? formatarDataHoraCurta(c.proximo_atendimento_data) : '—'}</td>
       <td>${formatarPreco(Number(c.total_gasto))}</td>
@@ -3969,7 +3960,6 @@ async function renderClientes() {
             <tr>
               <th class="col-selecao-cliente"></th>
               <th>Cliente</th>
-              <th>WhatsApp</th>
               <th>Último atendimento</th>
               <th>Próx. atendimento</th>
               <th>Total gasto</th>
