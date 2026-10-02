@@ -32,6 +32,17 @@ function registerEquipeRoutes(fastify, pool) {
     await enviarEmail({
       to: email,
       tag: 'convite_equipe',
+      // Textos editáveis no admin (E-mail > Modelos > Convite de equipe);
+      // o html abaixo é o fallback.
+      modelo: 'convite_equipe',
+      variaveis: { empresa: tenantNome, convidado_por: convidadoPorNome || '', perfil: perfilLabel, dias: CONVITE_EXPIRACAO_DIAS },
+      layout: {
+        tipo: 'convite',
+        titulo: `Você foi convidado para ${tenantNome}`,
+        paragrafos: [`${convidadoPorNome || 'Um administrador'} te convidou para fazer parte da equipe no Kyvvo Studio, como ${perfilLabel}.`],
+        cta: { texto: 'Aceitar convite', url: link },
+        motivo: `O convite expira em ${CONVITE_EXPIRACAO_DIAS} dias. Se você não esperava por isso, pode ignorar este e-mail.`,
+      },
       subject: `${convidadoPorNome || 'Alguém'} te convidou para o Kyvvo`,
       html: `
       <div style="font-family:Arial,Helvetica,sans-serif;background:#080b14;padding:32px;color:#f2f2f7">

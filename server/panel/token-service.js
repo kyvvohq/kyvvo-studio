@@ -62,6 +62,16 @@ async function enviarTokenEmail(email, token, nome) {
     subject: `Seu código de verificação Kyvvo — ${token}`,
     html: emailHtml(token, nome),
     tag: 'token_verificacao',
+    // Modelo da plataforma (E-mail > Modelos > Código de verificação).
+    modelo: 'token_verificacao',
+    variaveis: { codigo: token, minutos: TOKEN_EXPIRACAO_MINUTOS, nome: nome || '' },
+    layout: {
+      tipo: 'seguranca',
+      titulo: 'Seu código de verificação',
+      paragrafos: [`Use o código abaixo para confirmar seu acesso. Ele expira em ${TOKEN_EXPIRACAO_MINUTOS} minutos.`],
+      destaque: token,
+      motivo: 'Se não foi você quem pediu este código, ignore este e-mail e não o compartilhe com ninguém.',
+    },
   });
   if (!ok && !process.env.PLATFORM_EMAIL_TOKEN && !process.env.RESEND_API_KEY) {
     console.log(`[token-service] (dev) e-mail para ${email} — código: ${token}`);

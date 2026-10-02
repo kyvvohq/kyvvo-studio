@@ -95,14 +95,31 @@ function canaisAtivos(cfg) {
 // conceito de token de 6 dígitos — mensagem livre. Best-effort: nunca lança,
 // cai num modo de log sem as variáveis de ambiente (mesmo espírito de
 // token-service.js), pra funcionar em dev/homologação sem serviço externo.
-async function enviarEmailNotificacao(email, assunto, corpoTexto) {
+// `chave` identifica o alerta (TIPOS_NOTIFICACAO) — o nome dele vai no
+// rodapé ("a notificação X está ativada... desative em ...").
+async function enviarEmailNotificacao(email, assunto, corpoTexto, chave) {
+  const tipo = TIPOS_NOTIFICACAO.find((t) => t.chave === chave);
+  const detalhe = corpoTexto && corpoTexto !== assunto ? corpoTexto : '';
   return enviarEmail({
     to: email,
     subject: assunto,
-    html: `<div style="font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111"><p>${corpoTexto}</p></div>`,
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;padding:24px;color:#111"><p>${escaparHtml(corpoTexto)}</p></div>`,
     text: corpoTexto,
-    tag: 'notificacao',
+    tag: chave ? `notificacao_${chave}` : 'notificacao',
+    modelo: 'notificacao',
+    variaveis: { titulo: assunto, detalhe, notificacao: tipo ? tipo.titulo : '' },
+    layout: {
+      tipo: 'notificacao',
+      titulo: assunto,
+      notificacao: tipo ? tipo.titulo : undefined,
+      paragrafos: detalhe ? [detalhe] : [],
+      cta: { texto: 'Abrir no Studio', url: 'https://studio.kyvvo.com.br/painel.html' },
+    },
   });
+}
+
+function escaparHtml(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 async function enviarWhatsappNotificacao(whatsappNacional, texto) {
@@ -164,7 +181,7 @@ async function dispararNotificacaoEvento(pool, tenantId, chave, { titulo, detalh
         `SELECT email FROM usuarios WHERE tenant_id = $1 AND role = 'administrador' ORDER BY criado_em ASC LIMIT 1`,
         [tenantId]
       );
-      if (adminRows[0]) enviarEmailNotificacao(adminRows[0].email, titulo, detalhe || titulo).catch(() => {});
+      if (adminRows[0]) enviarEmailNotificacao(adminRows[0].email, titulo, detalhe || titulo, chave).catch(() => {});
     }
     if (canais.whatsapp) {
       enviarWhatsappNotificacao(tenant.whatsapp, detalhe ? `${titulo}\n${detalhe}` : titulo).catch(() => {});
