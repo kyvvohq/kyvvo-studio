@@ -6667,33 +6667,47 @@ async function renderWhatsapp() {
     </div>
   `;
 
+  // Redesenho em abas (pedido do Bruno, 2026-10-03: "atualizar o submenu
+  // WhatsApp conforme o DS" — CRM já usa .ds-abas pra Conectar/Conversas,
+  // Studio ainda mostrava tudo numa rolagem só). Dados de status/conversas
+  // já vêm carregados ANTES deste innerHTML (Promise.all acima), então as 2
+  // abas renderizam de cara, sem precisar de um listener ds-abas-alterar
+  // pra buscar conversas sob demanda (diferente do CRM, que faz lazy-load).
   conteudo.innerHTML = `
     <h2 class="titulo-detalhe">WhatsApp</h2>
-    <div class="pagamento-plano-card">
-      <div class="pagamento-plano-linha">
-        <span><span class="status-dot ${statusDotClasse}"></span>${escapeHtml(statusTexto)}</span>
+    <div class="ds-abas" data-ds-abas>
+      <div class="ds-abas-lista">
+        <button type="button" class="ds-aba" id="aba-whatsapp-conectar" aria-controls="painel-whatsapp-conectar" aria-selected="true">Conectar</button>
+        <button type="button" class="ds-aba" id="aba-whatsapp-conversas" aria-controls="painel-whatsapp-conversas" aria-selected="false">Conversas</button>
       </div>
-    </div>
-    ${planosInfo}
-    ${status.conectado ? '' : '<button class="btn-primario" id="btn-conectar-whatsapp" disabled style="margin-top:16px">Carregando conexão...</button>'}
-
-    <h3 class="inicio-secao-titulo" style="margin-top:24px">Conversas</h3>
-    <div class="tabela-wrapper">
-      <table class="tabela-tenants">
-        <thead><tr><th>Conversa</th><th>Whatsapp</th><th>Status</th><th>Atendimento</th></tr></thead>
-        <tbody>
-          ${conversas.conversas.length
-            ? conversas.conversas.map((c) => `
-              <tr data-conversa-cliente="${c.cliente_id}">
-                <td>${escapeHtml(c.cliente_nome || '—')}</td>
-                <td>${escapeHtml(formatarTelefoneWhatsapp(c.telefone || ''))}</td>
-                <td><span class="badge ${CONVERSA_STATUS_BADGE[c.status_conversa] || 'badge-status-inativo'}">${CONVERSA_STATUS_LABEL[c.status_conversa] || c.status_conversa}</span></td>
-                <td>${c.status_conversa === 'ativo' ? '🤖 Kyvvo' : escapeHtml(conversas.tenant_nome || 'Salão')}</td>
-              </tr>
-            `).join('')
-            : '<tr><td colspan="4">Nenhuma conversa registrada ainda.</td></tr>'}
-        </tbody>
-      </table>
+      <div class="ds-abas-painel" id="painel-whatsapp-conectar" aria-labelledby="aba-whatsapp-conectar">
+        <div class="pagamento-plano-card">
+          <div class="pagamento-plano-linha">
+            <span><span class="status-dot ${statusDotClasse}"></span>${escapeHtml(statusTexto)}</span>
+          </div>
+        </div>
+        ${planosInfo}
+        ${status.conectado ? '' : '<button class="btn-primario" id="btn-conectar-whatsapp" disabled style="margin-top:16px">Carregando conexão...</button>'}
+      </div>
+      <div class="ds-abas-painel" id="painel-whatsapp-conversas" aria-labelledby="aba-whatsapp-conversas" hidden>
+        <div class="tabela-wrapper">
+          <table class="tabela-tenants">
+            <thead><tr><th>Conversa</th><th>Whatsapp</th><th>Status</th><th>Atendimento</th></tr></thead>
+            <tbody>
+              ${conversas.conversas.length
+                ? conversas.conversas.map((c) => `
+                  <tr data-conversa-cliente="${c.cliente_id}">
+                    <td>${escapeHtml(c.cliente_nome || '—')}</td>
+                    <td>${escapeHtml(formatarTelefoneWhatsapp(c.telefone || ''))}</td>
+                    <td><span class="badge ${CONVERSA_STATUS_BADGE[c.status_conversa] || 'badge-status-inativo'}">${CONVERSA_STATUS_LABEL[c.status_conversa] || c.status_conversa}</span></td>
+                    <td>${c.status_conversa === 'ativo' ? '🤖 Kyvvo' : escapeHtml(conversas.tenant_nome || 'Salão')}</td>
+                  </tr>
+                `).join('')
+                : '<tr><td colspan="4">Nenhuma conversa registrada ainda.</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   `;
 
