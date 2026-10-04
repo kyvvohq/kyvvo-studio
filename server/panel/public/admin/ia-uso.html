@@ -14,56 +14,65 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/components.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="painel-shell">
-  <aside class="painel-sidebar">
-    <div class="logo">ky<span class="logo-vv">vv</span>o</div>
-    <nav class="menu">
-      <div class="menu-secao-titulo">Visão geral</div>
-      <a class="menu-item" data-icon="layout-dashboard" href="/dashboard.html">Dashboard</a>
-      <div class="menu-secao-titulo">Clientes</div>
-      <a class="menu-item" data-icon="building-2" href="/painel.html">Tenants</a>
-      <a class="menu-item" data-icon="users" href="/usuarios.html">Usuários</a>
-      <a class="menu-item" data-icon="credit-card" href="/assinaturas.html">Assinaturas</a>
-      <div class="menu-secao-titulo">Operação</div>
-      <a class="menu-item" data-icon="message-circle" href="/whatsapp.html">WhatsApp</a>
-      <a class="menu-item active" data-icon="sparkles" href="/ia-uso.html">IA e consumo</a>
-      <div class="menu-secao-titulo">Sistema</div>
-      <a class="menu-item" data-icon="settings" href="/configuracoes.html">Configurações</a>
-      <a class="menu-item" data-icon="history" href="/versao.html">Versões / Changelog</a>
-      <a class="menu-item" data-icon="code" href="/docs" target="_blank" rel="noopener">Swagger</a>
-    </nav>
-  </aside>
-  <div class="painel-main">
-    <div class="topbar">
-      <div class="topbar-textos">
-        <div class="topbar-titulo">IA e consumo</div>
-        <div class="admin-badge">🛠 Área administrativa</div>
-      </div>
-      <div class="topbar-direita">
-        <div class="user-menu" id="user-menu">
-        <button class="user-menu-toggle" id="user-menu-toggle">
-          <div class="user-menu-avatar" id="user-menu-avatar"></div>
-          <div class="user-menu-textos">
-            <div class="user-menu-nome" id="admin-nome"></div>
-          </div>
-          <span class="user-menu-chevron">▾</span>
-        </button>
-        <div class="user-menu-dropdown" id="user-menu-dropdown" hidden>
-          <button class="user-menu-sair" id="btn-sair"><span aria-hidden="true">⎋</span> Sair</button>
+<header class="ds-topbar">
+  <a class="ds-topbar-marca" href="/painel.html" aria-label="Ir para o início">
+    <span class="ds-topbar-produto"><span class="ds-topbar-produto-acento">Ad</span>min</span>
+    <span class="ds-topbar-kyvvo">kyvvo</span>
+  </a>
+  <div class="ds-topbar-acoes">
+    <div class="user-menu" id="user-menu">
+      <button class="user-menu-toggle ds-topbar-perfil" id="user-menu-toggle">
+        <div class="ds-topbar-avatar" id="user-menu-avatar"></div>
+        <div class="user-menu-textos">
+          <div class="ds-topbar-nome" id="admin-nome"></div>
         </div>
+        <span class="user-menu-chevron">▾</span>
+      </button>
+      <div class="user-menu-dropdown" id="user-menu-dropdown" hidden>
+        <button class="user-menu-sair" id="btn-sair"><span aria-hidden="true">⎋</span> Sair</button>
       </div>
+    </div>
+  </div>
+</header>
+<div class="painel-shell">
+  <nav class="ds-menu" data-ds-menu id="menu-lateral-admin">
+    <button type="button" class="ds-menu-toggle" id="btn-toggle-sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+    </button>
+    <ul class="ds-menu-lista">
+      <li class="ds-menu-secao-titulo">Visão geral</li>
+      <li><a class="ds-menu-link" href="/dashboard.html"><span class="ds-menu-icone" data-icon="layout-dashboard"></span><span class="ds-menu-rotulo">Dashboard</span></a></li>
+      <li class="ds-menu-secao-titulo">Clientes</li>
+      <li><a class="ds-menu-link" href="/painel.html"><span class="ds-menu-icone" data-icon="building-2"></span><span class="ds-menu-rotulo">Tenants</span></a></li>
+      <li><a class="ds-menu-link" href="/usuarios.html"><span class="ds-menu-icone" data-icon="users"></span><span class="ds-menu-rotulo">Usuários</span></a></li>
+      <li><a class="ds-menu-link" href="/assinaturas.html"><span class="ds-menu-icone" data-icon="credit-card"></span><span class="ds-menu-rotulo">Assinaturas</span></a></li>
+      <li class="ds-menu-secao-titulo">Operação</li>
+      <li><a class="ds-menu-link" href="/whatsapp.html"><span class="ds-menu-icone" data-icon="message-circle"></span><span class="ds-menu-rotulo">WhatsApp</span></a></li>
+      <li><a class="ds-menu-link ds-menu-link-ativo" href="/ia-uso.html"><span class="ds-menu-icone" data-icon="sparkles"></span><span class="ds-menu-rotulo">IA e consumo</span></a></li>
+      <li class="ds-menu-secao-titulo">Sistema</li>
+      <li><a class="ds-menu-link" href="/configuracoes.html"><span class="ds-menu-icone" data-icon="settings"></span><span class="ds-menu-rotulo">Configurações</span></a></li>
+      <li><a class="ds-menu-link" href="/versao.html"><span class="ds-menu-icone" data-icon="history"></span><span class="ds-menu-rotulo">Versões / Changelog</span></a></li>
+      <li><a class="ds-menu-link" href="/docs" target="_blank" rel="noopener"><span class="ds-menu-icone" data-icon="code"></span><span class="ds-menu-rotulo">Swagger</span></a></li>
+    </ul>
+  </nav>
+  <div class="painel-main">
+    <div class="cabecalho-pagina">
+      <div class="textos">
+        <div class="linha-titulo">
+          <h1 class="pagina-titulo">IA e consumo</h1>
+          <span class="admin-badge">🛠 Área administrativa</span>
+        </div>
       </div>
     </div>
     <div class="conteudo" id="conteudo" style="max-width: 1100px;"></div>
-    <footer class="rodape-app">
-      <div class="logo">ky<span class="logo-vv">vv</span>o</div>
-      <p class="rodape-app-copy">© 2026 Kyvvo. Todos os direitos reservados.</p>
-    </footer>
+    <footer data-ds-rodape data-ds-produto="Studio"></footer>
   </div>
 </div>
+<script src="/ds/components.js"></script>
 <script src="/shell.js"></script>
 <script src="/ia-uso.js"></script>
 </body>
