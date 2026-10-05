@@ -6687,7 +6687,7 @@ async function renderWhatsapp() {
           </div>
         </div>
         ${planosInfo}
-        ${status.conectado ? '' : '<button class="btn-primario" id="btn-conectar-whatsapp" disabled style="margin-top:16px">Carregando conexão...</button>'}
+        ${status.conectado ? '' : '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px"><button class="btn-primario" id="btn-conectar-whatsapp" disabled>Carregando conexão...</button><button type="button" class="btn-secundario" id="btn-ver-manual">Ver manual</button></div>'}
       </div>
       <div class="ds-abas-painel" id="painel-whatsapp-conversas" aria-labelledby="aba-whatsapp-conversas" hidden>
         <div class="tabela-wrapper">
@@ -6715,6 +6715,8 @@ async function renderWhatsapp() {
     iniciarConexaoWhatsapp();
     const btnPedirNumeroNovo = document.getElementById('btn-pedir-numero-novo');
     if (btnPedirNumeroNovo) btnPedirNumeroNovo.addEventListener('click', abrirModalPedirNumeroNovo);
+    const btnVerManual = document.getElementById('btn-ver-manual');
+    if (btnVerManual) btnVerManual.addEventListener('click', abrirManualWaba);
   }
 
   // Popup com o histórico completo ao clicar numa conversa. Atributo
@@ -6850,6 +6852,23 @@ function abrirModalPedirNumeroNovo() {
       btn.textContent = 'Enviar pedido';
     }
   });
+}
+
+// "Ver manual": abre o PDF de como conectar o WABA numa janela própria (não
+// maximizada, centralizada sobre a atual) e a traz pra frente. Se o navegador
+// bloquear o pop-up, avisa com um toast.
+const URL_MANUAL_WABA = '/manual-whatsapp-waba.pdf';
+function abrirManualWaba() {
+  const largura = Math.min(980, window.screen.availWidth - 80);
+  const altura = Math.min(860, window.screen.availHeight - 80);
+  const esq = Math.max(0, Math.round((window.screenX || window.screenLeft || 0) + (window.outerWidth - largura) / 2));
+  const topo = Math.max(0, Math.round((window.screenY || window.screenTop || 0) + (window.outerHeight - altura) / 2));
+  const janela = window.open(
+    URL_MANUAL_WABA, 'kyvvo-manual-waba',
+    `popup=yes,width=${largura},height=${altura},left=${esq},top=${topo},resizable=yes,scrollbars=yes`
+  );
+  if (janela) { janela.focus(); return; }
+  mostrarToast('O navegador bloqueou a janela do manual. Libere pop-ups para este site e tente de novo.', 'erro');
 }
 
 async function iniciarConexaoWhatsapp() {
