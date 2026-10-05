@@ -6964,67 +6964,149 @@ const STATUS_DISPARO_LABEL = {
   bloqueado_24h: 'Bloqueado (24h)',
   bloqueado_limite_plano: 'Bloqueado (limite do plano)',
 };
+const STATUS_DISPARO_TOM = {
+  enviado: 'ds-badge-sucesso',
+  erro: 'ds-badge-erro',
+  bloqueado_optout: 'ds-badge-aviso',
+  bloqueado_24h: 'ds-badge-aviso',
+  bloqueado_limite_plano: 'ds-badge-aviso',
+};
+// Motivo mostrado no detalhe — só o que o status já diz de fato (a tabela não
+// guarda o texto de erro devolvido pela Meta).
+const STATUS_DISPARO_MOTIVO = {
+  erro: 'O envio não foi concluído. Confira se o modelo continua aprovado e se o número é válido.',
+  bloqueado_optout: 'O cliente pediu para não receber mensagens (opt-out).',
+  bloqueado_24h: 'Já houve um disparo para este número nas últimas 24h.',
+  bloqueado_limite_plano: 'O limite de disparos do plano no mês foi atingido.',
+};
 function badgeStatusDisparo(status) {
-  const classe = status === 'enviado' ? 'badge-status-ativo' : 'badge-status-inativo';
-  return `<span class="badge ${classe}">${escapeHtml(STATUS_DISPARO_LABEL[status] || status)}</span>`;
+  return `<span class="ds-badge ${STATUS_DISPARO_TOM[status] || ''}">${escapeHtml(STATUS_DISPARO_LABEL[status] || status)}</span>`;
 }
 function formatarDataHoraDisparo(iso) {
   const d = new Date(iso);
   return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
 }
-// Trunca em 25 caracteres + "…", com o texto inteiro no title (tooltip nativo
-// do navegador — sem componente novo, sem JS extra). Mensagens antigas
-// (antes da coluna mensagem_texto existir) mostram "—".
-function truncarMensagem(msg) {
-  if (!msg) return '—';
-  if (msg.length <= 25) return escapeHtml(msg);
-  return `<span title="${escapeHtml(msg)}">${escapeHtml(msg.slice(0, 25))}...</span>`;
+// "Hoje, 14:03" / "Ontem, 00:03" (helper do DS); sem o DS carregado, data completa.
+function dataRelativaDisparo(iso) {
+  return window.KyvvoDS ? KyvvoDS.dataRelativa(iso) : formatarDataHoraDisparo(iso);
 }
 
-function renderLinhaDisparo(d) {
-  return `
-    <tr>
-      <td>${formatarDataHoraDisparo(d.criado_em)}</td>
-      <td>${escapeHtml(d.cliente_nome || '—')}</td>
-      <td>${escapeHtml(d.telefone_e164 || '—')}</td>
-      <td>${escapeHtml(d.template_nome || '—')}</td>
-      <td>${truncarMensagem(d.mensagem_texto)}</td>
-      <td>${badgeStatusDisparo(d.status)}</td>
-    </tr>
-  `;
+const ICONE_SETA_SELECT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const ICONE_LUPA = '<svg class="ds-pesquisa-icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+
+let disparosLista = [];
+const estadoDisparos = { pagina: 1, tamanho: 10 };
+
+function disparosFiltrados() {
+  const busca = (document.getElementById('disp-busca').value || '').trim().toLowerCase();
+  const status = document.getElementById('disp-status').value;
+  const dias = Number(document.getElementById('disp-periodo').value) || 0;
+  const corte = dias ? Date.now() - dias * 86400000 : 0;
+  return disparosLista.filter((d) => {
+    if (status && d.status !== status) return false;
+    if (corte && new Date(d.criado_em).getTime() < corte) return false;
+    if (busca && !`${d.cliente_nome || ''} ${d.telefone_e164 || ''}`.toLowerCase().includes(busca)) return false;
+    return true;
+  });
 }
-function renderAbaDisparos(dados) {
-  if (!dados) return '<div class="vazio">Carregando...</div>';
-  const limite = dados.limitePlano;
-  let cardLimite = '';
-  if (limite) {
-    if (limite.limite == null) {
-      cardLimite = `<div class="pagamento-plano-card" style="margin-bottom:16px"><p style="margin:0">Seu plano (${escapeHtml(limite.planoNome)}) não tem limite de disparos de WhatsApp.</p></div>`;
-    } else {
-      const estourou = limite.usadoMesAtual >= limite.limite;
-      const pct = Math.min(100, Math.round((limite.usadoMesAtual / limite.limite) * 100));
-      const corBarra = estourou ? 'automacoes-limite-vermelha' : pct >= 70 ? 'automacoes-limite-amarela' : 'automacoes-limite-verde';
-      cardLimite = `
-        <div class="pagamento-plano-card" style="margin-bottom:16px${estourou ? ';border-color:#F04438' : ''}">
-          <p style="margin:0 0 4px;font-weight:600">Disparos de WhatsApp este mês (plano ${escapeHtml(limite.planoNome)})</p>
-          <p style="margin:0;font-size:20px;font-weight:700${estourou ? ';color:#F04438' : ''}">${limite.usadoMesAtual} / ${limite.limite}</p>
-          <div class="automacoes-limite-barra"><div class="automacoes-limite-preenchido ${corBarra}" style="width:${pct}%"></div></div>
-          ${estourou ? '<p style="margin:6px 0 0;font-size:13px;color:#F04438">Limite atingido — as automações pararam de enviar até o mês virar. Fale com a Kyvvo pra ajustar seu plano.</p>' : ''}
-        </div>
-      `;
-    }
-  }
+
+function renderLinhaDisparo(d, indice) {
   return `
-    ${cardLimite}
-    <div class="automacoes-card">
-      <div class="tabela-wrapper" style="margin-bottom:0">
-        <table class="tabela-automacoes">
-          <thead><tr><th>Data/hora</th><th>Cliente</th><th>Número</th><th>Modelo</th><th>Mensagem</th><th>Status</th></tr></thead>
-          <tbody>${dados.disparos.length ? dados.disparos.map(renderLinhaDisparo).join('') : '<tr><td colspan="6">Nenhum disparo ainda.</td></tr>'}</tbody>
-        </table>
+    <div class="ds-tabela-linha ds-tabela-linha-clicavel" role="row" tabindex="0" data-disparo="${indice}">
+      <span role="cell" class="ds-tabela-mudo" title="${formatarDataHoraDisparo(d.criado_em)}">${escapeHtml(dataRelativaDisparo(d.criado_em))}</span>
+      <span role="cell"><span class="ds-tabela-primario">${escapeHtml(d.cliente_nome || '—')}</span><span class="ds-tabela-secundario">${escapeHtml(AUTOMACAO_GATILHO_CURTO[d.gatilho] || d.gatilho || '')}</span></span>
+      <span role="cell" class="ds-tabela-mudo" data-rotulo="Número">${escapeHtml(formatarTelefoneWhatsapp(d.telefone_e164 || '') || '—')}</span>
+      <span role="cell" class="ds-tabela-mudo">${escapeHtml(d.template_nome || '—')}</span>
+      <span role="cell">${badgeStatusDisparo(d.status)}</span>
+    </div>`;
+}
+
+function desenharDisparos() {
+  const lista = disparosFiltrados();
+  const inicio = (estadoDisparos.pagina - 1) * estadoDisparos.tamanho;
+  const fatia = lista.slice(inicio, inicio + estadoDisparos.tamanho);
+  const usaFiltro = document.getElementById('disp-busca').value || document.getElementById('disp-status').value || document.getElementById('disp-periodo').value;
+  document.getElementById('disp-limpar').hidden = !usaFiltro;
+  document.getElementById('disp-linhas').innerHTML = fatia.length
+    ? fatia.map((d) => renderLinhaDisparo(d, disparosLista.indexOf(d))).join('')
+    : `<div class="ds-vazio"><p class="ds-vazio-titulo">${disparosLista.length ? 'Nenhum disparo encontrado' : 'Nenhum disparo ainda'}</p><p class="ds-vazio-texto">${disparosLista.length ? 'Ajuste os filtros ou o período.' : 'Os disparos das automações de WhatsApp aparecem aqui.'}</p></div>`;
+  if (window.KyvvoDS) KyvvoDS.paginacaoAtualizar(document.getElementById('disp-paginacao'), { total: lista.length, pagina: estadoDisparos.pagina, tamanho: estadoDisparos.tamanho });
+}
+
+function abrirDetalheDisparo(d) {
+  const motivo = STATUS_DISPARO_MOTIVO[d.status];
+  const html = `
+    <div class="ds-detalhe">
+      <div class="ds-detalhe-cab"><h3 class="ds-detalhe-titulo">${escapeHtml(d.cliente_nome || 'Cliente sem cadastro')}</h3>${badgeStatusDisparo(d.status)}</div>
+      ${motivo ? `<div class="ds-alerta ${d.status === 'erro' ? 'ds-alerta-erro' : 'ds-alerta-aviso'}"><div class="ds-alerta-corpo"><p class="ds-alerta-titulo">${d.status === 'erro' ? 'Não foi possível enviar' : 'Disparo bloqueado'}</p><p class="ds-alerta-texto">${escapeHtml(motivo)}</p></div></div>` : ''}
+      <dl class="ds-detalhe-grade">
+        <div class="ds-detalhe-item"><dt>Data/hora</dt><dd>${formatarDataHoraDisparo(d.criado_em)}</dd></div>
+        <div class="ds-detalhe-item"><dt>Número</dt><dd>${escapeHtml(formatarTelefoneWhatsapp(d.telefone_e164 || '') || '—')}</dd></div>
+        <div class="ds-detalhe-item"><dt>Automação</dt><dd>${escapeHtml(AUTOMACAO_GATILHO_CURTO[d.gatilho] || d.gatilho || '—')}</dd></div>
+        <div class="ds-detalhe-item"><dt>Modelo</dt><dd>${escapeHtml(d.template_nome || '—')}</dd></div>
+      </dl>
+      <div>
+        <p class="ds-detalhe-secao">Mensagem</p>
+        <div class="ds-mensagem">
+          ${d.mensagem_texto ? `<p class="ds-mensagem-balao">${escapeHtml(d.mensagem_texto)}</p>` : '<p class="ds-mensagem-balao ds-mensagem-vazia">Texto não registrado (disparo anterior ao registro de mensagens).</p>'}
+          <p class="ds-mensagem-rodape">${formatarDataHoraDisparo(d.criado_em)}</p>
+        </div>
       </div>
-    </div>
-  `;
+    </div>`;
+  if (window.KyvvoDS) KyvvoDS.modalAbrir(html, { classeExtra: 'ds-modal-card-detalhe' });
+  else abrirModal('<h3>Disparo</h3>', html);
+}
+
+function ligarDisparos() {
+  document.getElementById('disp-paginacao').addEventListener('ds-paginacao-alterar', (e) => {
+    estadoDisparos.pagina = e.detail.pagina; estadoDisparos.tamanho = e.detail.tamanho; desenharDisparos();
+  });
+  ['disp-busca', 'disp-status', 'disp-periodo'].forEach((id) => {
+    document.getElementById(id).addEventListener(id === 'disp-busca' ? 'input' : 'change', () => { estadoDisparos.pagina = 1; desenharDisparos(); });
+  });
+  document.getElementById('disp-limpar').addEventListener('click', () => {
+    ['disp-busca', 'disp-status', 'disp-periodo'].forEach((id) => { document.getElementById(id).value = ''; });
+    estadoDisparos.pagina = 1; desenharDisparos();
+  });
+  document.getElementById('disp-linhas').addEventListener('click', (e) => {
+    const linha = e.target.closest('[data-disparo]');
+    if (linha) abrirDetalheDisparo(disparosLista[Number(linha.dataset.disparo)]);
+  });
+}
+
+function renderAbaDisparos(dados) {
+  if (!dados) return '<div class="ds-vazio"><p class="ds-vazio-texto">Carregando…</p></div>';
+  const limite = dados.limitePlano;
+  const temLimite = limite && limite.limite != null;
+  const rotulo = limite ? `Disparos de WhatsApp este mês · plano ${escapeHtml(limite.planoNome)}` : 'Disparos de WhatsApp';
+  const usado = limite ? limite.usadoMesAtual : dados.realizados;
+  const legendaLimite = temLimite && limite.usadoMesAtual >= limite.limite
+    ? '<span>Limite atingido: as automações pararam de enviar até o mês virar. Fale com a Kyvvo para ajustar seu plano.</span>' : '';
+  const medidor = `
+    <div class="ds-medidor"${temLimite ? ` data-ds-medidor data-ds-usado="${limite.usadoMesAtual}" data-ds-limite="${limite.limite}"` : ''}>
+      <div class="ds-medidor-cab"><p class="ds-medidor-rotulo">${rotulo}</p></div>
+      <p class="ds-medidor-valor"><span class="ds-medidor-usado">${usado}</span>${temLimite ? ` <span class="ds-medidor-limite">de <span class="ds-medidor-limite-valor">${limite.limite}</span></span>` : (limite ? ' <span class="ds-medidor-limite">sem limite no plano</span>' : ' <span class="ds-medidor-limite">realizados</span>')}</p>
+      ${temLimite ? '<div class="ds-medidor-trilho"><div class="ds-medidor-barra"></div></div>' : ''}
+      <p class="ds-medidor-legenda"><span>Total de disparos: ${dados.total} · Realizados: ${dados.realizados}</span>${legendaLimite}</p>
+    </div>`;
+  const opcoesStatus = Object.keys(STATUS_DISPARO_LABEL).map((k) => `<option value="${k}">${STATUS_DISPARO_LABEL[k]}</option>`).join('');
+  return `
+    <div class="automacoes-pilha">
+      ${medidor}
+      <div class="ds-tabela" role="table" aria-label="Disparos" style="--ds-colunas: 130px minmax(0,1.1fr) 190px minmax(0,1.1fr) 170px">
+        <div class="ds-filtros">
+          <div class="ds-pesquisa">${ICONE_LUPA}<input class="ds-pesquisa-input" type="search" id="disp-busca" placeholder="Buscar cliente ou número" aria-label="Buscar cliente ou número"></div>
+          <div class="ds-select"><select id="disp-status" aria-label="Status"><option value="">Todos os status</option>${opcoesStatus}</select>${ICONE_SETA_SELECT}</div>
+          <div class="ds-select"><select id="disp-periodo" aria-label="Período"><option value="">Todo o período</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select>${ICONE_SETA_SELECT}</div>
+          <div class="ds-filtros-fim"><button type="button" class="ds-btn ds-btn-ghost ds-btn-sm" id="disp-limpar" hidden>Limpar filtros</button></div>
+        </div>
+        <div class="ds-tabela-cabecalho" role="row">
+          <span role="columnheader">Quando</span><span role="columnheader">Cliente</span><span role="columnheader">Número</span><span role="columnheader">Modelo</span><span role="columnheader">Status</span>
+        </div>
+        <div id="disp-linhas"></div>
+        <div class="ds-tabela-rodape"><nav class="ds-paginacao" data-ds-paginacao id="disp-paginacao" data-ds-total="0" data-ds-tamanho="10" data-ds-tamanhos="10,25,50"></nav></div>
+      </div>
+    </div>`;
 }
 
 function opcoesTemplateAutomacao(selecionado) {
@@ -7044,49 +7126,54 @@ async function renderAutomacoes() {
   if (!dados) return;
   const automacoesLista = dados.automacoes || [];
   automacoesTemplatesCache = (dadosTemplates && dadosTemplates.templates) || [];
+  disparosLista = (dadosDisparos && dadosDisparos.disparos) || [];
+  estadoDisparos.pagina = 1;
   // Três estados distintos (antes qualquer lista vazia mostrava "conecte o
   // WhatsApp", mesmo com o número ativo): sem WhatsApp conectado, conectado
   // mas sem modelo aprovado na lista, ou erro ao buscar na Meta.
   const conectado = !!(dadosTemplates && dadosTemplates.conectado);
   let aviso = '';
   if (!conectado) {
-    aviso = `<div class="pagamento-plano-card" style="margin-bottom:16px">
-         <p style="margin:0">Pra as automações dispararem, conecte o WhatsApp do seu negócio em <a href="#" id="link-ir-whatsapp">Configurações → WhatsApp</a>.</p>
+    aviso = `<div class="ds-alerta ds-alerta-aviso" role="status">
+         <div class="ds-alerta-corpo"><p class="ds-alerta-titulo">WhatsApp não conectado</p><p class="ds-alerta-texto">Pra as automações dispararem, conecte o WhatsApp do seu negócio.</p></div>
+         <a class="ds-btn ds-btn-secundario ds-btn-sm ds-alerta-acao" href="#" id="link-ir-whatsapp">Ir para Configurações → WhatsApp</a>
        </div>`;
   } else if (dadosTemplates && dadosTemplates.erro) {
-    aviso = '<div class="pagamento-plano-card" style="margin-bottom:16px"><p style="margin:0">Não consegui carregar os modelos aprovados na Meta agora. Tente de novo em instantes.</p></div>';
+    aviso = '<div class="ds-alerta ds-alerta-erro" role="status"><div class="ds-alerta-corpo"><p class="ds-alerta-titulo">Não consegui carregar os modelos</p><p class="ds-alerta-texto">Não foi possível buscar os modelos aprovados na Meta agora. Tente de novo em instantes.</p></div></div>';
   } else if (!automacoesTemplatesCache.length) {
-    aviso = '<div class="pagamento-plano-card" style="margin-bottom:16px"><p style="margin:0">Nenhum modelo de disparo aprovado foi encontrado na conta do WhatsApp conectada.</p></div>';
+    aviso = '<div class="ds-alerta ds-alerta-aviso" role="status"><div class="ds-alerta-corpo"><p class="ds-alerta-titulo">Nenhum modelo de disparo aprovado foi encontrado na conta do WhatsApp conectada</p><p class="ds-alerta-texto">Automações sem modelo ficam pausadas até você aprovar um modelo na Meta.</p></div></div>';
   }
 
   const filtrados = automacoesFiltroGatilho
     ? automacoesLista.filter((a) => a.gatilho === automacoesFiltroGatilho)
     : automacoesLista;
 
+  const descricaoGatilho = (g) => (AUTOMACAO_GATILHO_LABEL[g] || '').split(' — ')[1] || '';
   const linha = (a) => `
-    <tr data-automacao="${a.id}">
-      <td class="col-nome">${escapeHtml(a.nome)}${a.whatsapp_template ? '' : ' <span class="badge-sem-modelo" title="Escolha um modelo aprovado pra esta automação disparar">sem modelo</span>'}</td>
-      <td class="col-contexto">${AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho}</td>
-      <td>
+    <div class="ds-tabela-linha" role="row" data-automacao="${a.id}">
+      <span role="cell"><span class="ds-tabela-primario">${escapeHtml(a.nome)}</span>${a.whatsapp_template ? '' : '<span class="ds-badge ds-badge-aviso ds-badge-sm" style="margin-top:4px" title="Escolha um modelo aprovado pra esta automação disparar">Sem modelo</span>'}</span>
+      <span role="cell" data-rotulo="Gatilho"><span class="ds-tabela-mudo">${escapeHtml(AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho)}</span>${descricaoGatilho(a.gatilho) ? `<span class="ds-tabela-secundario">${escapeHtml(descricaoGatilho(a.gatilho))}</span>` : ''}</span>
+      <span role="cell">
         ${a.removivel
-          ? `<label class="toggle-linha"><span class="toggle-switch">
-               <input type="checkbox" class="auto-toggle" ${a.ativo ? 'checked' : ''}>
-               <span class="toggle-switch-trilho"></span>
-             </span></label>`
-          : '<span class="badge-obrigatoria">Obrigatória — sempre ativa</span>'}
-      </td>
-      <td>
-        <div class="automacoes-acoes">
-          <button type="button" data-auto-editar="${a.id}">Editar</button>
-          <button type="button" data-auto-duplicar="${a.id}">Duplicar</button>
-          ${a.removivel ? `<button type="button" class="perigo" data-auto-excluir="${a.id}">Excluir</button>` : ''}
+          ? `<label class="ds-switch"><input type="checkbox" role="switch" class="auto-toggle" aria-label="Ativar ${escapeHtml(a.nome)}" ${a.ativo ? 'checked' : ''}><span class="ds-switch-trilho"></span></label>`
+          : '<span class="ds-badge ds-badge-sm ds-badge-sem-ponto">Obrigatória — sempre ativa</span>'}
+      </span>
+      <span role="cell" class="ds-tabela-acoes">
+        <div class="ds-acoes">
+          <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações de ${escapeHtml(a.nome)}">⋯</button>
+          <div class="ds-acoes-menu" role="menu" hidden>
+            <button type="button" class="ds-acoes-item" role="menuitem" data-acao="editar" data-auto-editar="${a.id}">Editar</button>
+            <button type="button" class="ds-acoes-item" role="menuitem" data-acao="duplicar" data-auto-duplicar="${a.id}">Duplicar</button>
+            ${a.removivel ? `<hr class="ds-acoes-separador"><button type="button" class="ds-acoes-item" role="menuitem" data-acao="excluir" data-auto-excluir="${a.id}">Excluir</button>` : ''}
+          </div>
         </div>
-      </td>
-    </tr>`;
+      </span>
+    </div>`;
 
   conteudo.innerHTML = `
-    <div class="automacoes-cabecalho">
-      <h1>Automações</h1>
+    <div class="ds-pagina-cab">
+      <div class="ds-pagina-cab-texto"><h1 class="ds-pagina-cab-titulo">Automações</h1></div>
+      <div class="ds-pagina-cab-acoes"><button type="button" class="ds-btn ds-btn-primario" id="btn-nova-automacao">+ Nova automação</button></div>
     </div>
     <div class="ds-abas" data-ds-abas>
       <div class="ds-abas-lista">
@@ -7094,22 +7181,23 @@ async function renderAutomacoes() {
         <button type="button" class="ds-aba" id="aba-automacoes-disparos" aria-controls="painel-automacoes-disparos" aria-selected="${automacoesAbaAtiva === 'disparos' ? 'true' : 'false'}">Disparos${dadosDisparos ? ` <span class="ds-aba-contagem">${dadosDisparos.total}</span>` : ''}</button>
       </div>
       <div class="ds-abas-painel" id="painel-automacoes-lista" aria-labelledby="aba-automacoes-lista" ${automacoesAbaAtiva === 'lista' ? '' : 'hidden'}>
-        ${aviso}
-        <div class="automacoes-card">
-          <div class="automacoes-filtros">
-            <select id="filtro-gatilho-auto">
-              <option value="">Todos os gatilhos</option>
-              ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
-            </select>
-            <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
+        <div class="automacoes-pilha">
+          ${aviso}
+          <div class="ds-tabela" role="table" aria-label="Automações" style="--ds-colunas: minmax(0,1.4fr) minmax(0,1.6fr) 170px 48px">
+            <div class="ds-filtros">
+              <div class="ds-select">
+                <select id="filtro-gatilho-auto" aria-label="Filtrar por gatilho">
+                  <option value="">Todos os gatilhos</option>
+                  ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
+                </select>
+                ${ICONE_SETA_SELECT}
+              </div>
+            </div>
+            <div class="ds-tabela-cabecalho" role="row">
+              <span role="columnheader">Nome</span><span role="columnheader">Gatilho</span><span role="columnheader">Ativa</span><span role="columnheader"><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Ações</span></span>
+            </div>
+            ${filtrados.length ? filtrados.map(linha).join('') : '<div class="ds-vazio"><p class="ds-vazio-titulo">Nenhuma automação neste filtro</p><p class="ds-vazio-texto">Troque o filtro de gatilho ou crie uma nova automação.</p></div>'}
           </div>
-          ${filtrados.length ? `
-            <div class="tabela-wrapper" style="margin-bottom:0">
-              <table class="tabela-automacoes">
-                <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
-                <tbody>${filtrados.map(linha).join('')}</tbody>
-              </table>
-            </div>` : '<div class="automacoes-vazio">Nenhuma automação neste filtro.</div>'}
         </div>
       </div>
       <div class="ds-abas-painel" id="painel-automacoes-disparos" aria-labelledby="aba-automacoes-disparos" ${automacoesAbaAtiva === 'disparos' ? '' : 'hidden'}>
@@ -7122,6 +7210,13 @@ async function renderAutomacoes() {
     automacoesAbaAtiva = e.detail.id === 'painel-automacoes-disparos' ? 'disparos' : 'lista';
   });
 
+  if (dadosDisparos) {
+    const medidor = conteudo.querySelector('[data-ds-medidor]');
+    if (medidor && window.KyvvoDS) KyvvoDS.medidorAtualizar(medidor, medidor.dataset.dsUsado, medidor.dataset.dsLimite);
+    ligarDisparos();
+    desenharDisparos();
+  }
+
   const linkWpp = document.getElementById('link-ir-whatsapp');
   if (linkWpp) linkWpp.addEventListener('click', (e) => { e.preventDefault(); selecionarMenu('whatsapp'); });
 
@@ -7131,7 +7226,7 @@ async function renderAutomacoes() {
     renderAutomacoes();
   });
 
-  conteudo.querySelectorAll('tr[data-automacao]').forEach((tr) => {
+  conteudo.querySelectorAll('[data-automacao]').forEach((tr) => {
     const id = tr.dataset.automacao;
     const a = automacoesLista.find((x) => x.id === id);
     const toggle = tr.querySelector('.auto-toggle');
