@@ -3219,3 +3219,6 @@ button.loading::after {
    (.ds-pagina-cab, .ds-tabela, .ds-switch, .ds-badge, .ds-medidor, .ds-alerta);
    aqui só o espaçamento vertical entre os blocos de cada aba. */
 .automacoes-pilha { display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* WhatsApp > Conversas: filtros + lista + paginação (componentes do design system) */
+.ds-pilha-conversas { display: flex; flex-direction: column; gap: var(--space-3); }

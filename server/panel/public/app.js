@@ -3201,7 +3201,7 @@ async function render() {
   // negócio entraram aqui também (achado 2026-09-29): grids de dias/horário/
   // formas de pagamento ficavam espremidos nos 720px, "ocupando só parte da
   // tela" com bastante espaço vazio ao redor.
-  conteudo.classList.toggle('conteudo-largo', menuAtual === 'inicio' || menuAtual === 'quadro' || menuAtual === 'agendamento' || menuAtual === 'clientes' || menuAtual === 'modulo:dashboards' || menuAtual === 'automacoes' || menuAtual === 'configuracao' || menuAtual === 'empresa' || menuAtual === 'notificacoes');
+  conteudo.classList.toggle('conteudo-largo', menuAtual === 'inicio' || menuAtual === 'quadro' || menuAtual === 'agendamento' || menuAtual === 'clientes' || menuAtual === 'modulo:dashboards' || menuAtual === 'automacoes' || menuAtual === 'whatsapp' || menuAtual === 'configuracao' || menuAtual === 'empresa' || menuAtual === 'notificacoes');
 
   if (menuAtual === 'inicio') return renderInicio();
   if (menuAtual === 'quadro') return renderQuadro();
@@ -6623,6 +6623,81 @@ function carregarFacebookSdk(appId) {
 const CONVERSA_STATUS_LABEL = { ativo: 'Em atendimento', aguardando_humano: 'Aguardando atendente' };
 const CONVERSA_STATUS_BADGE = { ativo: 'badge-status-ativo', aguardando_humano: 'badge-status-suspenso' };
 
+const ICONE_LUPA_CONVERSAS = '<svg class="ds-pesquisa-icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+const ICONE_SETA_CONVERSAS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const ICONE_BOT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M9 13v1M15 13v1"/></svg>';
+const ICONE_PESSOA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>';
+
+let conversasLista = [];
+let conversasTenantNome = '';
+const estadoConversas = { pagina: 1, tamanho: 10 };
+
+function conversasFiltradas() {
+  const busca = (document.getElementById('conv-busca').value || '').trim().toLowerCase();
+  const status = document.getElementById('conv-status').value;
+  return conversasLista.filter((c) => {
+    if (status && c.status_conversa !== status) return false;
+    if (busca && !`${c.cliente_nome || ''} ${c.telefone || ''}`.toLowerCase().includes(busca)) return false;
+    return true;
+  });
+}
+
+function renderLinhaConversa(c) {
+  const humano = c.status_conversa !== 'ativo';
+  const quando = c.ultima_mensagem_em
+    ? (window.KyvvoDS ? KyvvoDS.dataRelativa(c.ultima_mensagem_em) : formatarDataHoraCurta(c.ultima_mensagem_em))
+    : '—';
+  return `
+    <div class="ds-conversas-linha" role="row" tabindex="0" data-conversa-cliente="${c.cliente_id}">
+      <span role="cell" class="ds-conversas-nome">${escapeHtml(c.cliente_nome || '—')}</span>
+      <span role="cell" class="ds-conversas-whatsapp">${escapeHtml(formatarTelefoneWhatsapp(c.telefone || ''))}</span>
+      <span role="cell"><span class="ds-badge ${humano ? 'ds-badge-aviso' : 'ds-badge-info'}">${escapeHtml(CONVERSA_STATUS_LABEL[c.status_conversa] || c.status_conversa)}</span></span>
+      <span role="cell"><span class="ds-conversas-atendimento${humano ? ' ds-conversas-atendimento-humano' : ''}"><span class="ds-conversas-atendimento-icone">${humano ? ICONE_PESSOA : ICONE_BOT}</span>${humano ? escapeHtml(conversasTenantNome || 'Salão') : 'Kyvvo'}</span></span>
+      <span role="cell" class="ds-conversas-data"${c.ultima_mensagem_em ? ` title="${escapeHtml(formatarDataHoraDisparo(c.ultima_mensagem_em))}"` : ''}>${escapeHtml(quando)}</span>
+    </div>`;
+}
+
+function desenharConversas() {
+  const lista = conversasFiltradas();
+  const inicio = (estadoConversas.pagina - 1) * estadoConversas.tamanho;
+  const fatia = lista.slice(inicio, inicio + estadoConversas.tamanho);
+  const usaFiltro = document.getElementById('conv-busca').value || document.getElementById('conv-status').value;
+  document.getElementById('conv-limpar').hidden = !usaFiltro;
+  document.getElementById('conv-linhas').innerHTML = fatia.length
+    ? fatia.map(renderLinhaConversa).join('')
+    : `<div class="ds-vazio"><p class="ds-vazio-titulo">${conversasLista.length ? 'Nenhuma conversa encontrada' : 'Nenhuma conversa registrada ainda'}</p><p class="ds-vazio-texto">${conversasLista.length ? 'Ajuste a busca ou o status.' : 'As conversas do atendimento por WhatsApp aparecem aqui.'}</p></div>`;
+  if (window.KyvvoDS) KyvvoDS.paginacaoAtualizar(document.getElementById('conv-paginacao'), { total: lista.length, pagina: estadoConversas.pagina, tamanho: estadoConversas.tamanho });
+}
+
+function ligarListaConversas(dados) {
+  conversasLista = dados.conversas || [];
+  conversasTenantNome = dados.tenant_nome || '';
+  estadoConversas.pagina = 1;
+  document.getElementById('conv-paginacao').addEventListener('ds-paginacao-alterar', (e) => {
+    estadoConversas.pagina = e.detail.pagina; estadoConversas.tamanho = e.detail.tamanho; desenharConversas();
+  });
+  document.getElementById('conv-busca').addEventListener('input', () => { estadoConversas.pagina = 1; desenharConversas(); });
+  document.getElementById('conv-status').addEventListener('change', () => { estadoConversas.pagina = 1; desenharConversas(); });
+  document.getElementById('conv-limpar').addEventListener('click', () => {
+    document.getElementById('conv-busca').value = ''; document.getElementById('conv-status').value = '';
+    estadoConversas.pagina = 1; desenharConversas();
+  });
+  const linhas = document.getElementById('conv-linhas');
+  linhas.addEventListener('click', (e) => {
+    const linha = e.target.closest('[data-conversa-cliente]');
+    if (linha) abrirModalConversa(linha.dataset.conversaCliente);
+  });
+  // A linha não é um <button>: Enter/Espaço precisam de tratamento próprio.
+  linhas.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const linha = e.target.closest('[data-conversa-cliente]');
+    if (!linha) return;
+    e.preventDefault();
+    abrirModalConversa(linha.dataset.conversaCliente);
+  });
+  desenharConversas();
+}
+
 async function renderWhatsapp() {
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
   const [status, conversas] = await Promise.all([
@@ -6687,36 +6762,35 @@ async function renderWhatsapp() {
           </div>
         </div>
         ${planosInfo}
-        ${status.conectado ? '' : '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px"><button class="btn-primario" id="btn-conectar-whatsapp" disabled>Carregando conexão...</button><button type="button" class="btn-secundario" id="btn-ver-manual">Ver manual</button></div>'}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px">
+          ${status.conectado ? '' : '<button class="btn-primario" id="btn-conectar-whatsapp" disabled>Carregando conexão...</button>'}
+          <button type="button" class="btn-secundario" id="btn-ver-manual">Ver manual</button>
+        </div>
       </div>
       <div class="ds-abas-painel" id="painel-whatsapp-conversas" aria-labelledby="aba-whatsapp-conversas" hidden>
-        <div class="tabela-wrapper">
-          <table class="tabela-tenants">
-            <thead><tr><th>Conversa</th><th>Whatsapp</th><th>Status</th><th>Atendimento</th></tr></thead>
-            <tbody>
-              ${conversas.conversas.length
-                ? conversas.conversas.map((c) => `
-                  <tr data-conversa-cliente="${c.cliente_id}">
-                    <td>${escapeHtml(c.cliente_nome || '—')}</td>
-                    <td>${escapeHtml(formatarTelefoneWhatsapp(c.telefone || ''))}</td>
-                    <td><span class="badge ${CONVERSA_STATUS_BADGE[c.status_conversa] || 'badge-status-inativo'}">${CONVERSA_STATUS_LABEL[c.status_conversa] || c.status_conversa}</span></td>
-                    <td>${c.status_conversa === 'ativo' ? '🤖 Kyvvo' : escapeHtml(conversas.tenant_nome || 'Salão')}</td>
-                  </tr>
-                `).join('')
-                : '<tr><td colspan="4">Nenhuma conversa registrada ainda.</td></tr>'}
-            </tbody>
-          </table>
+        <div class="ds-pilha-conversas">
+          <div class="ds-filtros">
+            <div class="ds-pesquisa">${ICONE_LUPA_CONVERSAS}<input class="ds-pesquisa-input" type="search" id="conv-busca" placeholder="Buscar cliente ou telefone" aria-label="Buscar cliente ou telefone"></div>
+            <div class="ds-select"><select id="conv-status" aria-label="Status"><option value="">Todos os status</option><option value="ativo">Em atendimento</option><option value="aguardando_humano">Aguardando atendente</option></select>${ICONE_SETA_CONVERSAS}</div>
+            <div class="ds-filtros-fim"><button type="button" class="ds-btn ds-btn-ghost ds-btn-sm" id="conv-limpar" hidden>Limpar filtros</button></div>
+          </div>
+          <div class="ds-conversas" role="table" aria-label="Conversas">
+            <div class="ds-conversas-cabecalho" role="row">
+              <span role="columnheader">Conversa</span><span role="columnheader">Whatsapp</span><span role="columnheader">Status</span><span role="columnheader">Atendimento</span><span role="columnheader">Última conversa</span>
+            </div>
+            <div id="conv-linhas"></div>
+          </div>
+          <nav class="ds-paginacao" data-ds-paginacao id="conv-paginacao" data-ds-total="0" data-ds-tamanho="10" data-ds-tamanhos="10,25,50"></nav>
         </div>
       </div>
     </div>
   `;
 
+  document.getElementById('btn-ver-manual').addEventListener('click', abrirManualWaba);
   if (!status.conectado) {
     iniciarConexaoWhatsapp();
     const btnPedirNumeroNovo = document.getElementById('btn-pedir-numero-novo');
     if (btnPedirNumeroNovo) btnPedirNumeroNovo.addEventListener('click', abrirModalPedirNumeroNovo);
-    const btnVerManual = document.getElementById('btn-ver-manual');
-    if (btnVerManual) btnVerManual.addEventListener('click', abrirManualWaba);
   }
 
   // Popup com o histórico completo ao clicar numa conversa. Atributo
@@ -6725,9 +6799,7 @@ async function renderWhatsapp() {
   // ~1479) que abre o modal de perfil do cliente; reaproveitar o mesmo nome
   // fazia os dois listeners disparar no mesmo clique e o modal de perfil
   // fechava/substituía este logo em seguida.
-  document.querySelectorAll('#conteudo tr[data-conversa-cliente]').forEach((tr) => {
-    tr.addEventListener('click', () => abrirModalConversa(tr.dataset.conversaCliente));
-  });
+  ligarListaConversas(conversas);
 }
 
 // Popup com o histórico completo de uma conversa (US "clicar numa conversa

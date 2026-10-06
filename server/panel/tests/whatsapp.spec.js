@@ -124,19 +124,19 @@ test.describe('WhatsApp — status em linha única e lista de conversas (redesen
     });
 
     await expect(page.locator('.pagamento-plano-card .pagamento-plano-linha')).toHaveCount(1);
-    await expect(page.locator('.pagamento-plano-card')).toContainText('+55 34 98888-7777');
+    await expect(page.locator('.pagamento-plano-card')).toContainText('+55 (34) 98888-7777');
     await expect(page.locator('.pagamento-plano-card')).toContainText('Salão Kyvvo');
     await expect(page.locator('.pagamento-plano-card')).toContainText('GREEN');
   });
 
-  test('lista as conversas com as 4 colunas (Conversa/Whatsapp/Status/Atendimento)', async ({ page }) => {
+  test('lista as conversas com Conversa/Whatsapp/Status/Atendimento/Última conversa', async ({ page }) => {
     await entrarNoWhatsapp(page, { status: { conectado: false, phoneNumberId: null, pedidoNumeroNovo: null } });
     await page.route('**/api/whatsapp/conversas', (route) => route.fulfill({
       json: {
         tenant_nome: 'Salão Kyvvo Teste',
         conversas: [
-          { cliente_nome: 'Ana Souza', telefone: '34999998888', status_conversa: 'ativo' },
-          { cliente_nome: 'Bia Lima', telefone: '34988887777', status_conversa: 'aguardando_humano' },
+          { cliente_id: 'c1', cliente_nome: 'Ana Souza', telefone: '34999998888', status_conversa: 'ativo', ultima_mensagem_em: '2026-09-10T12:00:00Z' },
+          { cliente_id: 'c2', cliente_nome: 'Bia Lima', telefone: '34988887777', status_conversa: 'aguardando_humano' },
         ],
       },
     }));
@@ -144,16 +144,80 @@ test.describe('WhatsApp — status em linha única e lista de conversas (redesen
     await page.click('#menu-config-toggle');
     await page.click('.menu-item[data-menu="whatsapp"]');
 
-    const linhas = page.locator('.tabela-tenants tbody tr');
+    await expect(page.locator('.ds-conversas-cabecalho')).toContainText('Última conversa');
+    const linhas = page.locator('#conv-linhas .ds-conversas-linha');
     await expect(linhas).toHaveCount(2);
     await expect(linhas.nth(0)).toContainText('Ana Souza');
-    await expect(linhas.nth(0)).toContainText('🤖 Kyvvo');
+    await expect(linhas.nth(0)).toContainText('Em atendimento');
+    await expect(linhas.nth(0)).toContainText('Kyvvo');
     await expect(linhas.nth(1)).toContainText('Bia Lima');
+    await expect(linhas.nth(1)).toContainText('Aguardando atendente');
     await expect(linhas.nth(1)).toContainText('Salão Kyvvo Teste');
+    await expect(linhas.nth(1).locator('.ds-conversas-data')).toHaveText('—');
   });
 
-  test('sem conversas registradas, mostra mensagem vazia na tabela', async ({ page }) => {
+  test('sem conversas registradas, mostra o estado vazio', async ({ page }) => {
     await entrarNoWhatsapp(page, { status: { conectado: false, phoneNumberId: null, pedidoNumeroNovo: null } });
-    await expect(page.locator('.tabela-tenants tbody')).toContainText('Nenhuma conversa registrada ainda.');
+    await expect(page.locator('#conv-linhas')).toContainText('Nenhuma conversa registrada ainda');
   });
+});
+
+// Troca pra aba Conversas. Quem alterna as abas é o components.js do DS (não
+// servido por esta suíte estática): sem ele o painel segue `hidden`, então o
+// helper o mostra na mão depois do clique (com o DS, o clique já basta).
+async function abrirAbaConversas(page) {
+  await page.click('#aba-whatsapp-conversas');
+  await page.evaluate(() => { document.getElementById('painel-whatsapp-conversas').hidden = false; });
+}
+
+test.describe('WhatsApp — filtros e paginação das conversas', () => {
+  const muitas = Array.from({ length: 12 }, (_, i) => ({
+    cliente_id: `c${i + 1}`, cliente_nome: `Cliente ${i + 1}`, telefone: `3499999${String(1000 + i)}`,
+    status_conversa: i < 2 ? 'aguardando_humano' : 'ativo', ultima_mensagem_em: '2026-09-10T12:00:00Z',
+  }));
+
+  async function comConversas(page) {
+    await entrarNoWhatsapp(page, { status: { conectado: false, phoneNumberId: null, pedidoNumeroNovo: null } });
+    await page.route('**/api/whatsapp/conversas', (route) => route.fulfill({ json: { tenant_nome: 'Salão', conversas: muitas } }));
+    await page.goto('/painel.html');
+    await page.click('#menu-config-toggle');
+    await page.click('.menu-item[data-menu="whatsapp"]');
+    await abrirAbaConversas(page);
+  }
+
+  test('mostra só a primeira página (10 de 12) e filtra por status', async ({ page }) => {
+    await comConversas(page);
+    await expect(page.locator('#conv-linhas .ds-conversas-linha')).toHaveCount(10);
+    await page.selectOption('#conv-status', 'aguardando_humano');
+    await expect(page.locator('#conv-linhas .ds-conversas-linha')).toHaveCount(2);
+    await expect(page.locator('#conv-limpar')).toBeVisible();
+    await page.click('#conv-limpar');
+    await expect(page.locator('#conv-linhas .ds-conversas-linha')).toHaveCount(10);
+    await expect(page.locator('#conv-limpar')).toBeHidden();
+  });
+
+  test('busca por cliente e mostra o estado vazio quando não acha', async ({ page }) => {
+    await comConversas(page);
+    await page.fill('#conv-busca', 'Cliente 7');
+    await expect(page.locator('#conv-linhas .ds-conversas-linha')).toHaveCount(1);
+    await page.fill('#conv-busca', 'ninguém com esse nome');
+    await expect(page.locator('#conv-linhas')).toContainText('Nenhuma conversa encontrada');
+  });
+});
+
+test.describe('WhatsApp — botão Ver manual do WABA', () => {
+  for (const [rotulo, conectado] of [['não conectado', false], ['conectado', true]]) {
+    test(`aparece com o WhatsApp ${rotulo} e abre o PDF numa janela própria`, async ({ page }) => {
+      await entrarNoWhatsapp(page, { status: { conectado, phoneNumberId: conectado ? '123' : null, numeroExibido: '+55 34 98888-7777', pedidoNumeroNovo: null } });
+      await expect(page.locator('#btn-ver-manual')).toBeVisible();
+      // O servidor estático da suíte serve o PDF sem tipo (vira download no popup), então
+      // o que se confere é o popup abrir e pedir o manual.
+      const [popup] = await Promise.all([
+        page.waitForEvent('popup'),
+        page.context().waitForEvent('request', (r) => r.url().includes('/manual-whatsapp-waba.pdf')),
+        page.click('#btn-ver-manual'),
+      ]);
+      expect(popup).toBeTruthy();
+    });
+  }
 });
