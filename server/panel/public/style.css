@@ -190,6 +190,31 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
   margin-top: 4px;
 }
 
+/* Cabecalho de pagina e menu lateral estatico da area admin interna
+   (server/panel/public/admin/ -- distinta do painel do tenant acima, cada
+   pagina e um <a href> de verdade, nao uma aba do SPA). Titulo da pagina +
+   .admin-badge lado a lado dentro do .painel-main (mesmo padrao
+   .cabecalho-pagina/.linha-titulo do Kyvvo CRM/kyvvo-admin). */
+.cabecalho-pagina { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: var(--space-5); }
+.cabecalho-pagina .textos { display: flex; flex-direction: column; gap: 4px; }
+.cabecalho-pagina .linha-titulo { display: flex; align-items: center; gap: 10px; }
+.pagina-titulo { font-size: 26px; font-weight: 700; margin: 0; color: var(--text); }
+.linha-titulo .admin-badge { margin-top: 0; }
+
+/* Titulo de secao do menu lateral da area admin interna (Visao geral /
+   Clientes / Operacao / Sistema) -- o DS nao cobre agrupamento por secao
+   (so grupo colapsavel via .ds-menu-grupo), aqui e so um rotulo estatico. */
+.ds-menu-secao-titulo {
+  padding: var(--space-4) var(--space-3) var(--space-1);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-strong);
+}
+.ds-menu-secao-titulo:first-child { padding-top: var(--space-2); }
+.ds-menu-recolhido .ds-menu-secao-titulo { display: none; }
+
 /* Menu lateral: componente data-ds-menu do @kyvvohq/design-system (v2.6.0,
    ver components.css) — o .ds-menu já é a "sidebar" (largura, fundo, borda),
    sem wrapper próprio (era .painel-sidebar antes da padronização). */
