@@ -124,7 +124,7 @@ test.describe('WhatsApp — status em linha única e lista de conversas (redesen
     });
 
     await expect(page.locator('.pagamento-plano-card .pagamento-plano-linha')).toHaveCount(1);
-    await expect(page.locator('.pagamento-plano-card')).toContainText('+55 34 98888-7777');
+    await expect(page.locator('.pagamento-plano-card')).toContainText('+55 (34) 98888-7777');
     await expect(page.locator('.pagamento-plano-card')).toContainText('Salão Kyvvo');
     await expect(page.locator('.pagamento-plano-card')).toContainText('GREEN');
   });
@@ -162,14 +162,6 @@ test.describe('WhatsApp — status em linha única e lista de conversas (redesen
   });
 });
 
-// Troca pra aba Conversas. Quem alterna as abas é o components.js do DS (não
-// servido por esta suíte estática): sem ele o painel segue `hidden`, então o
-// helper o mostra na mão depois do clique (com o DS, o clique já basta).
-async function abrirAbaConversas(page) {
-  await page.click('#aba-whatsapp-conversas');
-  await page.evaluate(() => { document.getElementById('painel-whatsapp-conversas').hidden = false; });
-}
-
 test.describe('WhatsApp — filtros e paginação das conversas', () => {
   const muitas = Array.from({ length: 12 }, (_, i) => ({
     cliente_id: `c${i + 1}`, cliente_nome: `Cliente ${i + 1}`, telefone: `3499999${String(1000 + i)}`,
@@ -182,7 +174,6 @@ test.describe('WhatsApp — filtros e paginação das conversas', () => {
     await page.goto('/painel.html');
     await page.click('#menu-config-toggle');
     await page.click('.menu-item[data-menu="whatsapp"]');
-    await abrirAbaConversas(page);
   }
 
   test('mostra só a primeira página (10 de 12) e filtra por status', async ({ page }) => {
@@ -205,19 +196,34 @@ test.describe('WhatsApp — filtros e paginação das conversas', () => {
   });
 });
 
+test.describe('WhatsApp — blocos Conectar e Conversas (sem abas)', () => {
+  test('Conectar vem primeiro e Conversas logo abaixo, sem abas', async ({ page }) => {
+    await entrarNoWhatsapp(page, { status: { conectado: false, phoneNumberId: null, pedidoNumeroNovo: null } });
+    await expect(page.locator('.ds-aba')).toHaveCount(0);
+    await expect(page.locator('#bloco-whatsapp-conectar .whatsapp-bloco-titulo')).toHaveText('Conectar');
+    await expect(page.locator('#bloco-whatsapp-conversas .whatsapp-bloco-titulo')).toHaveText('Conversas');
+    const conectar = await page.locator('#bloco-whatsapp-conectar').boundingBox();
+    const conversas = await page.locator('#bloco-whatsapp-conversas').boundingBox();
+    expect(conversas.y).toBeGreaterThan(conectar.y + conectar.height - 1);
+  });
+});
+
 test.describe('WhatsApp — botão Ver manual do WABA', () => {
-  for (const [rotulo, conectado] of [['não conectado', false], ['conectado', true]]) {
-    test(`aparece com o WhatsApp ${rotulo} e abre o PDF numa janela própria`, async ({ page }) => {
-      await entrarNoWhatsapp(page, { status: { conectado, phoneNumberId: conectado ? '123' : null, numeroExibido: '+55 34 98888-7777', pedidoNumeroNovo: null } });
-      await expect(page.locator('#btn-ver-manual')).toBeVisible();
-      // O servidor estático da suíte serve o PDF sem tipo (vira download no popup), então
-      // o que se confere é o popup abrir e pedir o manual.
-      const [popup] = await Promise.all([
-        page.waitForEvent('popup'),
-        page.context().waitForEvent('request', (r) => r.url().includes('/manual-whatsapp-waba.pdf')),
-        page.click('#btn-ver-manual'),
-      ]);
-      expect(popup).toBeTruthy();
-    });
-  }
+  test('aparece com o WhatsApp desconectado e abre o PDF numa janela própria', async ({ page }) => {
+    await entrarNoWhatsapp(page, { status: { conectado: false, phoneNumberId: null, pedidoNumeroNovo: null } });
+    await expect(page.locator('#btn-ver-manual')).toBeVisible();
+    // O servidor estático da suíte serve o PDF sem tipo (vira download no popup), então
+    // o que se confere é o popup abrir e pedir o manual.
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.context().waitForEvent('request', (r) => r.url().includes('/manual-whatsapp-waba.pdf')),
+      page.click('#btn-ver-manual'),
+    ]);
+    expect(popup).toBeTruthy();
+  });
+
+  test('não aparece com o WhatsApp conectado', async ({ page }) => {
+    await entrarNoWhatsapp(page, { status: { conectado: true, phoneNumberId: '123', numeroExibido: '+55 34 98888-7777', pedidoNumeroNovo: null } });
+    await expect(page.locator('#btn-ver-manual')).toHaveCount(0);
+  });
 });
