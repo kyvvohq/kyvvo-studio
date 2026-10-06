@@ -37,9 +37,24 @@ function svgIcone(nome, classe) {
   return svg;
 }
 
-document.querySelectorAll('.menu-item[data-icon]').forEach((item) => {
-  item.insertBefore(svgIcone(item.dataset.icon, 'menu-icon'), item.firstChild);
+document.querySelectorAll('.ds-menu-icone[data-icon]').forEach((item) => {
+  item.appendChild(svgIcone(item.dataset.icon));
 });
+
+// Recolher/expandir a sidebar (componente data-ds-menu) -- persiste a
+// escolha entre as paginas (cada uma aqui e um <a href> de verdade, nao uma
+// aba de SPA, entao sem isso o estado seria esquecido a cada navegacao).
+// Chave propria (kyvvo_admin_sidebar_oculta), distinta de kyvvo_sidebar_oculta
+// (painel do tenant) pra nao misturar os dois recolhimentos.
+const menuLateralAdmin = document.getElementById('menu-lateral-admin');
+if (menuLateralAdmin) {
+  if (localStorage.getItem('kyvvo_admin_sidebar_oculta') === '1') {
+    menuLateralAdmin.setAttribute('data-ds-menu-recolhido', '');
+  }
+  menuLateralAdmin.addEventListener('ds-menu-alternar', (e) => {
+    localStorage.setItem('kyvvo_admin_sidebar_oculta', e.detail.recolhido ? '1' : '0');
+  });
+}
 
 // Tema: o painel (tenant + admin) adotou o layout claro do Kyvvo People,
 // modo único, sem toggle. Os tokens vêm do @kyvvohq/design-system (:root =
