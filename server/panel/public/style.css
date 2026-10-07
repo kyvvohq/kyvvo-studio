@@ -3341,3 +3341,6 @@ button.loading::after {
 .automacoes-acoes button.perigo { color: var(--danger); }
 
 .automacoes-vazio { padding: 40px 20px; text-align: center; color: var(--muted); border-top: 1px solid var(--border); }
+
+/* WhatsApp > Conversas: filtros + lista + paginação (componentes do design system) */
+.ds-pilha-conversas { display: flex; flex-direction: column; gap: var(--space-3); }

@@ -92,6 +92,7 @@ function registerWhatsappConfigRoutes(fastify, pool) {
         cliente_nome: r.nome,
         telefone: r.telefone,
         status_conversa: r.status_conversa,
+        ultima_mensagem_em: r.ultima_mensagem_em,
       })),
     };
   });

@@ -84,8 +84,6 @@ const { registerAutomacoesRoutes } = require('./routes/automacoes');
 const automacoes = require('./lib/automacoes');
 const { registerConfiguracaoRoutes } = require('./routes/configuracao');
 const { registerNotificacoesRoutes } = require('./routes/notificacoes');
-// Fase 8 da modularização
-const { registerPagamentosRoutes } = require('./routes/pagamentos');
 // Fase 9 da modularização — montarResumoPagamentos não é mais usada direto
 // em index.js (só pelas rotas admin, já extraídas).
 const { registerAdminAuthRoutes } = require('./routes/admin-auth');
@@ -257,17 +255,15 @@ async function start() {
   // US52/CA03 — acesso limitado: com trial vencido/inadimplente/suspenso/
   // cancelado, GET nunca é bloqueado (o tenant continua vendo os dados reais
   // normalmente, só não consegue criar/editar/excluir nada) — só as rotas de
-  // ESCRITA abaixo continuam liberadas: sair da conta, o endpoint de
-  // analytics, e tudo relacionado a Plano e cobrança (cadastrar meio de
-  // pagamento, trocar de plano, cancelar assinatura). Qualquer outra escrita
-  // (agenda, clientes, serviços, configuração...) fica bloqueada até
-  // regularizar.
+  // ESCRITA abaixo continuam liberadas: sair da conta e o endpoint de
+  // analytics. Qualquer outra escrita (agenda, clientes, serviços,
+  // configuração...) fica bloqueada até regularizar. Plano e cobrança não
+  // aparece mais aqui — corte P3 (billing): /api/pagamentos/* e
+  // /webhooks/asaas são roteados pelo nginx direto pro kyvvo-platform
+  // (:3003), nunca chegam neste serviço.
   const ROTAS_LIVRES_SEM_ASSINATURA = new Set([
     'POST /api/auth/logout',
     'POST /api/eventos',
-    'POST /api/pagamentos/cadastrar',
-    'PATCH /api/pagamentos/plano',
-    'DELETE /api/pagamentos/assinatura',
   ]);
 
   fastify.decorate('authenticate', async (request, reply) => {
@@ -647,11 +643,14 @@ async function start() {
   // negócio, modulo_key='dashboards').
   registerRelatoriosRoutes(fastify, pool);
 
-  // Pagamentos / Asaas — extraído pra routes/pagamentos.js (fase 8 da
-  // modularização): GET /api/pagamentos[/status], POST /api/pagamentos/cadastrar,
-  // PATCH /api/pagamentos/plano, DELETE /api/pagamentos/assinatura,
-  // POST /webhooks/asaas.
-  registerPagamentosRoutes(fastify, pool);
+  // Pagamentos / Asaas — routes/pagamentos.js (fase 8 da modularização)
+  // removido no corte P3 (billing): GET /api/pagamentos[/status],
+  // POST /api/pagamentos/cadastrar, PATCH /api/pagamentos/plano,
+  // DELETE /api/pagamentos/assinatura e POST /webhooks/asaas agora são
+  // servidos pelo kyvvo-platform (:3003) — nginx roteia direto, nunca
+  // chegam aqui. lib/pagamentos.js (montarResumoPagamentos) continua
+  // existindo só porque routes/admin-tenants.js ainda usa pra montar a
+  // visão 360° do tenant dentro da área admin interna.
 
   // Área admin da Kyvvo (US16) — extraída pra vários routes/admin-*.js
   // (fase 9 da modularização): auth, tenants (CRUD + assinaturas + módulos),
