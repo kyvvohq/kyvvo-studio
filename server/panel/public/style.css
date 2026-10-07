@@ -3344,3 +3344,5 @@ button.loading::after {
 
 /* WhatsApp > Conversas: filtros + lista + paginação (componentes do design system) */
 .ds-pilha-conversas { display: flex; flex-direction: column; gap: var(--space-3); }
+.whatsapp-bloco { margin-bottom: var(--space-6); }
+.whatsapp-bloco-titulo { font-size: 15px; font-weight: 700; color: var(--text); margin: 0 0 var(--space-3); }
