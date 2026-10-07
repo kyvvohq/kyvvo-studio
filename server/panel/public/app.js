@@ -6742,52 +6742,47 @@ async function renderWhatsapp() {
     </div>
   `;
 
-  // Redesenho em abas (pedido do Bruno, 2026-10-03: "atualizar o submenu
-  // WhatsApp conforme o DS" — CRM já usa .ds-abas pra Conectar/Conversas,
-  // Studio ainda mostrava tudo numa rolagem só). Dados de status/conversas
-  // já vêm carregados ANTES deste innerHTML (Promise.all acima), então as 2
-  // abas renderizam de cara, sem precisar de um listener ds-abas-alterar
-  // pra buscar conversas sob demanda (diferente do CRM, que faz lazy-load).
+  // Dois blocos na mesma página, sem abas (pedido do Bruno, 2026-10-06, igual
+  // ao CRM): Conectar em cima e Conversas embaixo. Status e conversas já vêm
+  // carregados ANTES deste innerHTML (Promise.all acima).
   conteudo.innerHTML = `
     <h2 class="titulo-detalhe">WhatsApp</h2>
-    <div class="ds-abas" data-ds-abas>
-      <div class="ds-abas-lista">
-        <button type="button" class="ds-aba" id="aba-whatsapp-conectar" aria-controls="painel-whatsapp-conectar" aria-selected="true">Conectar</button>
-        <button type="button" class="ds-aba" id="aba-whatsapp-conversas" aria-controls="painel-whatsapp-conversas" aria-selected="false">Conversas</button>
-      </div>
-      <div class="ds-abas-painel" id="painel-whatsapp-conectar" aria-labelledby="aba-whatsapp-conectar">
-        <div class="pagamento-plano-card">
-          <div class="pagamento-plano-linha">
-            <span><span class="status-dot ${statusDotClasse}"></span>${escapeHtml(statusTexto)}</span>
-          </div>
-        </div>
-        ${planosInfo}
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px">
-          ${status.conectado ? '' : '<button class="btn-primario" id="btn-conectar-whatsapp" disabled>Carregando conexão...</button>'}
-          <button type="button" class="btn-secundario" id="btn-ver-manual">Ver manual</button>
+    <section class="whatsapp-bloco" id="bloco-whatsapp-conectar">
+      <h3 class="whatsapp-bloco-titulo">Conectar</h3>
+      <div class="pagamento-plano-card">
+        <div class="pagamento-plano-linha">
+          <span><span class="status-dot ${statusDotClasse}"></span>${escapeHtml(statusTexto)}</span>
         </div>
       </div>
-      <div class="ds-abas-painel" id="painel-whatsapp-conversas" aria-labelledby="aba-whatsapp-conversas" hidden>
-        <div class="ds-pilha-conversas">
-          <div class="ds-filtros">
-            <div class="ds-pesquisa">${ICONE_LUPA_CONVERSAS}<input class="ds-pesquisa-input" type="search" id="conv-busca" placeholder="Buscar cliente ou telefone" aria-label="Buscar cliente ou telefone"></div>
-            <div class="ds-select"><select id="conv-status" aria-label="Status"><option value="">Todos os status</option><option value="ativo">Em atendimento</option><option value="aguardando_humano">Aguardando atendente</option></select>${ICONE_SETA_CONVERSAS}</div>
-            <div class="ds-filtros-fim"><button type="button" class="ds-btn ds-btn-ghost ds-btn-sm" id="conv-limpar" hidden>Limpar filtros</button></div>
-          </div>
-          <div class="ds-conversas" role="table" aria-label="Conversas">
-            <div class="ds-conversas-cabecalho" role="row">
-              <span role="columnheader">Conversa</span><span role="columnheader">Whatsapp</span><span role="columnheader">Status</span><span role="columnheader">Atendimento</span><span role="columnheader">Última conversa</span>
-            </div>
-            <div id="conv-linhas"></div>
-          </div>
-          <nav class="ds-paginacao" data-ds-paginacao id="conv-paginacao" data-ds-total="0" data-ds-tamanho="10" data-ds-tamanhos="10,25,50"></nav>
+      ${planosInfo}
+      ${status.conectado ? '' : `
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px">
+        <button class="btn-primario" id="btn-conectar-whatsapp" disabled>Carregando conexão...</button>
+        <button type="button" class="btn-secundario" id="btn-ver-manual">Ver manual</button>
+      </div>`}
+    </section>
+    <section class="whatsapp-bloco" id="bloco-whatsapp-conversas">
+      <h3 class="whatsapp-bloco-titulo">Conversas</h3>
+      <div class="ds-pilha-conversas">
+        <div class="ds-filtros">
+          <div class="ds-pesquisa">${ICONE_LUPA_CONVERSAS}<input class="ds-pesquisa-input" type="search" id="conv-busca" placeholder="Buscar cliente ou telefone" aria-label="Buscar cliente ou telefone"></div>
+          <div class="ds-select"><select id="conv-status" aria-label="Status"><option value="">Todos os status</option><option value="ativo">Em atendimento</option><option value="aguardando_humano">Aguardando atendente</option></select>${ICONE_SETA_CONVERSAS}</div>
+          <div class="ds-filtros-fim"><button type="button" class="ds-btn ds-btn-ghost ds-btn-sm" id="conv-limpar" hidden>Limpar filtros</button></div>
         </div>
+        <div class="ds-conversas" role="table" aria-label="Conversas">
+          <div class="ds-conversas-cabecalho" role="row">
+            <span role="columnheader">Conversa</span><span role="columnheader">Whatsapp</span><span role="columnheader">Status</span><span role="columnheader">Atendimento</span><span role="columnheader">Última conversa</span>
+          </div>
+          <div id="conv-linhas"></div>
+        </div>
+        <nav class="ds-paginacao" data-ds-paginacao id="conv-paginacao" data-ds-total="0" data-ds-tamanho="10" data-ds-tamanhos="10,25,50"></nav>
       </div>
-    </div>
+    </section>
   `;
 
   document.getElementById('btn-ver-manual').addEventListener('click', abrirManualWaba);
   if (!status.conectado) {
+    document.getElementById('btn-ver-manual').addEventListener('click', abrirManualWaba);
     iniciarConexaoWhatsapp();
     const btnPedirNumeroNovo = document.getElementById('btn-pedir-numero-novo');
     if (btnPedirNumeroNovo) btnPedirNumeroNovo.addEventListener('click', abrirModalPedirNumeroNovo);
