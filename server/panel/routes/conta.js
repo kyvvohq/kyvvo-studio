@@ -187,10 +187,17 @@ function registerContaRoutes(fastify, pool) {
   // Consome um código de handoff vindo de outro produto (CRM/People) — CA
   // "clicar no produto já deve entrar logado". Sem preHandler de auth: é
   // exatamente o ponto de entrada de quem AINDA não tem sessão no Studio.
-  // Studio não pode confiar cegamente no userId recebido — seu espaço de
-  // IDs é local (usuarios.id, tabela própria deste serviço), diferente do
-  // que CRM/People usam (derivado do kyvvo-platform) — resolve o usuário de
-  // verdade por tenant_id + email, estável entre os 3 produtos.
+  //
+  // Corte de sessão (RS256 unificado, achado real em produção): isto
+  // chamava fastify.jwt.sign(...) sem namespace, mas o único @fastify/jwt
+  // registrado aqui hoje é exclusivo da área admin (namespace:'admin',
+  // ver index.js) — lançava TypeError, 500 real pra quem clicasse "trocar
+  // pra Studio". Corrigido: o platform agora emite o token RS256 pronto
+  // (POST /internal/handoff/verify com emitirToken:true), já checando
+  // usuário/tenant ativo do lado de lá — não precisa mais da query própria
+  // nem de assinar nada aqui. Só busca `nome`/`email_verified` (não voltam
+  // no payload do handoff), que esta chamada ainda não tinha antes de
+  // existir o `token`.
   fastify.get('/sso', async (request, reply) => {
     const { code } = request.query || {};
     if (!code) return reply.code(400).redirect('/login');
@@ -199,32 +206,24 @@ function registerContaRoutes(fastify, pool) {
       const res = await fetch(`${PLATFORM_URL}/internal/handoff/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Internal-Token': process.env.INTERNAL_HANDOFF_TOKEN },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, emitirToken: true }),
         signal: AbortSignal.timeout(5000),
       });
       if (!res.ok) return reply.redirect('/login');
-      const { tenantId, email } = await res.json();
+      const { tenantId, email, token } = await res.json();
 
       const { rows } = await pool.query(
-        `SELECT u.id, u.email, u.nome, u.token_version, u.email_verified, u.role, u.ativo AS usuario_ativo, t.ativo AS tenant_ativo
-         FROM usuarios u JOIN tenants t ON t.id = u.tenant_id
-         WHERE u.tenant_id = $1 AND u.email = $2`,
+        `SELECT nome, email_verified FROM usuarios WHERE tenant_id = $1 AND email = $2`,
         [tenantId, email]
       );
       const usuario = rows[0];
-      if (!usuario || !usuario.usuario_ativo || !usuario.tenant_ativo) {
-        return reply.redirect('/login');
-      }
+      if (!usuario) return reply.redirect('/login');
 
-      const token = fastify.jwt.sign(
-        { userId: usuario.id, tenantId, email: usuario.email, tokenVersion: usuario.token_version },
-        { expiresIn: '7d' }
-      );
       reply.type('text/html');
       return `<!doctype html><html><body><script>
         localStorage.setItem('kyvvo_token', ${JSON.stringify(token)});
         localStorage.setItem('kyvvo_nome', ${JSON.stringify(usuario.nome || '')});
-        localStorage.setItem('kyvvo_email', ${JSON.stringify(usuario.email)});
+        localStorage.setItem('kyvvo_email', ${JSON.stringify(email)});
         localStorage.setItem('kyvvo_email_verified', ${JSON.stringify(String(usuario.email_verified !== false))});
         location.href = '/painel';
       </script></body></html>`;
