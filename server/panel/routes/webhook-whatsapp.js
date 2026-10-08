@@ -24,6 +24,16 @@ const BOTAO_CONFIRMAR = 'CONFIRMAR';
 const BOTAO_REMARCAR = 'REMARCAR';
 const BOTAO_AGENDAR = 'AGENDAR';
 const MENSAGEM_CONFIRMAR_SEM_ATENDIMENTO = 'Não encontrei nenhum agendamento seu aguardando confirmação por aqui. Se quiser marcar um horário, é só me chamar! 😊';
+// Aceita o payload fixo (CONFIRMAR/REMARCAR/AGENDAR) ou o texto do botão
+// ("Agendar atendimento", "Confirmar", "Remarcar"), sem acento/caixa. Devolve
+// null pra payload vazio ou desconhecido.
+function normalizarBotao(valor) {
+  const t = String(valor || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+  if (t.startsWith('CONFIRMAR')) return BOTAO_CONFIRMAR;
+  if (t.startsWith('REMARCAR')) return BOTAO_REMARCAR;
+  if (t.startsWith('AGENDAR')) return BOTAO_AGENDAR;
+  return null;
+}
 function mensagemConfirmarSucesso(ag) {
   const primeiroNome = ag.cliente ? `, ${ag.cliente.split(' ')[0]}` : '';
   return `Prontinho${primeiroNome}! Seu horário de ${ag.servico} com ${ag.profissional} está confirmado. Até lá! 💜`;
@@ -76,7 +86,7 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
       // (Confirmação de agenda/Aniversário/Clientes inativos, ver
       // lib/automacoes.js) — a Meta manda o payload configurado no template
       // em `msg.button.payload`, sem texto livre nenhum.
-      if (phoneNumberId && msg && (msg.type === 'text' || msg.type === 'button')) {
+      if (phoneNumberId && msg && (msg.type === 'text' || msg.type === 'button' || msg.type === 'interactive')) {
         const { rows } = await pool.query(
           `SELECT ${TENANT_CAMPOS_WEBHOOK} FROM tenants WHERE meta_phone_number_id = $1 AND ativo = true LIMIT 1`,
           [phoneNumberId]
@@ -85,8 +95,16 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
         telefone = msg.from;
         if (msg.type === 'text') {
           mensagem = (msg.text && msg.text.body) || '';
+        } else if (msg.type === 'button') {
+          // Template criado sem payload customizado: a Meta devolve o texto do
+          // botão em `payload` (ou só em `text`) — normalizarBotao cobre os dois.
+          botaoPayload = normalizarBotao((msg.button && (msg.button.payload || msg.button.text)) || '');
         } else {
-          botaoPayload = (msg.button && msg.button.payload) || null;
+          const resp = msg.interactive && msg.interactive.button_reply;
+          botaoPayload = normalizarBotao((resp && (resp.id || resp.title)) || '');
+        }
+        if (msg.type !== 'text' && !botaoPayload) {
+          fastify.log.warn({ tipo: msg.type, button: msg.button, interactive: msg.interactive }, 'Clique em botão do WhatsApp com payload não reconhecido');
         }
         const contato = (value.contacts || [])[0];
         pushName = (contato && contato.profile && contato.profile.name) || null;
