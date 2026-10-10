@@ -442,6 +442,133 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .badge-variacao-positiva { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
 .badge-variacao-negativa { background: rgba(var(--danger-rgb), 0.15); color: var(--danger); }
 
+/* ---------- Início — duas colunas (principal + lateral) ----------
+   Tudo escopado em .inicio-pagina: .inicio-cabecalho/.inicio-cards/
+   .inicio-secao-titulo também são usados por outras telas (Financeiro,
+   Relatórios, Cadastro) e não podem mudar junto. */
+.inicio-pagina .inicio-cabecalho { align-items: flex-start; margin-bottom: 24px; }
+.inicio-cabecalho-textos { min-width: 0; }
+.inicio-pagina .inicio-cabecalho h2 { font-size: 24px; letter-spacing: -0.01em; }
+.inicio-data { margin: 4px 0 0; font-size: 14px; color: var(--muted-strong); }
+
+.inicio-layout { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 24px; align-items: start; }
+@media (min-width: 1100px) {
+  .inicio-layout { grid-template-columns: minmax(0, 1fr) 400px; }
+}
+.inicio-principal, .inicio-lateral { min-width: 0; }
+
+.inicio-pagina .inicio-secao { margin-bottom: 28px; }
+.inicio-pagina .inicio-secao-titulo { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 12px; }
+
+.inicio-pagina .inicio-cards { gap: 12px; }
+.inicio-cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.inicio-cards-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) {
+  .inicio-pagina .inicio-cards-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inicio-pagina .inicio-cards-3 > :last-child { grid-column: 1 / -1; }
+}
+
+.inicio-kpi {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "icone rotulo" "valor valor";
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 8px;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+}
+.inicio-kpi-sem-icone { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rotulo" "valor"; row-gap: 4px; }
+.inicio-kpi-textos { display: contents; }
+.inicio-kpi-icone {
+  grid-area: icone;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+.inicio-kpi-icone svg { width: 18px; height: 18px; }
+.inicio-kpi-rotulo { grid-area: rotulo; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-strong); }
+.inicio-kpi-valor { grid-area: valor; font-size: 28px; font-weight: 700; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inicio-kpi-previsto { color: var(--accent-strong); }
+.inicio-cards-2 .inicio-kpi-valor { font-size: 24px; }
+
+/* Próximos atendimentos: hora em destaque + cliente/serviço empilhados. */
+.inicio-pagina .inicio-atendimento-item { border-radius: 12px; padding: 12px 14px; }
+.inicio-pagina .inicio-atendimento-info {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 1px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.inicio-pagina .inicio-atendimento-info strong {
+  grid-row: 1 / span 2;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.inicio-pagina .inicio-atendimento-info > span:nth-child(2) { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inicio-pagina .inicio-atendimento-servico { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inicio-pagina .inicio-proximos-coluna-titulo { color: var(--text); font-weight: 700; margin-bottom: 10px; }
+
+/* Estado vazio dentro de uma seção do Início (cartão, não texto solto). */
+.inicio-pagina .inicio-secao .vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 16px;
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+.vazio-icone {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+.vazio-icone svg { width: 20px; height: 20px; }
+
+/* Oportunidades: ícone + texto + ação (a ação quebra pra baixo se faltar espaço). */
+.inicio-pagina .inicio-oportunidade-item { border-radius: 12px; padding: 14px; margin-bottom: 10px; gap: 12px; }
+.inicio-oportunidade-icone {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+.inicio-oportunidade-icone svg { width: 18px; height: 18px; }
+.inicio-oportunidade-texto { flex: 1 1 140px; min-width: 0; line-height: 1.4; }
+
+.inicio-pagina .inicio-financeiro-mes { border-radius: 12px; padding: 16px; }
+.inicio-pagina .inicio-financeiro-mes-valor { font-size: 26px; }
+
+@media (max-width: 640px) {
+  .inicio-pagina .inicio-cabecalho { flex-wrap: wrap; }
+  .inicio-pagina .inicio-cabecalho h2 { font-size: 22px; }
+  .inicio-kpi-rotulo { font-size: 11px; letter-spacing: 0.02em; }
+}
+
 /* ---------- US56 — Onboarding guiado (tela "Primeiros passos") ---------- */
 .onboarding-cabecalho { margin-bottom: 20px; }
 .onboarding-cabecalho h2 { font-size: 20px; margin-bottom: 6px; }

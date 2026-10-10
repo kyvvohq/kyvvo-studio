@@ -554,6 +554,7 @@ const ICON_PATHS = {
   kanban: '<path d="M5 3v14"/><path d="M12 3v8"/><path d="M19 3v18"/>',
   zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   'clipboard-list': '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   'sun-moon': '<path d="M12 2v2"/><path d="M14.837 16.385a6 6 0 1 1-7.223-7.222c.624-.147.97.66.715 1.248a4 4 0 0 0 5.26 5.259c.589-.255 1.396.09 1.248.715"/><path d="M16 12a4 4 0 0 0-4-4"/><path d="m19 5-1.256 1.256"/><path d="M20 12h2"/>',
 };
 
@@ -4963,6 +4964,17 @@ function mostrarModalOnboarding(status) {
 // isso aqui dentro do conteúdo do Início.
 let inicioProximosAtuais = [];
 
+// SVG inline pros cartões do Início (os ícones do menu usam svgIcone(), que
+// devolve um elemento — aqui precisamos da string pra montar o template).
+function iconeSvgHtml(nome) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[nome] || ''}</svg>`;
+}
+
+function textoDataHoje() {
+  const t = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Sao_Paulo' });
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 function renderInicioAtendimentoItem(ag) {
   return `
     <div class="inicio-atendimento-item" data-id="${ag.id}">
@@ -4972,8 +4984,8 @@ function renderInicioAtendimentoItem(ag) {
         <span class="inicio-atendimento-servico">${ag.servico}</span>
       </div>
       <div class="inicio-atendimento-acoes">
-        <button class="btn-secundario" data-cliente-id="${ag.cliente_id}">Cliente</button>
-        <button class="btn-secundario" data-acao-inicio-conversa="${ag.cliente_telefone}">Conversa</button>
+        <button class="btn-secundario btn-pequeno" data-cliente-id="${ag.cliente_id}">Cliente</button>
+        <button class="btn-secundario btn-pequeno" data-acao-inicio-conversa="${ag.cliente_telefone}">Conversa</button>
       </div>
     </div>
   `;
@@ -4983,10 +4995,11 @@ function renderInicioAtendimentoItem(ag) {
 // explícito 2026-09-17 — antes era uma lista única paginada, sem separar
 // por quem vai atender). `inicioProximosAtuais` já vem ordenado por
 // data_hora (mesma ordem da API de agendamentos), então só agrupar e cortar
-// nos 3 primeiros de cada profissional preserva "os PRÓXIMOS 3".
+// nos 3 primeiros de cada profissional preserva "os PRÓXIMOS 3". As colunas
+// quebram sozinhas (auto-fit) quando a coluna principal do Início é estreita.
 function renderInicioProximosCorpo() {
   if (!inicioProximosAtuais.length) {
-    return '<div class="vazio">Nenhum agendamento para o restante de hoje.</div>';
+    return `<div class="vazio"><span class="vazio-icone">${iconeSvgHtml('calendar-days')}</span><span>Nenhum agendamento para o restante de hoje.</span></div>`;
   }
 
   const colunasPorProfissional = new Map();
@@ -5001,7 +5014,7 @@ function renderInicioProximosCorpo() {
   const colunas = [...colunasPorProfissional.values()];
 
   return `
-    <div class="inicio-proximos-colunas" style="grid-template-columns:repeat(${colunas.length},1fr)">
+    <div class="inicio-proximos-colunas" style="grid-template-columns:repeat(auto-fit,minmax(250px,1fr))">
       ${colunas.map((coluna) => `
         <div class="inicio-proximos-coluna">
           <div class="inicio-proximos-coluna-titulo">${escapeHtml(coluna.nome)}</div>
@@ -5014,11 +5027,17 @@ function renderInicioProximosCorpo() {
   `;
 }
 
-function inicioCard(label, valorHtml) {
+// Cartão de número do Início — ícone opcional à esquerda, rótulo em caixa
+// alta e o valor grande. (Antes reaproveitava .financeiro-resumo-card, que é
+// centralizado e compartilhado com o Financeiro; agora é próprio do Início.)
+function inicioCard(label, valorHtml, icone) {
   return `
-    <div class="financeiro-resumo-card">
-      <div class="financeiro-resumo-label">${label}</div>
-      <div>${valorHtml}</div>
+    <div class="inicio-kpi${icone ? '' : ' inicio-kpi-sem-icone'}">
+      ${icone ? `<span class="inicio-kpi-icone">${iconeSvgHtml(icone)}</span>` : ''}
+      <div class="inicio-kpi-textos">
+        <div class="inicio-kpi-rotulo">${label}</div>
+        <div class="inicio-kpi-valor">${valorHtml}</div>
+      </div>
     </div>
   `;
 }
@@ -5037,18 +5056,16 @@ async function renderInicio() {
   agendamentosAtuais = proximos;
   inicioProximosAtuais = proximos;
 
-  let html = `
-    <div class="inicio-cabecalho">
-      <h2 id="inicio-saudacao">${textoSaudacao()}</h2>
-      <button class="btn-novo-agendamento" id="btn-inicio-novo-agendamento">+ Novo agendamento</button>
-    </div>
+  const textoProximo = proximos.length ? ` · Próximo atendimento às ${formatarHora(proximos[0].data_hora)}` : '';
 
+  // Coluna principal: o dia em números + a fila de atendimentos.
+  const principalHtml = `
     <section class="inicio-secao">
       <h3 class="inicio-secao-titulo">Seu dia</h3>
-      <div class="inicio-cards" style="grid-template-columns:repeat(3,1fr)">
-        ${inicioCard('Atendimentos', resumo.atendimentos_hoje)}
-        ${inicioCard('Horários livres', resumo.horarios_livres_hoje)}
-        ${inicioCard('Previsto', `<span class="financeiro-previsto">${formatarPreco(resumo.previsto_hoje)}</span>`)}
+      <div class="inicio-cards inicio-cards-3">
+        ${inicioCard('Atendimentos', resumo.atendimentos_hoje, 'calendar-days')}
+        ${inicioCard('Horários livres', resumo.horarios_livres_hoje, 'clock')}
+        ${inicioCard('Previsto', `<span class="inicio-kpi-previsto">${formatarPreco(resumo.previsto_hoje)}</span>`, 'wallet')}
       </div>
     </section>
 
@@ -5058,21 +5075,8 @@ async function renderInicio() {
     </section>
   `;
 
-  // Atendimento agente Kyvvo — só existe pra tecnologia='ia' (o bot de menu
-  // no n8n não grava conversas_ia); o backend já devolve null nesse caso.
-  if (resumo.atendimento_ia) {
-    html += `
-      <section class="inicio-secao">
-        <h3 class="inicio-secao-titulo">Atendimento agente Kyvvo</h3>
-        <div class="inicio-cards" style="grid-template-columns:repeat(4,1fr)">
-          ${inicioCard('Conversas hoje', resumo.atendimento_ia.conversas_hoje)}
-          ${inicioCard('Não concluíram', resumo.atendimento_ia.nao_concluiram_hoje)}
-          ${inicioCard('Concluídos', resumo.atendimento_ia.concluidos_hoje)}
-          ${inicioCard('Min. economizados', resumo.atendimento_ia.minutos_economizados_hoje)}
-        </div>
-      </section>
-    `;
-  }
+  // Coluna lateral: o que pede ação (oportunidades), o agente e o financeiro.
+  let lateralHtml = '';
 
   // Detalhe por profissional dos horários livres de amanhã (hora cheia) —
   // só mostra a lista quando há mais de 1 profissional (com 1 só, o total
@@ -5082,15 +5086,19 @@ async function renderInicio() {
     ? `<div class="inicio-oportunidade-detalhe">${porProfissionalAmanha.map((p) => `${escapeHtml(p.profissional_nome)}: ${p.livres}`).join(' · ')}</div>`
     : '';
 
-  html += `
+  lateralHtml += `
     <section class="inicio-secao">
       <h3 class="inicio-secao-titulo">Oportunidades</h3>
       <div class="inicio-oportunidade-item">
-        <span>${resumo.oportunidades.clientes_sem_retorno} clientes sem retorno há mais de ${resumo.oportunidades.cliente_inativo_dias} dias</span>
+        <span class="inicio-oportunidade-icone">${iconeSvgHtml('users')}</span>
+        <div class="inicio-oportunidade-texto">
+          <span>${resumo.oportunidades.clientes_sem_retorno} clientes sem retorno há mais de ${resumo.oportunidades.cliente_inativo_dias} dias</span>
+        </div>
         <button class="btn-secundario btn-pequeno" data-acao-atalho-inicio="clientes">Ver clientes</button>
       </div>
       <div class="inicio-oportunidade-item">
-        <div>
+        <span class="inicio-oportunidade-icone">${iconeSvgHtml('calendar-days')}</span>
+        <div class="inicio-oportunidade-texto">
           <span>${resumo.oportunidades.horarios_livres_amanha} horários livres amanhã</span>
           ${detalheHorariosAmanha}
         </div>
@@ -5099,12 +5107,28 @@ async function renderInicio() {
     </section>
   `;
 
+  // Atendimento agente Kyvvo — só existe pra tecnologia='ia' (o bot de menu
+  // no n8n não grava conversas_ia); o backend já devolve null nesse caso.
+  if (resumo.atendimento_ia) {
+    lateralHtml += `
+      <section class="inicio-secao">
+        <h3 class="inicio-secao-titulo">Atendimento agente Kyvvo</h3>
+        <div class="inicio-cards inicio-cards-2">
+          ${inicioCard('Conversas hoje', resumo.atendimento_ia.conversas_hoje)}
+          ${inicioCard('Não concluíram', resumo.atendimento_ia.nao_concluiram_hoje)}
+          ${inicioCard('Concluídos', resumo.atendimento_ia.concluidos_hoje)}
+          ${inicioCard('Min. economizados', resumo.atendimento_ia.minutos_economizados_hoje)}
+        </div>
+      </section>
+    `;
+  }
+
   // Financeiro — só pra quem tem o módulo ativo e pode ver dinheiro (mesma
   // restrição do endpoint /api/inicio/resumo); o backend já devolve null
   // nesse caso, então o resto da tela funciona normalmente sem essa seção.
   if (resumo.financeiro) {
     const variacao = resumo.financeiro.variacao_pct;
-    html += `
+    lateralHtml += `
       <section class="inicio-secao">
         <h3 class="inicio-secao-titulo">Financeiro</h3>
         <div class="inicio-financeiro-mes">
@@ -5116,7 +5140,21 @@ async function renderInicio() {
     `;
   }
 
-  conteudo.innerHTML = html;
+  conteudo.innerHTML = `
+    <div class="inicio-pagina">
+      <div class="inicio-cabecalho">
+        <div class="inicio-cabecalho-textos">
+          <h2 id="inicio-saudacao">${textoSaudacao()}</h2>
+          <p class="inicio-data">${textoDataHoje()}${textoProximo}</p>
+        </div>
+        <button class="btn-novo-agendamento" id="btn-inicio-novo-agendamento">+ Novo agendamento</button>
+      </div>
+      <div class="inicio-layout">
+        <div class="inicio-principal">${principalHtml}</div>
+        <aside class="inicio-lateral">${lateralHtml}</aside>
+      </div>
+    </div>
+  `;
   document.getElementById('btn-inicio-novo-agendamento').addEventListener('click', () => abrirModalNovoAgendamento());
 }
 
