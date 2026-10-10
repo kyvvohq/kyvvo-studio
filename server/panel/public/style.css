@@ -442,7 +442,7 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .badge-variacao-positiva { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
 .badge-variacao-negativa { background: rgba(var(--danger-rgb), 0.15); color: var(--danger); }
 
-/* ---------- Início — duas colunas (principal + lateral) ----------
+/* ---------- Início — faixas (topo | próximos atendimentos | base) ----------
    Tudo escopado em .inicio-pagina: .inicio-cabecalho/.inicio-cards/
    .inicio-secao-titulo também são usados por outras telas (Financeiro,
    Relatórios, Cadastro) e não podem mudar junto. */
@@ -451,20 +451,31 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .inicio-pagina .inicio-cabecalho h2 { font-size: 24px; letter-spacing: -0.01em; }
 .inicio-data { margin: 4px 0 0; font-size: 14px; color: var(--muted-strong); }
 
-.inicio-layout { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 24px; align-items: start; }
-@media (min-width: 1100px) {
-  .inicio-layout { grid-template-columns: minmax(0, 1fr) 400px; }
-}
-.inicio-principal, .inicio-lateral { min-width: 0; }
-
-.inicio-pagina .inicio-secao { margin-bottom: 28px; }
+.inicio-pagina .inicio-secao { margin-bottom: 28px; min-width: 0; }
 .inicio-pagina .inicio-secao-titulo { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 12px; }
+
+/* Faixa do topo: "Seu dia" (3 cartões) + Financeiro ao lado, quando existe. */
+.inicio-faixa { display: grid; gap: 0 24px; align-items: start; }
+/* Topo: Seu dia e Financeiro com a mesma altura de cartão. */
+.inicio-faixa-topo { align-items: stretch; }
+.inicio-faixa-topo > .inicio-secao { display: flex; flex-direction: column; }
+.inicio-faixa-topo .inicio-cards, .inicio-faixa-topo .inicio-financeiro-mes { flex: 1; }
+.inicio-faixa-topo.com-financeiro { grid-template-columns: minmax(0, 1fr) 320px; }
+/* Faixa de baixo: Oportunidades | Agente Kyvvo (sozinha, ocupa a largura toda). */
+.inicio-faixa-base { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+@media (max-width: 900px) {
+  .inicio-faixa-topo.com-financeiro { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .inicio-faixa-base { grid-template-columns: minmax(0, 1fr); }
+}
 
 .inicio-pagina .inicio-cards { gap: 12px; }
 .inicio-cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.inicio-cards-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.inicio-cards-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 640px) {
-  .inicio-pagina .inicio-cards-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inicio-pagina .inicio-cards-3,
+  .inicio-pagina .inicio-cards-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .inicio-pagina .inicio-cards-3 > :last-child { grid-column: 1 / -1; }
 }
 
@@ -497,31 +508,75 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .inicio-kpi-rotulo { grid-area: rotulo; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-strong); }
 .inicio-kpi-valor { grid-area: valor; font-size: 28px; font-weight: 700; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .inicio-kpi-previsto { color: var(--accent-strong); }
-.inicio-cards-2 .inicio-kpi-valor { font-size: 24px; }
-
-/* Próximos atendimentos: hora em destaque + cliente/serviço empilhados. */
-.inicio-pagina .inicio-atendimento-item { border-radius: 12px; padding: 12px 14px; }
-.inicio-pagina .inicio-atendimento-info {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 12px;
-  row-gap: 1px;
-  align-items: center;
-  flex: 1;
-  min-width: 0;
+@media (max-width: 640px) {
+  .inicio-pagina .inicio-cabecalho { flex-wrap: wrap; }
+  .inicio-pagina .inicio-cabecalho h2 { font-size: 22px; }
+  .inicio-kpi-rotulo { font-size: 11px; letter-spacing: 0.02em; }
 }
-.inicio-pagina .inicio-atendimento-info strong {
-  grid-row: 1 / span 2;
-  padding: 7px 10px;
-  border-radius: 8px;
-  background: var(--accent-tint);
+
+/* Financeiro (ao lado de "Seu dia"): mesma altura dos cartões vizinhos. */
+.inicio-pagina .inicio-financeiro-mes {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 14px 16px 16px;
+  border-radius: 12px;
+}
+.inicio-pagina .inicio-financeiro-mes-valor { font-size: 28px; line-height: 1.1; white-space: nowrap; }
+.inicio-financeiro-mes-rodape { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.inicio-financeiro-mes-rodape .badge { margin-left: 0; }
+
+/* Próximos atendimentos — até 5 colunas (1/5 da largura é o mínimo de cada
+   uma), a partir do 6º profissional quebra pra próxima linha. Em telas
+   estreitas a regra de 900px mais abaixo empilha tudo numa coluna só. */
+.inicio-proximos-colunas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(170px, calc((100% - 48px) / 5)), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.inicio-pagina .inicio-proximos-coluna-titulo {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inicio-pagina .inicio-atendimentos-lista { gap: 8px; }
+
+.inicio-pagina .inicio-atendimento-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px 11px;
+  border-radius: 12px;
+}
+.inicio-atendimento-topo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-bottom: 4px; }
+.inicio-atendimento-topo .inicio-status { justify-self: start; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.inicio-atendimento-topo .ds-acoes { margin-right: -4px; }
+.inicio-pagina .inicio-atendimento-hora {
   color: var(--accent-strong);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
-.inicio-pagina .inicio-atendimento-info > span:nth-child(2) { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inicio-pagina .inicio-atendimento-servico { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inicio-pagina .inicio-proximos-coluna-titulo { color: var(--text); font-weight: 700; margin-bottom: 10px; }
+.inicio-atendimento-cliente { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inicio-pagina .inicio-atendimento-servico { font-size: 13px; color: var(--muted-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Pílula de status do atendimento (cor + rótulo escrito). */
+.inicio-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 100px; font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; }
+.inicio-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.inicio-status-ok { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
+.inicio-status-aviso { background: rgba(var(--warning-rgb), 0.18); color: var(--warning-text); }
+.inicio-status-erro { background: rgba(var(--danger-rgb), 0.15); color: var(--danger); }
+.inicio-status-neutro { background: var(--surface-muted); color: var(--muted-strong); }
 
 /* Estado vazio dentro de uma seção do Início (cartão, não texto solto). */
 .inicio-pagina .inicio-secao .vazio {
@@ -559,15 +614,6 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 .inicio-oportunidade-icone svg { width: 18px; height: 18px; }
 .inicio-oportunidade-texto { flex: 1 1 140px; min-width: 0; line-height: 1.4; }
-
-.inicio-pagina .inicio-financeiro-mes { border-radius: 12px; padding: 16px; }
-.inicio-pagina .inicio-financeiro-mes-valor { font-size: 26px; }
-
-@media (max-width: 640px) {
-  .inicio-pagina .inicio-cabecalho { flex-wrap: wrap; }
-  .inicio-pagina .inicio-cabecalho h2 { font-size: 22px; }
-  .inicio-kpi-rotulo { font-size: 11px; letter-spacing: 0.02em; }
-}
 
 /* ---------- US56 — Onboarding guiado (tela "Primeiros passos") ---------- */
 .onboarding-cabecalho { margin-bottom: 20px; }

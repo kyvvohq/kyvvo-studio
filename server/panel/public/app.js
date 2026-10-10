@@ -1859,6 +1859,16 @@ document.addEventListener('ds-acoes-escolher', (e) => {
   // Cards compactos da Agenda (visões Semana e Mês, componente .agenda-card-s
   // do DS — Dia continua com o menu local .menu-acoes/data-acoes-toggle, não
   // faz parte desta migração).
+  // Menu "⋯" dos Próximos atendimentos do Início (Ver cliente / Conversa).
+  if (caixa.dataset.inicioAgendamentoId) {
+    const ag = inicioProximosAtuais.find((x) => x.id === caixa.dataset.inicioAgendamentoId);
+    if (!ag) return;
+    if (acao === 'perfil') abrirModalClienteDetalhe(ag.cliente_id);
+    // Telefone já normalizado com DDI 55, formato que o wa.me espera.
+    else if (acao === 'conversa' && ag.cliente_telefone) window.open(`https://wa.me/${ag.cliente_telefone}`, '_blank');
+    return;
+  }
+
   if (caixa.dataset.agendamentoId) {
     const ag = agendamentosAtuais.find((a) => a.id === caixa.dataset.agendamentoId);
     if (!ag) return;
@@ -1966,16 +1976,6 @@ conteudo.addEventListener('click', (e) => {
   const atalhoInicioBtn = e.target.closest('[data-acao-atalho-inicio]');
   if (atalhoInicioBtn) {
     selecionarMenu(atalhoInicioBtn.dataset.acaoAtalhoInicio);
-    return;
-  }
-
-  // "Conversa" na lista de Próximos atendimentos do Início — abre o
-  // WhatsApp direto com o número do cliente (telefone já normalizado com
-  // DDI 55, formato que o wa.me espera).
-  const conversaInicioBtn = e.target.closest('[data-acao-inicio-conversa]');
-  if (conversaInicioBtn) {
-    const telefone = conversaInicioBtn.dataset.acaoInicioConversa;
-    if (telefone) window.open(`https://wa.me/${telefone}`, '_blank');
     return;
   }
 
@@ -4975,18 +4975,39 @@ function textoDataHoje() {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+// Status do atendimento no Início: verde = confirmado/concluído, amarelo = a
+// confirmar, vermelho = faltou/cancelou (a cor sozinha não basta — o rótulo
+// vai escrito dentro da pílula).
+const STATUS_INICIO = {
+  confirmado: { rotulo: 'Confirmado', classe: 'inicio-status-ok' },
+  concluido: { rotulo: 'Concluído', classe: 'inicio-status-ok' },
+  a_confirmar: { rotulo: 'A confirmar', classe: 'inicio-status-aviso' },
+  falta: { rotulo: 'Faltou', classe: 'inicio-status-erro' },
+  cancelado: { rotulo: 'Cancelado', classe: 'inicio-status-erro' },
+  reagendado: { rotulo: 'Reagendado', classe: 'inicio-status-neutro' },
+};
+
+// Menu "⋯" do atendimento (componente .ds-acoes do DS) — "Ver cliente" abre o
+// cadastro, "Conversa" abre o WhatsApp. Tratado em ds-acoes-escolher
+// (data-inicio-agendamento-id).
 function renderInicioAtendimentoItem(ag) {
+  const status = STATUS_INICIO[ag.status] || { rotulo: ag.status || '—', classe: 'inicio-status-neutro' };
+  const nome = ag.cliente || ag.cliente_telefone || '';
   return `
     <div class="inicio-atendimento-item" data-id="${ag.id}">
-      <div class="inicio-atendimento-info">
-        <strong>${formatarHora(ag.data_hora)}</strong>
-        <span>${ag.cliente || ag.cliente_telefone}</span>
-        <span class="inicio-atendimento-servico">${ag.servico}</span>
+      <div class="inicio-atendimento-topo">
+        <strong class="inicio-atendimento-hora">${formatarHora(ag.data_hora)}</strong>
+        <span class="inicio-status ${status.classe}">${status.rotulo}</span>
+        <span class="ds-acoes" data-inicio-agendamento-id="${ag.id}">
+          <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações do atendimento">⋯</button>
+          <div class="ds-acoes-menu" role="menu" hidden>
+            <button type="button" role="menuitem" class="ds-acoes-item" data-acao="perfil">${iconeSvgHtml('users')} Ver cliente</button>
+            ${ag.cliente_telefone ? `<button type="button" role="menuitem" class="ds-acoes-item" data-acao="conversa">${iconeSvgHtml('message-circle')} Conversa no WhatsApp</button>` : ''}
+          </div>
+        </span>
       </div>
-      <div class="inicio-atendimento-acoes">
-        <button class="btn-secundario btn-pequeno" data-cliente-id="${ag.cliente_id}">Cliente</button>
-        <button class="btn-secundario btn-pequeno" data-acao-inicio-conversa="${ag.cliente_telefone}">Conversa</button>
-      </div>
+      <div class="inicio-atendimento-cliente" title="${escapeHtml(nome)}">${escapeHtml(nome)}</div>
+      <div class="inicio-atendimento-servico" title="${escapeHtml(ag.servico || '')}">${escapeHtml(ag.servico || '')}</div>
     </div>
   `;
 }
@@ -4995,8 +5016,9 @@ function renderInicioAtendimentoItem(ag) {
 // explícito 2026-09-17 — antes era uma lista única paginada, sem separar
 // por quem vai atender). `inicioProximosAtuais` já vem ordenado por
 // data_hora (mesma ordem da API de agendamentos), então só agrupar e cortar
-// nos 3 primeiros de cada profissional preserva "os PRÓXIMOS 3". As colunas
-// quebram sozinhas (auto-fit) quando a coluna principal do Início é estreita.
+// nos 3 primeiros de cada profissional preserva "os PRÓXIMOS 3". Até 5
+// colunas por linha (a largura mínima de cada uma é 1/5 do espaço — ver
+// .inicio-proximos-colunas no CSS); a partir do 6º profissional quebra linha.
 function renderInicioProximosCorpo() {
   if (!inicioProximosAtuais.length) {
     return `<div class="vazio"><span class="vazio-icone">${iconeSvgHtml('calendar-days')}</span><span>Nenhum agendamento para o restante de hoje.</span></div>`;
@@ -5014,7 +5036,7 @@ function renderInicioProximosCorpo() {
   const colunas = [...colunasPorProfissional.values()];
 
   return `
-    <div class="inicio-proximos-colunas" style="grid-template-columns:repeat(auto-fit,minmax(250px,1fr))">
+    <div class="inicio-proximos-colunas">
       ${colunas.map((coluna) => `
         <div class="inicio-proximos-coluna">
           <div class="inicio-proximos-coluna-titulo">${escapeHtml(coluna.nome)}</div>
@@ -5058,25 +5080,25 @@ async function renderInicio() {
 
   const textoProximo = proximos.length ? ` · Próximo atendimento às ${formatarHora(proximos[0].data_hora)}` : '';
 
-  // Coluna principal: o dia em números + a fila de atendimentos.
-  const principalHtml = `
-    <section class="inicio-secao">
-      <h3 class="inicio-secao-titulo">Seu dia</h3>
-      <div class="inicio-cards inicio-cards-3">
-        ${inicioCard('Atendimentos', resumo.atendimentos_hoje, 'calendar-days')}
-        ${inicioCard('Horários livres', resumo.horarios_livres_hoje, 'clock')}
-        ${inicioCard('Previsto', `<span class="inicio-kpi-previsto">${formatarPreco(resumo.previsto_hoje)}</span>`, 'wallet')}
-      </div>
-    </section>
-
-    <section class="inicio-secao">
-      <h3 class="inicio-secao-titulo">Próximos atendimentos</h3>
-      <div id="inicio-secao-proximos-corpo">${renderInicioProximosCorpo()}</div>
-    </section>
-  `;
-
-  // Coluna lateral: o que pede ação (oportunidades), o agente e o financeiro.
-  let lateralHtml = '';
+  // Financeiro — só pra quem tem o módulo ativo e pode ver dinheiro (mesma
+  // restrição do endpoint /api/inicio/resumo); o backend já devolve null
+  // nesse caso, então o resto da tela funciona normalmente sem essa seção.
+  let financeiroHtml = '';
+  if (resumo.financeiro) {
+    const variacao = resumo.financeiro.variacao_pct;
+    financeiroHtml = `
+      <section class="inicio-secao inicio-secao-financeiro">
+        <h3 class="inicio-secao-titulo">Financeiro</h3>
+        <div class="inicio-financeiro-mes">
+          <span class="financeiro-entrada inicio-financeiro-mes-valor">${formatarPreco(resumo.financeiro.faturado_mes)}</span>
+          <div class="inicio-financeiro-mes-rodape">
+            <span class="inicio-financeiro-mes-legenda">faturado este mês</span>
+            ${variacao != null ? `<span class="badge ${variacao >= 0 ? 'badge-variacao-positiva' : 'badge-variacao-negativa'}">${variacao >= 0 ? '+' : ''}${variacao.toFixed(0)}%</span>` : ''}
+          </div>
+        </div>
+      </section>
+    `;
+  }
 
   // Detalhe por profissional dos horários livres de amanhã (hora cheia) —
   // só mostra a lista quando há mais de 1 profissional (com 1 só, o total
@@ -5086,7 +5108,7 @@ async function renderInicio() {
     ? `<div class="inicio-oportunidade-detalhe">${porProfissionalAmanha.map((p) => `${escapeHtml(p.profissional_nome)}: ${p.livres}`).join(' · ')}</div>`
     : '';
 
-  lateralHtml += `
+  const oportunidadesHtml = `
     <section class="inicio-secao">
       <h3 class="inicio-secao-titulo">Oportunidades</h3>
       <div class="inicio-oportunidade-item">
@@ -5109,37 +5131,20 @@ async function renderInicio() {
 
   // Atendimento agente Kyvvo — só existe pra tecnologia='ia' (o bot de menu
   // no n8n não grava conversas_ia); o backend já devolve null nesse caso.
-  if (resumo.atendimento_ia) {
-    lateralHtml += `
-      <section class="inicio-secao">
-        <h3 class="inicio-secao-titulo">Atendimento agente Kyvvo</h3>
-        <div class="inicio-cards inicio-cards-2">
-          ${inicioCard('Conversas hoje', resumo.atendimento_ia.conversas_hoje)}
-          ${inicioCard('Não concluíram', resumo.atendimento_ia.nao_concluiram_hoje)}
-          ${inicioCard('Concluídos', resumo.atendimento_ia.concluidos_hoje)}
-          ${inicioCard('Min. economizados', resumo.atendimento_ia.minutos_economizados_hoje)}
-        </div>
-      </section>
-    `;
-  }
+  const agenteHtml = resumo.atendimento_ia ? `
+    <section class="inicio-secao">
+      <h3 class="inicio-secao-titulo">Atendimento agente Kyvvo</h3>
+      <div class="inicio-cards inicio-cards-4">
+        ${inicioCard('Conversas hoje', resumo.atendimento_ia.conversas_hoje)}
+        ${inicioCard('Não concluíram', resumo.atendimento_ia.nao_concluiram_hoje)}
+        ${inicioCard('Concluídos', resumo.atendimento_ia.concluidos_hoje)}
+        ${inicioCard('Min. economizados', resumo.atendimento_ia.minutos_economizados_hoje)}
+      </div>
+    </section>
+  ` : '';
 
-  // Financeiro — só pra quem tem o módulo ativo e pode ver dinheiro (mesma
-  // restrição do endpoint /api/inicio/resumo); o backend já devolve null
-  // nesse caso, então o resto da tela funciona normalmente sem essa seção.
-  if (resumo.financeiro) {
-    const variacao = resumo.financeiro.variacao_pct;
-    lateralHtml += `
-      <section class="inicio-secao">
-        <h3 class="inicio-secao-titulo">Financeiro</h3>
-        <div class="inicio-financeiro-mes">
-          <span class="financeiro-entrada inicio-financeiro-mes-valor">${formatarPreco(resumo.financeiro.faturado_mes)}</span>
-          <span class="inicio-financeiro-mes-legenda">faturado este mês</span>
-          ${variacao != null ? `<span class="badge ${variacao >= 0 ? 'badge-variacao-positiva' : 'badge-variacao-negativa'}">${variacao >= 0 ? '+' : ''}${variacao.toFixed(0)}%</span>` : ''}
-        </div>
-      </section>
-    `;
-  }
-
+  // Faixas da tela, de cima pra baixo: [Seu dia | Financeiro], os próximos
+  // atendimentos em até 5 colunas e [Oportunidades | Agente Kyvvo].
   conteudo.innerHTML = `
     <div class="inicio-pagina">
       <div class="inicio-cabecalho">
@@ -5149,9 +5154,27 @@ async function renderInicio() {
         </div>
         <button class="btn-novo-agendamento" id="btn-inicio-novo-agendamento">+ Novo agendamento</button>
       </div>
-      <div class="inicio-layout">
-        <div class="inicio-principal">${principalHtml}</div>
-        <aside class="inicio-lateral">${lateralHtml}</aside>
+
+      <div class="inicio-faixa inicio-faixa-topo${financeiroHtml ? ' com-financeiro' : ''}">
+        <section class="inicio-secao">
+          <h3 class="inicio-secao-titulo">Seu dia</h3>
+          <div class="inicio-cards inicio-cards-3">
+            ${inicioCard('Atendimentos', resumo.atendimentos_hoje, 'calendar-days')}
+            ${inicioCard('Horários livres', resumo.horarios_livres_hoje, 'clock')}
+            ${inicioCard('Previsto', `<span class="inicio-kpi-previsto">${formatarPreco(resumo.previsto_hoje)}</span>`, 'wallet')}
+          </div>
+        </section>
+        ${financeiroHtml}
+      </div>
+
+      <section class="inicio-secao">
+        <h3 class="inicio-secao-titulo">Próximos atendimentos</h3>
+        <div id="inicio-secao-proximos-corpo">${renderInicioProximosCorpo()}</div>
+      </section>
+
+      <div class="inicio-faixa inicio-faixa-base">
+        ${oportunidadesHtml}
+        ${agenteHtml}
       </div>
     </div>
   `;

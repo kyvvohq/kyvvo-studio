@@ -89,22 +89,24 @@ test.describe('Início (dashboard)', () => {
     await expect(page.locator('.vazio')).toHaveText('Nenhum agendamento para o restante de hoje.');
   });
 
-  test('botão "Cliente" abre o cadastro do cliente do atendimento', async ({ page }) => {
+  test('menu ⋯ > "Ver cliente" abre o cadastro do cliente do atendimento', async ({ page }) => {
     await entrarNoPainel(page, {
       dia: [{ id: 'ag1', data_hora: '2026-07-17T16:00:00.000Z', status: 'confirmado', cliente_id: 'c1', cliente: 'Joana', cliente_telefone: '5534999990002', servico: 'Escova', duracao_minutos: 45, preco: '40.00' }],
     });
     await page.route('**/api/clientes/c1', (route) =>
       route.fulfill({ json: { cliente: { id: 'c1', nome: 'Joana', telefone: '5534999990002', data_nascimento: null }, historico: [] } })
     );
-    await page.click('.inicio-atendimento-item[data-id="ag1"] [data-cliente-id="c1"]');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-btn');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-item[data-acao="perfil"]');
     await expect(page.locator('.modal-card h3')).toHaveText('Joana');
   });
 
-  test('botão "Conversa" abre o WhatsApp com o telefone do cliente', async ({ page }) => {
+  test('menu ⋯ > "Conversa no WhatsApp" abre o WhatsApp com o telefone do cliente', async ({ page }) => {
     await entrarNoPainel(page, {
       dia: [{ id: 'ag1', data_hora: '2026-07-17T16:00:00.000Z', status: 'confirmado', cliente_id: 'c1', cliente: 'Joana', cliente_telefone: '5534999990002', servico: 'Escova', duracao_minutos: 45, preco: '40.00' }],
     });
-    await page.click('.inicio-atendimento-item[data-id="ag1"] [data-acao-inicio-conversa]');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-btn');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-item[data-acao="conversa"]');
     const opens = await page.evaluate(() => window.__opens);
     expect(opens).toEqual(['https://wa.me/5534999990002']);
   });
