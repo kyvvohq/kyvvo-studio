@@ -178,6 +178,35 @@ test.describe('Início (dashboard)', () => {
     await expect(secao).toContainText('+12%');
   });
 
+  test('olho oculta e mostra os valores (Previsto, faturado e variação) e lembra a escolha ao recarregar', async ({ page }) => {
+    await entrarNoPainel(page, {
+      dia: [],
+      resumo: { previsto_hoje: 650, financeiro: { faturado_mes: 8420, variacao_pct: 12 } },
+    });
+    const pagina = page.locator('.inicio-pagina');
+    const olho = page.locator('#btn-inicio-olho');
+    await expect(pagina).toContainText('R$ 650,00');
+    await expect(pagina).toContainText('R$ 8420,00');
+    await expect(olho).toHaveAttribute('aria-label', 'Ocultar valores');
+
+    await olho.click();
+    await expect(pagina).not.toContainText('R$ 650,00');
+    await expect(pagina).not.toContainText('R$ 8420,00');
+    await expect(pagina.locator('.badge-variacao-positiva')).toBeHidden();
+    await expect(pagina.locator('.inicio-valor')).toHaveText(['R$ ••••', 'R$ ••••']);
+    await expect(olho).toHaveAttribute('aria-pressed', 'true');
+    await expect(olho).toHaveAttribute('aria-label', 'Mostrar valores');
+
+    // sai da tela e volta: o render do Início relê a preferência salva
+    await page.click('.menu-item[data-menu="agendamento"]');
+    await page.click('.menu-item[data-menu="inicio"]');
+    await expect(page.locator('.inicio-pagina')).not.toContainText('R$ 650,00');
+
+    await page.locator('#btn-inicio-olho').click();
+    await expect(page.locator('.inicio-pagina')).toContainText('R$ 650,00');
+    await expect(page.locator('.badge-variacao-positiva')).toBeVisible();
+  });
+
   test('Seção "Financeiro" some quando o backend manda null (sem módulo ativo ou operador)', async ({ page }) => {
     await entrarNoPainel(page, { dia: [], resumo: { financeiro: null } });
     await expect(page.locator('.inicio-secao', { hasText: 'Financeiro' })).toHaveCount(0);

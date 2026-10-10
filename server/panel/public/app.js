@@ -538,6 +538,8 @@ const gruposMenu = Array.from(document.querySelectorAll('.ds-menu-grupo-botao[da
 // paths ficam aqui e não em cada HTML pra não duplicar; o SVG usa
 // currentColor, então hover/active do .ds-menu-link já pinta o ícone junto.
 const ICON_PATHS = {
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  'eye-off': '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   'layout-dashboard': '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
   'calendar-days': '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/><path d="M16 18h.01"/>',
   scissors: '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
@@ -5064,6 +5066,37 @@ function inicioCard(label, valorHtml, icone) {
   `;
 }
 
+// Olho "ocultar valores" do Início — esconde tudo que é dinheiro (Previsto,
+// Financeiro e a variação). Preferência por navegador (localStorage, com
+// try/catch: modo privado/bloqueado cai pra "visível"). Os valores reais
+// ficam em data-valor; só o texto é trocado, sem refazer as chamadas à API.
+const CHAVE_INICIO_VALORES_OCULTOS = 'kyvvo_inicio_valores_ocultos';
+const TEXTO_VALOR_OCULTO = 'R$ ••••';
+
+function inicioValoresOcultos() {
+  try { return localStorage.getItem(CHAVE_INICIO_VALORES_OCULTOS) === '1'; } catch (_) { return false; }
+}
+
+function inicioValorHtml(texto, classeExtra = '') {
+  return `<span class="inicio-valor ${classeExtra}" data-valor="${escapeHtml(texto)}">${escapeHtml(texto)}</span>`;
+}
+
+function aplicarInicioValoresOcultos(raiz) {
+  const ocultos = inicioValoresOcultos();
+  raiz.classList.toggle('valores-ocultos', ocultos);
+  raiz.querySelectorAll('.inicio-valor').forEach((el) => {
+    el.textContent = ocultos ? TEXTO_VALOR_OCULTO : el.dataset.valor;
+  });
+  raiz.querySelectorAll('[data-inicio-oculta-com-valores]').forEach((el) => { el.hidden = ocultos; });
+  const btn = raiz.querySelector('#btn-inicio-olho');
+  if (btn) {
+    btn.setAttribute('aria-pressed', ocultos ? 'true' : 'false');
+    btn.setAttribute('aria-label', ocultos ? 'Mostrar valores' : 'Ocultar valores');
+    btn.title = ocultos ? 'Mostrar valores' : 'Ocultar valores';
+    btn.innerHTML = iconeSvgHtml(ocultos ? 'eye-off' : 'eye');
+  }
+}
+
 async function renderInicio() {
   conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
   const iso = formatarDataISO(new Date());
@@ -5090,10 +5123,10 @@ async function renderInicio() {
       <section class="inicio-secao inicio-secao-financeiro">
         <h3 class="inicio-secao-titulo">Financeiro</h3>
         <div class="inicio-financeiro-mes">
-          <span class="financeiro-entrada inicio-financeiro-mes-valor">${formatarPreco(resumo.financeiro.faturado_mes)}</span>
+          ${inicioValorHtml(formatarPreco(resumo.financeiro.faturado_mes), 'financeiro-entrada inicio-financeiro-mes-valor')}
           <div class="inicio-financeiro-mes-rodape">
             <span class="inicio-financeiro-mes-legenda">faturado este mês</span>
-            ${variacao != null ? `<span class="badge ${variacao >= 0 ? 'badge-variacao-positiva' : 'badge-variacao-negativa'}">${variacao >= 0 ? '+' : ''}${variacao.toFixed(0)}%</span>` : ''}
+            ${variacao != null ? `<span data-inicio-oculta-com-valores class="badge ${variacao >= 0 ? 'badge-variacao-positiva' : 'badge-variacao-negativa'}">${variacao >= 0 ? '+' : ''}${variacao.toFixed(0)}%</span>` : ''}
           </div>
         </div>
       </section>
@@ -5152,7 +5185,10 @@ async function renderInicio() {
           <h2 id="inicio-saudacao">${textoSaudacao()}</h2>
           <p class="inicio-data">${textoDataHoje()}${textoProximo}</p>
         </div>
-        <button class="btn-novo-agendamento" id="btn-inicio-novo-agendamento">+ Novo agendamento</button>
+        <div class="inicio-cabecalho-acoes">
+          <button type="button" class="inicio-olho" id="btn-inicio-olho"></button>
+          <button class="btn-novo-agendamento" id="btn-inicio-novo-agendamento">+ Novo agendamento</button>
+        </div>
       </div>
 
       <div class="inicio-faixa inicio-faixa-topo${financeiroHtml ? ' com-financeiro' : ''}">
@@ -5161,7 +5197,7 @@ async function renderInicio() {
           <div class="inicio-cards inicio-cards-3">
             ${inicioCard('Atendimentos', resumo.atendimentos_hoje, 'calendar-days')}
             ${inicioCard('Horários livres', resumo.horarios_livres_hoje, 'clock')}
-            ${inicioCard('Previsto', `<span class="inicio-kpi-previsto">${formatarPreco(resumo.previsto_hoje)}</span>`, 'wallet')}
+            ${inicioCard('Previsto', inicioValorHtml(formatarPreco(resumo.previsto_hoje), 'inicio-kpi-previsto'), 'wallet')}
           </div>
         </section>
         ${financeiroHtml}
@@ -5179,6 +5215,12 @@ async function renderInicio() {
     </div>
   `;
   document.getElementById('btn-inicio-novo-agendamento').addEventListener('click', () => abrirModalNovoAgendamento());
+  const paginaInicio = conteudo.querySelector('.inicio-pagina');
+  aplicarInicioValoresOcultos(paginaInicio);
+  document.getElementById('btn-inicio-olho').addEventListener('click', () => {
+    try { localStorage.setItem(CHAVE_INICIO_VALORES_OCULTOS, inicioValoresOcultos() ? '0' : '1'); } catch (_) { /* sem storage: vale só até recarregar */ }
+    aplicarInicioValoresOcultos(paginaInicio);
+  });
 }
 
 // Filtro de coluna/profissional da view Dia — null = "Todos". Client-side:
