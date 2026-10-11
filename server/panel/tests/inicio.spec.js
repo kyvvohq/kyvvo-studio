@@ -89,22 +89,24 @@ test.describe('Início (dashboard)', () => {
     await expect(page.locator('.vazio')).toHaveText('Nenhum agendamento para o restante de hoje.');
   });
 
-  test('botão "Cliente" abre o cadastro do cliente do atendimento', async ({ page }) => {
+  test('menu ⋯ > "Ver cliente" abre o cadastro do cliente do atendimento', async ({ page }) => {
     await entrarNoPainel(page, {
       dia: [{ id: 'ag1', data_hora: '2026-07-17T16:00:00.000Z', status: 'confirmado', cliente_id: 'c1', cliente: 'Joana', cliente_telefone: '5534999990002', servico: 'Escova', duracao_minutos: 45, preco: '40.00' }],
     });
     await page.route('**/api/clientes/c1', (route) =>
       route.fulfill({ json: { cliente: { id: 'c1', nome: 'Joana', telefone: '5534999990002', data_nascimento: null }, historico: [] } })
     );
-    await page.click('.inicio-atendimento-item[data-id="ag1"] [data-cliente-id="c1"]');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-btn');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-item[data-acao="perfil"]');
     await expect(page.locator('.modal-card h3')).toHaveText('Joana');
   });
 
-  test('botão "Conversa" abre o WhatsApp com o telefone do cliente', async ({ page }) => {
+  test('menu ⋯ > "Conversa no WhatsApp" abre o WhatsApp com o telefone do cliente', async ({ page }) => {
     await entrarNoPainel(page, {
       dia: [{ id: 'ag1', data_hora: '2026-07-17T16:00:00.000Z', status: 'confirmado', cliente_id: 'c1', cliente: 'Joana', cliente_telefone: '5534999990002', servico: 'Escova', duracao_minutos: 45, preco: '40.00' }],
     });
-    await page.click('.inicio-atendimento-item[data-id="ag1"] [data-acao-inicio-conversa]');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-btn');
+    await page.click('.inicio-atendimento-item[data-id="ag1"] .ds-acoes-item[data-acao="conversa"]');
     const opens = await page.evaluate(() => window.__opens);
     expect(opens).toEqual(['https://wa.me/5534999990002']);
   });
@@ -174,6 +176,35 @@ test.describe('Início (dashboard)', () => {
     const secao = page.locator('.inicio-secao', { hasText: 'Financeiro' });
     await expect(secao).toContainText('R$ 8420,00');
     await expect(secao).toContainText('+12%');
+  });
+
+  test('olho oculta e mostra os valores (Previsto, faturado e variação) e lembra a escolha ao recarregar', async ({ page }) => {
+    await entrarNoPainel(page, {
+      dia: [],
+      resumo: { previsto_hoje: 650, financeiro: { faturado_mes: 8420, variacao_pct: 12 } },
+    });
+    const pagina = page.locator('.inicio-pagina');
+    const olho = page.locator('#btn-inicio-olho');
+    await expect(pagina).toContainText('R$ 650,00');
+    await expect(pagina).toContainText('R$ 8420,00');
+    await expect(olho).toHaveAttribute('aria-label', 'Ocultar valores');
+
+    await olho.click();
+    await expect(pagina).not.toContainText('R$ 650,00');
+    await expect(pagina).not.toContainText('R$ 8420,00');
+    await expect(pagina.locator('.badge-variacao-positiva')).toBeHidden();
+    await expect(pagina.locator('.inicio-valor')).toHaveText(['R$ ••••', 'R$ ••••']);
+    await expect(olho).toHaveAttribute('aria-pressed', 'true');
+    await expect(olho).toHaveAttribute('aria-label', 'Mostrar valores');
+
+    // sai da tela e volta: o render do Início relê a preferência salva
+    await page.click('.menu-item[data-menu="agendamento"]');
+    await page.click('.menu-item[data-menu="inicio"]');
+    await expect(page.locator('.inicio-pagina')).not.toContainText('R$ 650,00');
+
+    await page.locator('#btn-inicio-olho').click();
+    await expect(page.locator('.inicio-pagina')).toContainText('R$ 650,00');
+    await expect(page.locator('.badge-variacao-positiva')).toBeVisible();
   });
 
   test('Seção "Financeiro" some quando o backend manda null (sem módulo ativo ou operador)', async ({ page }) => {

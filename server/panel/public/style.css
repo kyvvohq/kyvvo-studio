@@ -442,6 +442,179 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .badge-variacao-positiva { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
 .badge-variacao-negativa { background: rgba(var(--danger-rgb), 0.15); color: var(--danger); }
 
+/* ---------- Início — faixas (topo | próximos atendimentos | base) ----------
+   Tudo escopado em .inicio-pagina: .inicio-cabecalho/.inicio-cards/
+   .inicio-secao-titulo também são usados por outras telas (Financeiro,
+   Relatórios, Cadastro) e não podem mudar junto. */
+.inicio-pagina .inicio-cabecalho { align-items: flex-start; margin-bottom: 24px; }
+.inicio-cabecalho-textos { min-width: 0; }
+.inicio-pagina .inicio-cabecalho h2 { font-size: 24px; letter-spacing: -0.01em; }
+.inicio-data { margin: 4px 0 0; font-size: 14px; color: var(--muted-strong); }
+
+.inicio-pagina .inicio-secao { margin-bottom: 28px; min-width: 0; }
+.inicio-pagina .inicio-secao-titulo { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; margin-bottom: 12px; }
+
+/* Faixa do topo: "Seu dia" (3 cartões) + Financeiro ao lado, quando existe. */
+.inicio-faixa { display: grid; gap: 0 24px; align-items: start; }
+/* Topo: Seu dia e Financeiro com a mesma altura de cartão. */
+.inicio-faixa-topo { align-items: stretch; }
+.inicio-faixa-topo > .inicio-secao { display: flex; flex-direction: column; }
+.inicio-faixa-topo .inicio-cards, .inicio-faixa-topo .inicio-financeiro-mes { flex: 1; }
+.inicio-faixa-topo.com-financeiro { grid-template-columns: minmax(0, 1fr) 320px; }
+/* Faixa de baixo: Oportunidades | Agente Kyvvo (sozinha, ocupa a largura toda). */
+.inicio-faixa-base { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+@media (max-width: 900px) {
+  .inicio-faixa-topo.com-financeiro { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 480px) {
+  .inicio-faixa-base { grid-template-columns: minmax(0, 1fr); }
+}
+
+.inicio-pagina .inicio-cards { gap: 12px; }
+.inicio-cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.inicio-cards-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) {
+  .inicio-pagina .inicio-cards-3,
+  .inicio-pagina .inicio-cards-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .inicio-pagina .inicio-cards-3 > :last-child { grid-column: 1 / -1; }
+}
+
+.inicio-kpi {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "icone rotulo" "valor valor";
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 8px;
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+}
+.inicio-kpi-sem-icone { grid-template-columns: minmax(0, 1fr); grid-template-areas: "rotulo" "valor"; row-gap: 4px; }
+.inicio-kpi-textos { display: contents; }
+.inicio-kpi-icone {
+  grid-area: icone;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+.inicio-kpi-icone svg { width: 18px; height: 18px; }
+.inicio-kpi-rotulo { grid-area: rotulo; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-strong); }
+.inicio-kpi-valor { grid-area: valor; font-size: 28px; font-weight: 700; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inicio-kpi-previsto { color: var(--accent-strong); }
+@media (max-width: 640px) {
+  .inicio-pagina .inicio-cabecalho { flex-wrap: wrap; }
+  .inicio-pagina .inicio-cabecalho h2 { font-size: 22px; }
+  .inicio-kpi-rotulo { font-size: 11px; letter-spacing: 0.02em; }
+}
+
+/* Financeiro (ao lado de "Seu dia"): mesma altura dos cartões vizinhos. */
+.inicio-pagina .inicio-financeiro-mes {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 14px 16px 16px;
+  border-radius: 12px;
+}
+.inicio-pagina .inicio-financeiro-mes-valor { font-size: 28px; line-height: 1.1; white-space: nowrap; }
+.inicio-financeiro-mes-rodape { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.inicio-financeiro-mes-rodape .badge { margin-left: 0; }
+
+/* Próximos atendimentos — até 5 colunas (1/5 da largura é o mínimo de cada
+   uma), a partir do 6º profissional quebra pra próxima linha. Em telas
+   estreitas a regra de 900px mais abaixo empilha tudo numa coluna só. */
+.inicio-proximos-colunas {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(max(170px, calc((100% - 48px) / 5)), 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.inicio-pagina .inicio-proximos-coluna-titulo {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inicio-pagina .inicio-atendimentos-lista { gap: 8px; }
+
+.inicio-pagina .inicio-atendimento-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px 11px;
+  border-radius: 12px;
+}
+.inicio-atendimento-topo { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-bottom: 4px; }
+.inicio-atendimento-topo .inicio-status { justify-self: start; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.inicio-atendimento-topo .ds-acoes { margin-right: -4px; }
+.inicio-pagina .inicio-atendimento-hora {
+  color: var(--accent-strong);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.inicio-atendimento-cliente { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inicio-pagina .inicio-atendimento-servico { font-size: 13px; color: var(--muted-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Pílula de status do atendimento (cor + rótulo escrito). */
+.inicio-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 100px; font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; }
+.inicio-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.inicio-status-ok { background: rgba(var(--success-rgb), 0.15); color: var(--success); }
+.inicio-status-aviso { background: rgba(var(--warning-rgb), 0.18); color: var(--warning-text); }
+.inicio-status-erro { background: rgba(var(--danger-rgb), 0.15); color: var(--danger); }
+.inicio-status-neutro { background: var(--surface-muted); color: var(--muted-strong); }
+
+/* Estado vazio dentro de uma seção do Início (cartão, não texto solto). */
+.inicio-pagina .inicio-secao .vazio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 16px;
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+.vazio-icone {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+.vazio-icone svg { width: 20px; height: 20px; }
+
+/* Oportunidades: ícone + texto + ação (a ação quebra pra baixo se faltar espaço). */
+.inicio-pagina .inicio-oportunidade-item { border-radius: 12px; padding: 14px; margin-bottom: 10px; gap: 12px; }
+.inicio-oportunidade-icone {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+.inicio-oportunidade-icone svg { width: 18px; height: 18px; }
+.inicio-oportunidade-texto { flex: 1 1 140px; min-width: 0; line-height: 1.4; }
+
 /* ---------- US56 — Onboarding guiado (tela "Primeiros passos") ---------- */
 .onboarding-cabecalho { margin-bottom: 20px; }
 .onboarding-cabecalho h2 { font-size: 20px; margin-bottom: 6px; }
@@ -3346,3 +3519,22 @@ button.loading::after {
 .ds-pilha-conversas { display: flex; flex-direction: column; gap: var(--space-3); }
 .whatsapp-bloco { margin-bottom: var(--space-6); }
 .whatsapp-bloco-titulo { font-size: 15px; font-weight: 700; color: var(--text); margin: 0 0 var(--space-3); }
+
+/* Início — olho "ocultar valores" (fica ao lado de "+ Novo agendamento") */
+.inicio-cabecalho-acoes { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.inicio-cabecalho-acoes .btn-novo-agendamento { margin: 0; }
+.inicio-olho {
+  width: 38px; height: 38px; margin: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface-muted); color: var(--muted-strong);
+  border: 1px solid var(--border-strong); border-radius: 8px; cursor: pointer;
+  box-shadow: none; transition: background .15s, color .15s;
+}
+.inicio-olho:hover { background: var(--surface-hover); color: var(--text); }
+.inicio-olho:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.inicio-olho svg { width: 18px; height: 18px; }
+.inicio-pagina.valores-ocultos .inicio-valor { letter-spacing: 0.04em; color: var(--muted-strong); }
+@media (max-width: 520px) {
+  .inicio-pagina .inicio-cabecalho { flex-wrap: wrap; }
+}
+[data-inicio-oculta-com-valores][hidden] { display: none !important; }
