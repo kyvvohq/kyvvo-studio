@@ -538,6 +538,7 @@ const gruposMenu = Array.from(document.querySelectorAll('.ds-menu-grupo-botao[da
 // paths ficam aqui e não em cada HTML pra não duplicar; o SVG usa
 // currentColor, então hover/active do .ds-menu-link já pinta o ícone junto.
 const ICON_PATHS = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   'eye-off': '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   'layout-dashboard': '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
@@ -1868,6 +1869,16 @@ document.addEventListener('ds-acoes-escolher', (e) => {
     if (acao === 'perfil') abrirModalClienteDetalhe(ag.cliente_id);
     // Telefone já normalizado com DDI 55, formato que o wa.me espera.
     else if (acao === 'conversa' && ag.cliente_telefone) window.open(`https://wa.me/${ag.cliente_telefone}`, '_blank');
+    return;
+  }
+
+  // Menu ⋯ das linhas de Automações (Editar / Duplicar / Excluir).
+  if (caixa.dataset.automacaoId) {
+    const automacao = automacoesAtuais.find((x) => x.id === caixa.dataset.automacaoId);
+    if (!automacao) return;
+    if (acao === 'editar') abrirModalAutomacao(automacao);
+    else if (acao === 'duplicar') duplicarAutomacao(automacao.id);
+    else if (acao === 'excluir') abrirModalExcluirAutomacao(automacao);
     return;
   }
 
@@ -7123,6 +7134,7 @@ const AUTOMACAO_GATILHOS_ORDEM = Object.keys(AUTOMACAO_GATILHO_CURTO);
 let automacoesFiltroGatilho = '';
 let automacoesTemplatesCache = [];
 let automacoesAbaAtiva = 'lista';
+let automacoesAtuais = [];
 
 // Relatório de disparos do próprio tenant (pedido do Bruno, 2026-09-20) —
 // mesmos rótulos/status do log que o admin da Kyvvo já vê, só filtrado pro
@@ -7233,30 +7245,52 @@ async function renderAutomacoes() {
     ? automacoesLista.filter((a) => a.gatilho === automacoesFiltroGatilho)
     : automacoesLista;
 
+  automacoesAtuais = automacoesLista;
+
+  // Mesmo layout das telas de Automações de People e CRM: cabeçalho do DS com
+  // o botão à direita, filtro no topo da tabela, colunas Nome / Gatilho /
+  // Modelo / Ativa e o menu ⋯ (Editar / Duplicar / Excluir) em cada linha.
+  const rotuloSwitch = (a) => `${a.ativo ? 'Pausar' : 'Ativar'} ${escapeHtml(a.nome)}`;
   const linha = (a) => `
-    <tr data-automacao="${a.id}">
-      <td class="col-nome">${escapeHtml(a.nome)}${a.whatsapp_template ? '' : ' <span class="badge-sem-modelo" title="Escolha um modelo aprovado pra esta automação disparar">sem modelo</span>'}</td>
-      <td class="col-contexto">${AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho}</td>
-      <td>
+    <div class="ds-tabela-linha" role="row" data-automacao="${a.id}">
+      <span role="cell"><span class="ds-tabela-primario">${escapeHtml(a.nome)}</span></span>
+      <span role="cell" class="ds-tabela-mudo" data-rotulo="Gatilho">${escapeHtml(AUTOMACAO_GATILHO_CURTO[a.gatilho] || a.gatilho)}</span>
+      <span role="cell" data-rotulo="Modelo">${a.whatsapp_template
+        ? `<span class="ds-tabela-primario">${escapeHtml(a.whatsapp_template)}</span>`
+        : '<span class="ds-badge ds-badge-aviso ds-badge-sm" title="Escolha um modelo aprovado pra esta automação disparar">Sem modelo</span>'}</span>
+      <span role="cell" data-rotulo="Ativa">
         ${a.removivel
-          ? `<label class="toggle-linha"><span class="toggle-switch">
-               <input type="checkbox" class="auto-toggle" ${a.ativo ? 'checked' : ''}>
-               <span class="toggle-switch-trilho"></span>
-             </span></label>`
-          : '<span class="badge-obrigatoria">Obrigatória — sempre ativa</span>'}
-      </td>
-      <td>
-        <div class="automacoes-acoes">
-          <button type="button" data-auto-editar="${a.id}">Editar</button>
-          <button type="button" data-auto-duplicar="${a.id}">Duplicar</button>
-          ${a.removivel ? `<button type="button" class="perigo" data-auto-excluir="${a.id}">Excluir</button>` : ''}
+          ? `<label class="ds-switch"><input type="checkbox" role="switch" class="auto-toggle" aria-label="${rotuloSwitch(a)}" ${a.ativo ? 'checked' : ''}><span class="ds-switch-trilho"></span></label>`
+          : '<span class="ds-badge ds-badge-info ds-badge-sm" title="Automação obrigatória — não pode ser desativada nem excluída">Sempre ativa</span>'}
+      </span>
+      <span role="cell" class="ds-tabela-acoes">
+        <div class="ds-acoes" data-automacao-id="${a.id}">
+          <button type="button" class="ds-acoes-btn" aria-haspopup="menu" aria-expanded="false" aria-label="Ações de ${escapeHtml(a.nome)}">⋯</button>
+          <div class="ds-acoes-menu" role="menu" hidden>
+            <button type="button" class="ds-acoes-item" role="menuitem" data-acao="editar">Editar</button>
+            <button type="button" class="ds-acoes-item" role="menuitem" data-acao="duplicar">Duplicar</button>
+            ${a.removivel ? '<button type="button" class="ds-acoes-item ds-acoes-item-perigo" role="menuitem" data-acao="excluir">Excluir</button>' : ''}
+          </div>
         </div>
-      </td>
-    </tr>`;
+      </span>
+    </div>`;
+
+  const corpoLista = !automacoesLista.length
+    ? '<div class="ds-vazio"><p class="ds-vazio-titulo">Nenhuma automação configurada ainda</p><p class="ds-vazio-texto">Crie a primeira para avisar seus clientes automaticamente pelo WhatsApp.</p></div>'
+    : filtrados.length
+      ? filtrados.map(linha).join('')
+      : '<div class="ds-vazio"><p class="ds-vazio-titulo">Nenhuma automação encontrada</p><p class="ds-vazio-texto">Ajuste o filtro ou crie uma nova automação.</p></div>';
 
   conteudo.innerHTML = `
-    <div class="automacoes-cabecalho">
-      <h1>Automações</h1>
+    <div class="automacoes-pagina">
+    <div class="ds-pagina-cab">
+      <div class="ds-pagina-cab-texto">
+        <h1 class="ds-pagina-cab-titulo">Automações</h1>
+        <p class="ds-pagina-cab-sub">Mensagens automáticas enviadas pelo WhatsApp no fluxo de agendamentos e clientes.</p>
+      </div>
+      <div class="ds-pagina-cab-acoes">
+        <button type="button" class="ds-btn ds-btn-primario" id="btn-nova-automacao">${iconeSvgHtml('plus')}Nova automação</button>
+      </div>
     </div>
     <div class="ds-abas" data-ds-abas>
       <div class="ds-abas-lista">
@@ -7265,26 +7299,30 @@ async function renderAutomacoes() {
       </div>
       <div class="ds-abas-painel" id="painel-automacoes-lista" aria-labelledby="aba-automacoes-lista" ${automacoesAbaAtiva === 'lista' ? '' : 'hidden'}>
         ${aviso}
-        <div class="automacoes-card">
-          <div class="automacoes-filtros">
-            <select id="filtro-gatilho-auto">
-              <option value="">Todos os gatilhos</option>
-              ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
-            </select>
-            <button class="btn-novo-agendamento" id="btn-nova-automacao">+ Nova automação</button>
+        <div class="ds-tabela" role="table" aria-label="Automações" style="--ds-colunas: minmax(0,1.8fr) minmax(0,1.7fr) minmax(0,1fr) 110px 48px">
+          <div class="ds-filtros">
+            <div class="ds-select">
+              <select id="filtro-gatilho-auto" aria-label="Filtrar por gatilho">
+                <option value="">Todos os gatilhos</option>
+                ${AUTOMACAO_GATILHOS_ORDEM.map((g) => `<option value="${g}" ${automacoesFiltroGatilho === g ? 'selected' : ''}>${AUTOMACAO_GATILHO_CURTO[g]}</option>`).join('')}
+              </select>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
           </div>
-          ${filtrados.length ? `
-            <div class="tabela-wrapper" style="margin-bottom:0">
-              <table class="tabela-automacoes">
-                <thead><tr><th>Nome</th><th>Gatilho</th><th>Ativa</th><th></th></tr></thead>
-                <tbody>${filtrados.map(linha).join('')}</tbody>
-              </table>
-            </div>` : '<div class="automacoes-vazio">Nenhuma automação neste filtro.</div>'}
+          <div class="ds-tabela-cabecalho" role="row">
+            <span role="columnheader">Nome</span>
+            <span role="columnheader">Gatilho</span>
+            <span role="columnheader">Modelo</span>
+            <span role="columnheader">Ativa</span>
+            <span role="columnheader"><span class="sr-only-automacoes">Ações</span></span>
+          </div>
+          <div id="lista-automacoes">${corpoLista}</div>
         </div>
       </div>
       <div class="ds-abas-painel" id="painel-automacoes-disparos" aria-labelledby="aba-automacoes-disparos" ${automacoesAbaAtiva === 'disparos' ? '' : 'hidden'}>
         ${renderAbaDisparos(dadosDisparos)}
       </div>
+    </div>
     </div>
   `;
 
@@ -7301,26 +7339,23 @@ async function renderAutomacoes() {
     renderAutomacoes();
   });
 
-  conteudo.querySelectorAll('tr[data-automacao]').forEach((tr) => {
-    const id = tr.dataset.automacao;
-    const a = automacoesLista.find((x) => x.id === id);
-    const toggle = tr.querySelector('.auto-toggle');
-    if (toggle) {
-      toggle.addEventListener('change', async (e) => {
-        const r = await api(`/api/automacoes/${id}`, { method: 'PATCH', body: JSON.stringify({ ativo: e.target.checked }) });
-        if (!r || r.error) { mostrarToast((r && r.error) || 'Não salvou.', 'erro'); e.target.checked = !e.target.checked; }
-        else mostrarToast(e.target.checked ? 'Automação ativada.' : 'Automação desativada.');
-      });
-    }
-    tr.querySelector('[data-auto-editar]').addEventListener('click', () => abrirModalAutomacao(a));
-    tr.querySelector('[data-auto-duplicar]').addEventListener('click', async () => {
-      const r = await api(`/api/automacoes/${id}/duplicar`, { method: 'POST' });
-      if (!r || r.error) mostrarToast((r && r.error) || 'Não deu pra duplicar.', 'erro');
-      else { mostrarToast('Automação duplicada (desativada).'); renderAutomacoes(); }
+  conteudo.querySelectorAll('.ds-tabela-linha[data-automacao]').forEach((linhaEl) => {
+    const id = linhaEl.dataset.automacao;
+    const toggle = linhaEl.querySelector('.auto-toggle');
+    if (!toggle) return;
+    toggle.addEventListener('change', async (e) => {
+      const r = await api(`/api/automacoes/${id}`, { method: 'PATCH', body: JSON.stringify({ ativo: e.target.checked }) });
+      if (!r || r.error) { mostrarToast((r && r.error) || 'Não salvou.', 'erro'); e.target.checked = !e.target.checked; }
+      else mostrarToast(e.target.checked ? 'Automação ativada.' : 'Automação desativada.');
     });
-    const btnExcluir = tr.querySelector('[data-auto-excluir]');
-    if (btnExcluir) btnExcluir.addEventListener('click', () => abrirModalExcluirAutomacao(a));
   });
+}
+
+// Menu ⋯ de cada linha (tratado no listener global ds-acoes-escolher).
+async function duplicarAutomacao(id) {
+  const r = await api(`/api/automacoes/${id}/duplicar`, { method: 'POST' });
+  if (!r || r.error) mostrarToast((r && r.error) || 'Não deu pra duplicar.', 'erro');
+  else { mostrarToast('Automação duplicada (desativada).'); renderAutomacoes(); }
 }
 
 function abrirModalAutomacao(automacao) {
