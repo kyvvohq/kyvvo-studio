@@ -3538,3 +3538,15 @@ button.loading::after {
   .inicio-pagina .inicio-cabecalho { flex-wrap: wrap; }
 }
 [data-inicio-oculta-com-valores][hidden] { display: none !important; }
+
+/* Automações — mesmo layout de People/CRM (componentes do DS). O style.css do
+   Studio tem `button {width:100%; margin-top:24px}` e `label`/`select` globais
+   pensados pra formulário; aqui os componentes do DS precisam do tamanho
+   natural deles. */
+.automacoes-pagina .ds-btn { width: auto; margin: 0; }
+.automacoes-pagina .ds-acoes-btn { width: auto; margin: 0; }
+.automacoes-pagina .ds-switch { margin: 0; }
+.automacoes-pagina .ds-switch input { width: 100%; height: 100%; padding: 0; margin: 0; }
+.automacoes-pagina .ds-select select { margin: 0; width: 100%; }
+.automacoes-pagina .ds-aba { width: auto; margin-top: 0; }
+.sr-only-automacoes { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
