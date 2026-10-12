@@ -9,6 +9,13 @@ on:
       - 'server/.npmrc'
       - 'server/public-studio/**'
       - 'server/panel/**'
+      # Faltava — um push só com migration (server/db/**, sem tocar em
+      # server/panel/**) não disparava o workflow nem aqui no topo nem no
+      # filtro `panel:` abaixo (achado 2026-10-12: migration 091 mergeada
+      # em main, push pra release, nenhum run disparou — só não quebrou
+      # nada porque o PATCH /api/configuracoes/crm/sistema continuava
+      # dependendo da migration mesmo, então o erro ficou visível).
+      - 'server/db/**'
   workflow_dispatch:
 
 jobs:
@@ -30,6 +37,10 @@ jobs:
               - 'server/public-studio/**'
             panel:
               - 'server/panel/**'
+              # deploy-panel é quem copia server/db/** e roda
+              # aplicar-migrations.js — migration sem mudança em
+              # server/panel/** precisa disparar esse job do mesmo jeito.
+              - 'server/db/**'
 
   deploy-landing:
     needs: changes
