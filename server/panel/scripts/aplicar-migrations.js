@@ -54,6 +54,11 @@ async function main() {
     .sort();
 
   const client = new Client({ connectionString: databaseUrl });
+  // RAISE NOTICE (ex.: contagem de linhas afetadas numa migration de dado)
+  // não aparece em lugar nenhum por padrão no node-postgres — só este
+  // listener manda pro stdout, que é o único jeito de ver esse número no
+  // log do deploy sem acesso direto ao Postgres de produção.
+  client.on('notice', (msg) => console.log(`[migrations] notice: ${msg.message}`));
   await client.connect();
   try {
     await client.query(`
