@@ -227,9 +227,9 @@ async function start() {
   // padrão do /admin/tenants/:id acima: sem arquivo físico, sem auth aqui
   // (client-side, igual todo o resto do painel).
   const ROTAS_PAINEL_TENANT = [
-    // /servicos, /profissionais e /bloqueios viraram abas de /cadastro
-    // (Config > Cadastro) mas seguem registrados: o app.js os trata como
-    // deep link pra aba correspondente.
+    // /servicos, /profissionais, /bloqueios e /equipe viraram abas de
+    // /cadastro (Config > Cadastro) mas seguem registrados: o app.js os
+    // trata como deep link pra aba correspondente.
     '/quadro', '/agenda', '/cadastro', '/servicos', '/profissionais', '/clientes', '/bloqueios',
     '/whatsapp', '/automacoes', '/cobranca', '/perfil', '/empresa', '/equipe',
     '/preferencias', '/ajuda',

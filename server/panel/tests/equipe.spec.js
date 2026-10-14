@@ -3,10 +3,15 @@ const { test, expect } = require('@playwright/test');
 // Cobre US62 — convites de equipe com perfis de acesso: tela "Equipe"
 // (listar membros/convites, convidar, desativar/reativar, remover, cancelar
 // convite) e a restrição de itens de menu por perfil (administrador vê tudo,
-// operador só o operacional). As chamadas de API são mockadas via
-// page.route — sem dependência de Postgres real.
+// operador só o operacional). Equipe mudou de lugar (2026-10-14): saiu do
+// menu do usuário e virou aba de Configurações > Cadastro, junto de
+// Serviços/Profissionais/Bloqueio de agenda — e passou a exigir plano
+// Smart ou Smart Plus (chaves `professional`/`enterprise`), não mais o
+// plano Custom inexistente que deixava a aba escondida pra 100% dos
+// tenants. As chamadas de API são mockadas via page.route — sem
+// dependência de Postgres real.
 
-async function entrarNoPainel(page, { role = 'administrador', membros = [], convites = [] } = {}) {
+async function entrarNoPainel(page, { role = 'administrador', plano = 'professional', membros = [], convites = [] } = {}) {
   await page.route('**/api/configuracao', (route) =>
     route.fulfill({ json: { dias_funcionamento: [1, 2, 3, 4, 5, 6], formato_hora: '24h' } })
   );
@@ -22,9 +27,12 @@ async function entrarNoPainel(page, { role = 'administrador', membros = [], conv
         dias_restantes: null,
         pagamento_pendente: false,
         role,
-        // Equipe agora também é somente-plano-custom (além de somente-admin)
-        // — sem isso ficaria escondida pra administrador também.
-        plano: 'custom',
+        // Aba Equipe exige data-planos="professional,enterprise,custom"
+        // (Smart/Smart Plus — ver server/db/047_planos_eixo_valor.sql, a
+        // `chave` não mudou com o rename pra Smart/Smart Plus) ALÉM de
+        // data-somente-admin — sem um plano permitido aqui, fica escondida
+        // mesmo pra administrador.
+        plano,
         configuracao: { sem_servicos: false, sem_profissionais: false, whatsapp_desconectado: false },
       },
     })
@@ -40,28 +48,31 @@ async function entrarNoPainel(page, { role = 'administrador', membros = [], conv
   await page.goto('/painel.html');
 }
 
+async function abrirTelaEquipe(page, opts) {
+  await entrarNoPainel(page, opts);
+  await page.click('.menu-item[data-menu="cadastro"]');
+  await page.click('#subtabs-cadastro .tab[data-aba-cadastro="equipe"]');
+}
+
 const MEMBRO_ADMIN = { id: 'u1', nome: 'Ana Souza', email: 'ana@salao.com', role: 'administrador', ativo: true, criado_em: '2026-07-01T00:00:00.000Z' };
 const MEMBRO_OPERADOR = { id: 'u2', nome: 'Bruna Lima', email: 'bruna@salao.com', role: 'operador', ativo: true, criado_em: '2026-07-05T00:00:00.000Z' };
 const CONVITE_PENDENTE = { id: 'c1', email: 'joana@salao.com', role: 'operador', status: 'pendente', expires_at: '2026-08-12', criado_em: '2026-08-05' };
 
 test.describe('Restrição de menu por perfil (US62)', () => {
-  test('administrador vê todos os itens restritos', async ({ page }) => {
-    await entrarNoPainel(page, { role: 'administrador' });
-    await page.click('#user-menu-toggle');
-    await expect(page.locator('.user-menu-item[data-menu="equipe"]')).toBeVisible();
-    // Minha Empresa/Cobrança/Preferências saíram do user menu e viraram
-    // submenu de Configurações, na sidebar.
-    await page.click('#menu-config-toggle');
+  test('administrador em plano Smart vê a aba Equipe dentro de Cadastro', async ({ page }) => {
+    await entrarNoPainel(page, { role: 'administrador', plano: 'professional' });
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await expect(page.locator('#subtabs-cadastro .tab[data-aba-cadastro="equipe"]')).toBeVisible();
+    // Minha Empresa/Cobrança/Preferências ficam no submenu de Configurações.
     await expect(page.locator('.menu-item[data-menu="empresa"]')).toBeVisible();
     await expect(page.locator('.menu-item[data-menu="pagamentos"]')).toBeVisible();
     await expect(page.locator('.menu-item[data-menu="configuracao"]')).toBeVisible();
   });
 
-  test('operador não vê itens restritos ao administrador', async ({ page }) => {
-    await entrarNoPainel(page, { role: 'operador' });
-    await page.click('#user-menu-toggle');
-    await expect(page.locator('.user-menu-item[data-menu="equipe"]')).toBeHidden();
-    await page.click('#menu-config-toggle');
+  test('operador não vê a aba Equipe nem itens restritos ao administrador', async ({ page }) => {
+    await entrarNoPainel(page, { role: 'operador', plano: 'professional' });
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await expect(page.locator('#subtabs-cadastro .tab[data-aba-cadastro="equipe"]')).toBeHidden();
     await expect(page.locator('.menu-item[data-menu="empresa"]')).toBeHidden();
     await expect(page.locator('.menu-item[data-menu="pagamentos"]')).toBeHidden();
     await expect(page.locator('.menu-item[data-menu="configuracao"]')).toBeHidden();
@@ -69,13 +80,25 @@ test.describe('Restrição de menu por perfil (US62)', () => {
     await expect(page.locator('.user-menu-item[data-menu="perfil"]')).toBeVisible();
     await expect(page.locator('.menu-item[data-menu="whatsapp"]')).toBeVisible();
   });
+
+  test('administrador em plano Essencial (fora de Smart/Smart Plus) não vê a aba Equipe', async ({ page }) => {
+    await entrarNoPainel(page, { role: 'administrador', plano: 'starter' });
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await expect(page.locator('#subtabs-cadastro .tab[data-aba-cadastro="equipe"]')).toBeHidden();
+    // Serviços continua disponível — só Equipe é restrito por plano.
+    await expect(page.locator('#subtabs-cadastro .tab[data-aba-cadastro="servicos"]')).toBeVisible();
+  });
+
+  test('administrador em plano Smart Plus também vê a aba Equipe', async ({ page }) => {
+    await entrarNoPainel(page, { role: 'administrador', plano: 'enterprise' });
+    await page.click('.menu-item[data-menu="cadastro"]');
+    await expect(page.locator('#subtabs-cadastro .tab[data-aba-cadastro="equipe"]')).toBeVisible();
+  });
 });
 
 test.describe('Tela Equipe — listagem (US62)', () => {
   test('lista membros com perfil e status', async ({ page }) => {
-    await entrarNoPainel(page, { membros: [MEMBRO_ADMIN, MEMBRO_OPERADOR] });
-    await page.click('#user-menu-toggle');
-    await page.click('.user-menu-item[data-menu="equipe"]');
+    await abrirTelaEquipe(page, { membros: [MEMBRO_ADMIN, MEMBRO_OPERADOR] });
 
     const linhas = page.locator('table').first().locator('tbody tr');
     await expect(linhas).toHaveCount(2);
@@ -87,17 +110,13 @@ test.describe('Tela Equipe — listagem (US62)', () => {
   });
 
   test('sem membros e sem convites, mostra mensagens vazias', async ({ page }) => {
-    await entrarNoPainel(page);
-    await page.click('#user-menu-toggle');
-    await page.click('.user-menu-item[data-menu="equipe"]');
+    await abrirTelaEquipe(page);
     await expect(page.locator('#conteudo')).toContainText('Nenhum membro cadastrado.');
     await expect(page.locator('#conteudo')).toContainText('Nenhum convite pendente.');
   });
 
   test('lista convites pendentes com botão de cancelar', async ({ page }) => {
-    await entrarNoPainel(page, { convites: [CONVITE_PENDENTE] });
-    await page.click('#user-menu-toggle');
-    await page.click('.user-menu-item[data-menu="equipe"]');
+    await abrirTelaEquipe(page, { convites: [CONVITE_PENDENTE] });
     await expect(page.locator('#conteudo')).toContainText('joana@salao.com');
     await expect(page.locator('#conteudo')).toContainText('Pendente');
     await expect(page.locator('[data-acao-convite="cancelar"]')).toBeVisible();
@@ -105,12 +124,6 @@ test.describe('Tela Equipe — listagem (US62)', () => {
 });
 
 test.describe('Tela Equipe — convidar membro (US62)', () => {
-  async function abrirTelaEquipe(page, opts) {
-    await entrarNoPainel(page, opts);
-    await page.click('#user-menu-toggle');
-    await page.click('.user-menu-item[data-menu="equipe"]');
-  }
-
   test('convite válido chama a API com e-mail e perfil, e recarrega a lista', async ({ page }) => {
     await abrirTelaEquipe(page);
     let payloadEnviado = null;
@@ -160,12 +173,6 @@ test.describe('Tela Equipe — convidar membro (US62)', () => {
 });
 
 test.describe('Tela Equipe — desativar/reativar/remover (US62)', () => {
-  async function abrirTelaEquipe(page, opts) {
-    await entrarNoPainel(page, opts);
-    await page.click('#user-menu-toggle');
-    await page.click('.user-menu-item[data-menu="equipe"]');
-  }
-
   test('desativar membro ativo chama PATCH com ativo:false', async ({ page }) => {
     await abrirTelaEquipe(page, { membros: [MEMBRO_OPERADOR] });
     let payloadEnviado = null;
