@@ -115,20 +115,19 @@ async function verificarStatusConta() {
     el.hidden = status.role === 'operador';
   });
 
-  // Menu Equipe é exclusivo do plano Kyvvo Custom (chave 'custom' na tabela
-  // planos) — Custom ainda não existe como plano de verdade (só
-  // starter/business/professional/enterprise, ver server/db/045), então
-  // Equipe fica escondido pra todo mundo até esse plano existir de fato,
-  // por design. Também é somente-admin — `el.hidden ||` acumula em vez de
-  // sobrescrever, senão um admin via esse segundo loop reapareceria
+  // Alguns itens só aparecem pra planos específicos — lista de chaves da
+  // tabela `planos` (ver server/db/045_planos_2x2.sql + 047, que troca só o
+  // nome/slug pra Smart/Smart Plus, a `chave` continua professional/
+  // enterprise) separada por vírgula em data-planos. Aba Equipe: liberada
+  // pra Smart/Smart Plus (pedido do Bruno, 2026-10-14) + 'custom' (não
+  // existe como plano de verdade ainda, mas não custa deixar pronta pra
+  // quando existir). Também é somente-admin — `el.hidden ||` acumula em vez
+  // de sobrescrever, senão um admin via esse segundo loop reapareceria
   // escondido pelo primeiro (dois gates independentes têm que combinar com
   // E, nunca um substituir o outro).
-  // Profissionais SAIU desse gate (bug achado 2026-09-11): todo plano real
-  // permite 3+ profissionais (server/db/049_plano_features_limites.sql),
-  // então a aba nunca devia ter sido presa ao plano Custom inexistente — ela
-  // ficava escondida pra 100% dos tenants, sempre.
-  document.querySelectorAll('[data-somente-plano-custom]').forEach((el) => {
-    el.hidden = el.hidden || status.plano !== 'custom';
+  document.querySelectorAll('[data-planos]').forEach((el) => {
+    const permitidos = el.dataset.planos.split(',');
+    el.hidden = el.hidden || !permitidos.includes(status.plano);
   });
 
   renderOutrosProdutos(status.outros_produtos);
@@ -635,7 +634,6 @@ const ROTAS_MENU = {
   pagamentos: '/cobranca',
   perfil: '/perfil',
   empresa: '/empresa',
-  equipe: '/equipe',
   configuracao: '/preferencias',
   ajuda: '/ajuda',
 };
@@ -644,8 +642,8 @@ const CAMINHO_PARA_MENU = Object.fromEntries(Object.entries(ROTAS_MENU).map(([me
 // Abas da tela Cadastro. Cada uma mantém o caminho curto que já existia
 // quando eram itens de menu soltos, pra não quebrar links/bookmarks — o
 // caminho vira deep link pra aba (menuAtual = 'cadastro' + abaCadastro).
-const ABAS_CADASTRO = ['servicos', 'profissionais', 'bloqueios'];
-const CAMINHO_ABA_CADASTRO = { servicos: '/servicos', profissionais: '/profissionais', bloqueios: '/bloqueios' };
+const ABAS_CADASTRO = ['servicos', 'profissionais', 'bloqueios', 'equipe'];
+const CAMINHO_ABA_CADASTRO = { servicos: '/servicos', profissionais: '/profissionais', bloqueios: '/bloqueios', equipe: '/equipe' };
 
 // Módulos (menuAtual = 'modulo:chave', ver render()) não entram no mapa
 // fixo acima — a chave é dinâmica (tenant_modulos), por isso uma regra à
@@ -892,7 +890,7 @@ tabs.forEach((tab) => {
 });
 
 // Marca só a aba ativa da tela Cadastro (as abas escondidas por
-// data-somente-plano-custom continuam escondidas — só nunca ficam "active").
+// data-somente-admin/data-planos continuam escondidas — só nunca ficam "active").
 function sincronizarAbasCadastro() {
   subtabsCadastroEl.querySelectorAll('.tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.abaCadastro === abaCadastro);
@@ -3223,7 +3221,6 @@ async function render() {
   if (menuAtual === 'notificacoes') return renderNotificacoes();
   if (menuAtual === 'perfil') return renderPerfil();
   if (menuAtual === 'empresa') return renderMinhaEmpresa();
-  if (menuAtual === 'equipe') return renderEquipe();
   if (menuAtual === 'whatsapp') return renderWhatsapp();
   if (menuAtual === 'automacoes') return renderAutomacoes();
   // "Ajuda" (user menu, PR11) reaproveita o mesmo placeholder "em breve" já
@@ -3242,19 +3239,21 @@ async function render() {
 }
 
 // ---------- Cadastro (Config > Cadastro) ----------
-// Casca das abas Serviços / Profissionais / Bloqueio de agenda. A barra de
-// abas (#subtabs-cadastro) é fixa no painel.html, como a da Agenda; aqui só
-// delega pro render da aba ativa, que escreve em #conteudo como antes.
+// Casca das abas Serviços / Profissionais / Bloqueio de agenda / Equipe. A
+// barra de abas (#subtabs-cadastro) é fixa no painel.html, como a da
+// Agenda; aqui só delega pro render da aba ativa, que escreve em #conteudo
+// como antes.
 async function renderCadastro() {
   const abaEl = subtabsCadastroEl.querySelector(`.tab[data-aba-cadastro="${abaCadastro}"]`);
-  // Aba escondida (ex.: Profissionais fora do plano Custom) ou valor
-  // inválido → cai em Serviços, que está sempre visível.
+  // Aba escondida (ex.: Equipe fora de operador/fora de Smart-Smart Plus)
+  // ou valor inválido → cai em Serviços, que está sempre visível.
   if (!abaEl || abaEl.hidden) {
     abaCadastro = 'servicos';
     sincronizarAbasCadastro();
   }
   if (abaCadastro === 'profissionais') return renderProfissionais();
   if (abaCadastro === 'bloqueios') return renderBloqueios();
+  if (abaCadastro === 'equipe') return renderEquipe();
   return renderServicos();
 }
 
