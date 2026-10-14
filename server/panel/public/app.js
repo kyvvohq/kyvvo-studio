@@ -6894,7 +6894,6 @@ async function renderWhatsapp() {
     </section>
   `;
 
-  document.getElementById('btn-ver-manual').addEventListener('click', abrirManualWaba);
   if (!status.conectado) {
     document.getElementById('btn-ver-manual').addEventListener('click', abrirManualWaba);
     iniciarConexaoWhatsapp();
