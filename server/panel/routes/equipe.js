@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { EMAIL_REGEX, SENHA_REGEX } = require('../lib/validadores');
 const { enviarEmail } = require('../lib/email');
+const { criarSessaoProfissional, revogarSessoesProfissional } = require('../lib/sessao-profissional');
+
+const ROLES_VALIDOS = ['administrador', 'operador', 'profissional'];
 
 // Rede interna do compose — mesmo default de lib/platform.js.
 const PLATFORM_URL = process.env.PLATFORM_URL || 'http://platform:3003';
@@ -22,7 +25,7 @@ function registerEquipeRoutes(fastify, pool) {
   // Best-effort pelo serviço de e-mail da plataforma (lib/email.js) — sem
   // provedor configurado cai em modo log (dev/homolog).
   async function enviarConviteEmail({ email, tenantNome, convidadoPorNome, link, role }) {
-    const perfilLabel = role === 'administrador' ? 'administrador' : 'operador';
+    const perfilLabel = { administrador: 'administrador', operador: 'operador', profissional: 'profissional' }[role] || 'operador';
 
     if (!process.env.PLATFORM_EMAIL_TOKEN && !process.env.RESEND_API_KEY) {
       console.log(`[equipe] (dev) convite para ${email} (${perfilLabel} de ${tenantNome}) — link: ${link}`);
@@ -87,14 +90,38 @@ function registerEquipeRoutes(fastify, pool) {
 
   fastify.post('/api/equipe/convites', { preHandler: [fastify.authenticate, fastify.requireAdmin] }, async (request, reply) => {
     const { tenantId, userId } = request.user;
-    const { email: emailBruto, role } = request.body || {};
+    const { email: emailBruto, role, profissional_id: profissionalId } = request.body || {};
     const email = (emailBruto || '').toLowerCase().trim();
 
     if (!EMAIL_REGEX.test(email)) {
       return reply.code(400).send({ error: 'Digite um e-mail válido.' });
     }
-    if (!['administrador', 'operador'].includes(role)) {
+    if (!ROLES_VALIDOS.includes(role)) {
       return reply.code(400).send({ error: 'Selecione um perfil de acesso válido.' });
+    }
+    // Acesso de profissional é sempre vinculado a um profissional específico
+    // (1:1 — a FK uq_usuarios_profissional garante só um login por
+    // profissional) e nunca pede senha (ver aceite do convite abaixo).
+    if (role === 'profissional') {
+      if (!profissionalId) {
+        return reply.code(400).send({ error: 'Selecione o profissional vinculado a este convite.' });
+      }
+      const { rows: profRows } = await pool.query(
+        'SELECT id FROM profissionais WHERE id = $1 AND tenant_id = $2',
+        [profissionalId, tenantId],
+      );
+      if (profRows.length === 0) {
+        return reply.code(400).send({ error: 'Profissional não encontrado.' });
+      }
+      const { rows: jaVinculado } = await pool.query(
+        `SELECT 1 FROM usuarios WHERE profissional_id = $1
+         UNION ALL
+         SELECT 1 FROM convites_equipe WHERE profissional_id = $1 AND status = 'pendente'`,
+        [profissionalId],
+      );
+      if (jaVinculado.length > 0) {
+        return reply.code(409).send({ error: 'Este profissional já tem um acesso ou convite pendente.' });
+      }
     }
 
     const { rows: usuarioExistente } = await pool.query('SELECT 1 FROM usuarios WHERE email = $1', [email]);
@@ -123,10 +150,10 @@ function registerEquipeRoutes(fastify, pool) {
         [tenantId, email]
       );
       const { rows } = await client.query(
-        `INSERT INTO convites_equipe (tenant_id, email, role, token, convidado_por, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO convites_equipe (tenant_id, email, role, token, convidado_por, expires_at, profissional_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id, email, role, status, expires_at, criado_em`,
-        [tenantId, email, role, token, userId, expiresAt.toISOString()]
+        [tenantId, email, role, token, userId, expiresAt.toISOString(), role === 'profissional' ? profissionalId : null]
       );
       convite = rows[0];
       await client.query('COMMIT');
@@ -169,8 +196,9 @@ function registerEquipeRoutes(fastify, pool) {
     const { rows } = await pool.query(
       `SELECT c.email, c.role,
               CASE WHEN c.status = 'pendente' AND c.expires_at < now() THEN 'expirado' ELSE c.status END AS status,
-              t.nome AS tenant_nome
+              t.nome AS tenant_nome, p.nome AS profissional_nome
        FROM convites_equipe c JOIN tenants t ON t.id = c.tenant_id
+       LEFT JOIN profissionais p ON p.id = c.profissional_id
        WHERE c.token = $1`,
       [request.params.token]
     );
@@ -188,14 +216,9 @@ function registerEquipeRoutes(fastify, pool) {
     if (nome.length < 2) {
       return reply.code(400).send({ error: 'Informe seu nome.' });
     }
-    if (!SENHA_REGEX.test(senha || '')) {
-      return reply.code(400).send({
-        error: 'A senha deve ter no mínimo 8 caracteres, 1 número e 1 letra maiúscula.',
-      });
-    }
 
     const { rows } = await pool.query(
-      `SELECT id, tenant_id, email, role,
+      `SELECT id, tenant_id, email, role, profissional_id,
               CASE WHEN status = 'pendente' AND expires_at < now() THEN 'expirado' ELSE status END AS status
        FROM convites_equipe WHERE token = $1`,
       [request.params.token]
@@ -213,20 +236,37 @@ function registerEquipeRoutes(fastify, pool) {
       return reply.code(400).send({ error: mensagens[convite.status] || 'Convite inválido.' });
     }
 
+    // Acesso de profissional nunca tem senha — login é só pelo token de
+    // sessão de 90 dias criado abaixo (lib/sessao-profissional.js). Pros
+    // demais perfis, continua exigindo senha como hoje.
+    const ehProfissional = convite.role === 'profissional';
+    if (!ehProfissional && !SENHA_REGEX.test(senha || '')) {
+      return reply.code(400).send({
+        error: 'A senha deve ter no mínimo 8 caracteres, 1 número e 1 letra maiúscula.',
+      });
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const hash = await bcrypt.hash(senha, 10);
       // E-mail já veio de um convite enviado pela própria Kyvvo — nasce
       // verificado, sem precisar do fluxo de token de 6 dígitos da US20.
+      const hash = ehProfissional ? null : await bcrypt.hash(senha, 10);
       const { rows: usuarioRows } = await client.query(
-        `INSERT INTO usuarios (tenant_id, email, senha_hash, nome, role, email_verified)
-         VALUES ($1, $2, $3, $4, $5, true)
+        `INSERT INTO usuarios (tenant_id, email, senha_hash, nome, role, email_verified, profissional_id)
+         VALUES ($1, $2, $3, $4, $5, true, $6)
          RETURNING id, token_version`,
-        [convite.tenant_id, convite.email, hash, nome, convite.role]
+        [convite.tenant_id, convite.email, hash, nome, convite.role, ehProfissional ? convite.profissional_id : null]
       );
       await client.query(`UPDATE convites_equipe SET status = 'aceito', aceito_em = now() WHERE id = $1`, [convite.id]);
       await client.query('COMMIT');
+
+      if (ehProfissional) {
+        // Nunca chama o kyvvo-platform (que é só usuário/senha) — a sessão
+        // de profissional é um mecanismo paralelo, próprio deste papel.
+        const token = await criarSessaoProfissional(pool, { usuarioId: usuarioRows[0].id, tenantId: convite.tenant_id });
+        return { token, nome, email: convite.email, role: convite.role, email_verified: true };
+      }
 
       // Corte P3 — sessão é RS256, emitida só pelo kyvvo-platform. O membro
       // acabou de definir a senha (em texto, ainda neste request), então
@@ -301,6 +341,10 @@ function registerEquipeRoutes(fastify, pool) {
       'UPDATE usuarios SET ativo = $3, token_version = token_version + 1 WHERE id = $1 AND tenant_id = $2 RETURNING id, nome, email, role, ativo',
       [request.params.id, tenantId, ativo]
     );
+    // Sem isto, desativar não mataria uma sessão de 90 dias já aberta no
+    // navegador do profissional (token_version acima não afeta esse
+    // mecanismo paralelo). Inofensivo pros demais papéis (afeta 0 linhas).
+    await revogarSessoesProfissional(pool, request.params.id);
     return rows[0];
   });
 

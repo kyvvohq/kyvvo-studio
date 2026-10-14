@@ -62,6 +62,7 @@ const planos = require('./lib/planos');
 const eventos = require('./lib/eventos');
 const platform = require('./lib/platform');
 const { resolverClaims } = require('./lib/resolver-sessao');
+const { resolverSessaoProfissional } = require('./lib/sessao-profissional');
 const { registerBloqueiosRoutes } = require('./routes/bloqueios');
 // Fase 2 da modularização
 const profissionaisLib = require('./lib/profissionais');
@@ -78,6 +79,7 @@ const { registerRelatoriosRoutes } = require('./routes/relatorios');
 // Fase 6 da modularização
 const { registerPerfilRoutes } = require('./routes/perfil');
 const { registerEquipeRoutes } = require('./routes/equipe');
+const { registerPortalProfissionalRoutes } = require('./routes/portal-profissional');
 // Fase 7 da modularização
 const { registerWhatsappConfigRoutes } = require('./routes/whatsapp-config');
 const { registerAutomacoesRoutes } = require('./routes/automacoes');
@@ -266,34 +268,64 @@ async function start() {
     'POST /api/eventos',
   ]);
 
+  // Acesso de profissional (login sem senha, sessão paralela de 90 dias —
+  // ver lib/sessao-profissional.js): o modelo de autorização de hoje é um
+  // DENYLIST (a maioria das rotas só exige `authenticate`, sem
+  // `requireAdmin`; só 4 telas são bloqueadas pro 'operador'). Sem este
+  // allowlist, uma sessão de profissional herdaria acesso de operador
+  // completo a clientes/serviços/financeiro/etc — o oposto do pedido
+  // (só a própria agenda + um financeiro calculado). Defesa em
+  // profundidade: barra em authenticate, antes de qualquer handler rodar,
+  // então nem um erro futuro em outra rota vaza dado.
+  const ROTAS_LIVRES_PROFISSIONAL = new Set([
+    'POST /api/auth/logout',
+    'GET /api/agendamentos',
+    'GET /api/portal-profissional/resumo',
+  ]);
+
   fastify.decorate('authenticate', async (request, reply) => {
-    // Corte P3: verifica o token RS256 no serviço kyvvo-platform (JWKS local),
-    // com fallback pro HS256 legado do painel enquanto sessões de 7 dias
-    // abertas antes do corte ainda circulam (lib/resolver-sessao.js). O resto
-    // do decorator — lookup em banco de token_version/role/bloqueio — é igual.
-    const claims = await resolverClaims({
-      authorizationHeader: request.headers.authorization,
-      verificarRs256: (token) => platform.verifyToken(token),
-    });
-    if (!claims) {
+    const token = String(request.headers.authorization || '').replace(/^Bearer /i, '').trim();
+    if (!token) {
       return reply.code(401).send({ error: 'Não autenticado' });
     }
-    request.user = {
-      userId: claims.userId,
-      tenantId: claims.tenantId,
-      email: claims.email,
-      tokenVersion: claims.tokenVersion,
-    };
+
+    // Corte P3: verifica o token RS256 no serviço kyvvo-platform (JWKS local),
+    // com fallback pro HS256 legado do painel enquanto sessões de 7 dias
+    // abertas antes do corte ainda circulam (lib/resolver-sessao.js).
+    const claims = await resolverClaims({
+      authorizationHeader: request.headers.authorization,
+      verificarRs256: (t) => platform.verifyToken(t),
+    });
+
+    // Acesso de profissional: nunca passa por resolverClaims/platform (não
+    // tem senha, não emite RS256) — só tentado quando o token não é um RS256
+    // nem um HS256 legado válido, então nunca atrasa/intercepta o caminho de
+    // admin/operador existente.
+    let sessaoProfissional = null;
+    if (!claims) {
+      sessaoProfissional = await resolverSessaoProfissional(pool, token);
+      if (!sessaoProfissional) {
+        return reply.code(401).send({ error: 'Não autenticado' });
+      }
+    }
+
+    request.user = claims
+      ? { userId: claims.userId, tenantId: claims.tenantId, email: claims.email, tokenVersion: claims.tokenVersion }
+      : { userId: sessaoProfissional.usuario_id, tenantId: sessaoProfissional.tenant_id };
 
     const { rows } = await pool.query(
-      `SELECT u.token_version, u.email_verified, u.role, u.ativo,
+      `SELECT u.token_version, u.email_verified, u.role, u.ativo, u.profissional_id,
               t.status AS tenant_status, t.ativado_em, t.status_alterado_em, t.acesso_ate
        FROM usuarios u JOIN tenants t ON t.id = u.tenant_id
        WHERE u.id = $1`,
       [request.user.userId]
     );
     const usuario = rows[0];
-    if (!usuario || usuario.token_version !== request.user.tokenVersion) {
+    // claims só existe no caminho RS256/HS256 — a checagem de token_version
+    // (sessão invalidada por logout/token_version++) continua exata pro
+    // admin/operador. No caminho de sessão de profissional a invalidação é
+    // via revogado_em/expira_em, já filtrados em resolverSessaoProfissional.
+    if (!usuario || (claims && usuario.token_version !== claims.tokenVersion)) {
       return reply.code(401).send({ error: 'Sessão expirada. Faça login novamente.' });
     }
     // US62 — membro desativado pelo administrador da equipe perde acesso na
@@ -307,8 +339,15 @@ async function start() {
     // mudança de perfil feita pelo administrador vale já na próxima
     // requisição, sem esperar o membro deslogar e logar de novo.
     request.user.role = usuario.role;
+    if (usuario.profissional_id) {
+      request.user.profissionalId = usuario.profissional_id;
+    }
 
     const rotaAtual = `${request.method} ${request.routeOptions.url}`;
+    if (request.user.role === 'profissional' && !ROTAS_LIVRES_PROFISSIONAL.has(rotaAtual)) {
+      return reply.code(403).send({ error: 'Acesso restrito à agenda e ao financeiro do profissional.' });
+    }
+
     if (!usuario.email_verified) {
       if (!ROTAS_LIVRES_SEM_VERIFICACAO.has(rotaAtual)) {
         return reply.code(403).send({ error: 'Confirme seu cadastro para continuar. Verifique seu e-mail ou WhatsApp.' });
@@ -401,6 +440,15 @@ async function start() {
     }
   });
 
+  // Acesso de profissional — defesa redundante com ROTAS_LIVRES_PROFISSIONAL
+  // (authenticate), útil se uma rota futura reusar a mesma entrada do Set
+  // sem querer encadear este preHandler também.
+  fastify.decorate('requireProfissional', async (request, reply) => {
+    if (request.user.role !== 'profissional' || !request.user.profissionalId) {
+      return reply.code(403).send({ error: 'Rota restrita ao acesso de profissional.' });
+    }
+  });
+
   // Auth + Recuperação de senha + Cadastro self-service — extraído pra
   // routes/auth.js (fase 10 da modularização): POST /api/auth/login|logout|
   // esqueci-senha|redefinir-senha|register|verify-token|resend-token.
@@ -468,6 +516,7 @@ async function start() {
   // GET /api/equipe/convites/:token, POST /api/equipe/convites/:token/aceitar,
   // PATCH/DELETE /api/equipe/membros/:id.
   registerEquipeRoutes(fastify, pool);
+  registerPortalProfissionalRoutes(fastify, pool);
 
   // WhatsApp (self-service) — extraído pra routes/whatsapp-config.js (fase
   // 7 da modularização): GET /api/whatsapp/config-publica|status|conversas,

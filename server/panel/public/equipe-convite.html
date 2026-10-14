@@ -41,12 +41,14 @@
         <label for="nome">Seu nome</label>
         <input type="text" id="nome" autocomplete="name">
         <div class="field-error" id="erro-nome"></div>
-        <label for="senha">Crie uma senha</label>
-        <div class="senha-wrapper">
-          <input type="password" id="senha" autocomplete="new-password">
-          <button type="button" id="btn-toggle-senha" class="toggle-senha" aria-label="Mostrar senha" tabindex="-1">👁</button>
+        <div id="bloco-senha">
+          <label for="senha">Crie uma senha</label>
+          <div class="senha-wrapper">
+            <input type="password" id="senha" autocomplete="new-password">
+            <button type="button" id="btn-toggle-senha" class="toggle-senha" aria-label="Mostrar senha" tabindex="-1">👁</button>
+          </div>
+          <div class="field-error" id="erro-senha"></div>
         </div>
-        <div class="field-error" id="erro-senha"></div>
         <button type="submit" id="btn-aceitar">Aceitar convite e entrar</button>
         <div class="erro" id="erro-geral" role="alert"></div>
       </form>
@@ -55,7 +57,7 @@
 </div>
 <footer data-ds-rodape data-ds-produto="Studio"></footer>
 <script>
-  const ROLE_LABEL = { administrador: 'administrador', operador: 'operador' };
+  const ROLE_LABEL = { administrador: 'administrador', operador: 'operador', profissional: 'profissional' };
   const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const SENHA_REGEX = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
 
@@ -63,6 +65,9 @@
   const estadoCarregando = document.getElementById('estado-carregando');
   const estadoInvalido = document.getElementById('estado-invalido');
   const estadoForm = document.getElementById('estado-form');
+  // Acesso de profissional nunca tem senha — login é só pelo token de
+  // convite + sessão longa (ver routes/equipe.js e lib/sessao-profissional.js).
+  let ehProfissional = false;
 
   function mostrarInvalido(mensagem) {
     estadoCarregando.hidden = true;
@@ -103,8 +108,16 @@
     estadoCarregando.hidden = true;
     estadoForm.hidden = false;
     document.getElementById('email').value = convite.email;
-    document.getElementById('convite-descricao').textContent =
-      `${convite.tenant_nome} te convidou para fazer parte da equipe, como ${ROLE_LABEL[convite.role] || convite.role}. Crie uma senha para acessar o Kyvvo.`;
+    ehProfissional = convite.role === 'profissional';
+    if (ehProfissional) {
+      document.getElementById('bloco-senha').hidden = true;
+      document.getElementById('btn-aceitar').textContent = 'Confirmar acesso';
+      document.getElementById('convite-descricao').textContent =
+        `${convite.tenant_nome} te convidou como profissional${convite.profissional_nome ? ` (${convite.profissional_nome})` : ''}. Confirme seu nome para acessar sua agenda e seu financeiro — sem precisar de senha.`;
+    } else {
+      document.getElementById('convite-descricao').textContent =
+        `${convite.tenant_nome} te convidou para fazer parte da equipe, como ${ROLE_LABEL[convite.role] || convite.role}. Crie uma senha para acessar o Kyvvo.`;
+    }
   }
   carregarConvite();
 
@@ -146,6 +159,7 @@
     let valido = true;
     let primeiroInvalido = null;
     Object.keys(campos).forEach((nomeCampo) => {
+      if (ehProfissional && nomeCampo === 'senha') return; // sem senha pra este papel
       const ok = mostrarErroCampo(nomeCampo, validadores[nomeCampo](campos[nomeCampo].value));
       if (!ok) {
         valido = false;
@@ -165,7 +179,9 @@
       const res = await fetch(`/api/equipe/convites/${encodeURIComponent(token)}/aceitar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nomeInput.value.trim(), senha: senhaInput.value }),
+        body: JSON.stringify(ehProfissional
+          ? { nome: nomeInput.value.trim() }
+          : { nome: nomeInput.value.trim(), senha: senhaInput.value }),
       });
       const data = await res.json().catch(() => ({}));
 
@@ -174,7 +190,7 @@
         localStorage.setItem('kyvvo_nome', data.nome || '');
         localStorage.setItem('kyvvo_email', data.email || '');
         localStorage.setItem('kyvvo_email_verified', 'true');
-        window.location.href = '/painel';
+        window.location.href = ehProfissional ? '/portal-profissional.html' : '/painel';
         return;
       }
 
@@ -183,7 +199,7 @@
       erroEl.textContent = 'Erro de conexão. Tente novamente.';
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Aceitar convite e entrar';
+      btn.textContent = ehProfissional ? 'Confirmar acesso' : 'Aceitar convite e entrar';
     }
   });
 </script>
