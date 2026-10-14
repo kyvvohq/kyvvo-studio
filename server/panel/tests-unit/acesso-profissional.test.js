@@ -33,6 +33,9 @@ let pool;
 let tenantId;
 let profA; // profissional A — dono dos agendamentos/usuário de teste
 let profB; // profissional B — usado pra confirmar isolamento
+let profC; // profissional C — exclusivo do teste de convite/aceite, nunca
+           // reusado por outro teste, pra nunca colidir com
+           // uq_usuarios_profissional mesmo se outro teste falhar no meio
 let servicoId; // preço conhecido, usado pro cálculo de financeiro
 
 // Harness mínimo: registra só o que cada grupo de teste precisa, com
@@ -80,6 +83,8 @@ before(async () => {
   profA = pa.id;
   const { rows: [pb] } = await pool.query('INSERT INTO profissionais (tenant_id, nome) VALUES ($1, $2) RETURNING id', [tenantId, 'Profissional B']);
   profB = pb.id;
+  const { rows: [pc] } = await pool.query('INSERT INTO profissionais (tenant_id, nome) VALUES ($1, $2) RETURNING id', [tenantId, 'Profissional C']);
+  profC = pc.id;
 });
 
 after(async () => {
@@ -137,17 +142,19 @@ test('criarSessaoProfissional + resolverSessaoProfissional: roundtrip', opts, as
      VALUES ($1, $2, 'Sessao Teste', 'profissional', true, $3) RETURNING id`,
     [tenantId, `sessao-${Date.now()}@teste.kyvvo`, profA],
   );
-  const token = await criarSessaoProfissional(pool, { usuarioId: u.id, tenantId });
-  const resolvido = await resolverSessaoProfissional(pool, token);
-  assert.equal(resolvido.usuario_id, u.id);
-  assert.equal(resolvido.tenant_id, tenantId);
+  try {
+    const token = await criarSessaoProfissional(pool, { usuarioId: u.id, tenantId });
+    const resolvido = await resolverSessaoProfissional(pool, token);
+    assert.equal(resolvido.usuario_id, u.id);
+    assert.equal(resolvido.tenant_id, tenantId);
 
-  // O que fica no banco é o hash, nunca o token em texto puro.
-  const { rows: [linha] } = await pool.query('SELECT token_hash FROM sessoes_profissional WHERE usuario_id = $1', [u.id]);
-  assert.equal(linha.token_hash, hashToken(token));
-  assert.notEqual(linha.token_hash, token);
-
-  await pool.query('DELETE FROM usuarios WHERE id = $1', [u.id]);
+    // O que fica no banco é o hash, nunca o token em texto puro.
+    const { rows: [linha] } = await pool.query('SELECT token_hash FROM sessoes_profissional WHERE usuario_id = $1', [u.id]);
+    assert.equal(linha.token_hash, hashToken(token));
+    assert.notEqual(linha.token_hash, token);
+  } finally {
+    await pool.query('DELETE FROM usuarios WHERE id = $1', [u.id]);
+  }
 });
 
 test('resolverSessaoProfissional: token errado, expirado ou revogado nunca resolve', opts, async () => {
@@ -156,24 +163,25 @@ test('resolverSessaoProfissional: token errado, expirado ou revogado nunca resol
      VALUES ($1, $2, 'Sessao Teste 2', 'profissional', true, $3) RETURNING id`,
     [tenantId, `sessao2-${Date.now()}@teste.kyvvo`, profA],
   );
+  try {
+    assert.equal(await resolverSessaoProfissional(pool, 'token-que-nunca-existiu'), null);
+    assert.equal(await resolverSessaoProfissional(pool, null), null);
 
-  assert.equal(await resolverSessaoProfissional(pool, 'token-que-nunca-existiu'), null);
-  assert.equal(await resolverSessaoProfissional(pool, null), null);
+    // Expirada: insere direto com expira_em no passado (criarSessaoProfissional sempre cria 90 dias à frente).
+    const tokenExpirado = 'a'.repeat(64);
+    await pool.query(
+      `INSERT INTO sessoes_profissional (usuario_id, tenant_id, token_hash, expira_em) VALUES ($1, $2, $3, now() - interval '1 day')`,
+      [u.id, tenantId, hashToken(tokenExpirado)],
+    );
+    assert.equal(await resolverSessaoProfissional(pool, tokenExpirado), null);
 
-  // Expirada: insere direto com expira_em no passado (criarSessaoProfissional sempre cria 90 dias à frente).
-  const tokenExpirado = 'a'.repeat(64);
-  await pool.query(
-    `INSERT INTO sessoes_profissional (usuario_id, tenant_id, token_hash, expira_em) VALUES ($1, $2, $3, now() - interval '1 day')`,
-    [u.id, tenantId, hashToken(tokenExpirado)],
-  );
-  assert.equal(await resolverSessaoProfissional(pool, tokenExpirado), null);
-
-  // Revogada.
-  const tokenRevogado = await criarSessaoProfissional(pool, { usuarioId: u.id, tenantId });
-  await revogarSessoesProfissional(pool, u.id);
-  assert.equal(await resolverSessaoProfissional(pool, tokenRevogado), null);
-
-  await pool.query('DELETE FROM usuarios WHERE id = $1', [u.id]);
+    // Revogada.
+    const tokenRevogado = await criarSessaoProfissional(pool, { usuarioId: u.id, tenantId });
+    await revogarSessoesProfissional(pool, u.id);
+    assert.equal(await resolverSessaoProfissional(pool, tokenRevogado), null);
+  } finally {
+    await pool.query('DELETE FROM usuarios WHERE id = $1', [u.id]);
+  }
 });
 
 // --- routes/agenda.js — escopo por profissional ---
@@ -280,7 +288,7 @@ test('convite de profissional: exige profissional_id, aceite não pede senha, ge
     const criar = await app.inject({
       method: 'POST', url: '/api/equipe/convites',
       headers: headerUser({ tenantId, userId: adminUser.id, role: 'administrador' }),
-      payload: { email: emailConvidado, role: 'profissional', profissional_id: profA },
+      payload: { email: emailConvidado, role: 'profissional', profissional_id: profC },
     });
     assert.equal(criar.statusCode, 201);
 
@@ -292,7 +300,7 @@ test('convite de profissional: exige profissional_id, aceite não pede senha, ge
     const dup = await app.inject({
       method: 'POST', url: '/api/equipe/convites',
       headers: headerUser({ tenantId, userId: adminUser.id, role: 'administrador' }),
-      payload: { email: `outro-${Date.now()}@teste.kyvvo`, role: 'profissional', profissional_id: profA },
+      payload: { email: `outro-${Date.now()}@teste.kyvvo`, role: 'profissional', profissional_id: profC },
     });
     assert.equal(dup.statusCode, 409);
 

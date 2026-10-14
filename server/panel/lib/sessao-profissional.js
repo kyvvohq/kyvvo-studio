@@ -47,6 +47,7 @@ async function revogarSessoesProfissional(pool, usuarioId) {
 
 module.exports = {
   SESSAO_PROFISSIONAL_DIAS,
+  hashToken,
   criarSessaoProfissional,
   resolverSessaoProfissional,
   revogarSessoesProfissional,
