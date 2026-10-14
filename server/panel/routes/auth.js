@@ -36,6 +36,13 @@ function registerAuthRoutes(fastify, pool) {
       return reply.code(401).send({ error: 'E-mail ou senha inválidos' });
     }
 
+    // Acesso de profissional nunca tem senha (login é só por token de
+    // convite + sessão longa, ver lib/sessao-profissional.js) — sem esta
+    // guarda, bcrypt.compare(senha, null) lança em vez de devolver false,
+    // virando 500 em vez de 401 pra uma tentativa de login com esse e-mail.
+    if (!usuario.senha_hash) {
+      return reply.code(401).send({ error: 'E-mail ou senha inválidos' });
+    }
     const senhaValida = await bcrypt.compare(senha, usuario.senha_hash);
     if (!senhaValida) {
       return reply.code(401).send({ error: 'E-mail ou senha inválidos' });

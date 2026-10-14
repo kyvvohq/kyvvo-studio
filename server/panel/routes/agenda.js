@@ -49,8 +49,14 @@ const SLOT_INTERVALO_MINUTOS = 30;
 
 function registerAgendaRoutes(fastify, pool) {
   fastify.get('/api/agendamentos', { preHandler: [fastify.authenticate] }, async (request, reply) => {
-    const { tenantId } = request.user;
+    const { tenantId, profissionalId } = request.user;
     const { view, data } = request.query;
+    // Presente só quando o bearer é uma sessão de profissional (acesso
+    // restrito à própria agenda) — ausente pra admin/operador, logo a
+    // cláusula vira string vazia e o comportamento de hoje continua idêntico
+    // pra esses dois papéis.
+    const filtroProfissional = profissionalId ? ' AND a.profissional_id = $3' : '';
+    const paramsProfissional = profissionalId ? [profissionalId] : [];
 
     if (view === 'dia') {
       const dataRef = data || dataAtualBrasilia();
@@ -61,9 +67,9 @@ function registerAgendaRoutes(fastify, pool) {
          JOIN clientes c ON c.id = a.cliente_id
          JOIN profissionais p ON p.id = a.profissional_id
          JOIN servicos s ON s.id = a.servico_id
-         WHERE a.tenant_id = $1 AND (a.data_hora AT TIME ZONE 'America/Sao_Paulo')::date = $2::date
+         WHERE a.tenant_id = $1 AND (a.data_hora AT TIME ZONE 'America/Sao_Paulo')::date = $2::date${filtroProfissional}
          ORDER BY a.data_hora`,
-        [tenantId, dataRef]
+        [tenantId, dataRef, ...paramsProfissional]
       );
       return { view: 'dia', data: dataRef, agendamentos: rows };
     }
@@ -79,9 +85,9 @@ function registerAgendaRoutes(fastify, pool) {
          JOIN servicos s ON s.id = a.servico_id
          WHERE a.tenant_id = $1
            AND (a.data_hora AT TIME ZONE 'America/Sao_Paulo')::date >= date_trunc('week', $2::date)
-           AND (a.data_hora AT TIME ZONE 'America/Sao_Paulo')::date < date_trunc('week', $2::date) + interval '7 days'
+           AND (a.data_hora AT TIME ZONE 'America/Sao_Paulo')::date < date_trunc('week', $2::date) + interval '7 days'${filtroProfissional}
          ORDER BY a.data_hora`,
-        [tenantId, dataRef]
+        [tenantId, dataRef, ...paramsProfissional]
       );
       return { view: 'semana', data: dataRef, agendamentos: rows };
     }
@@ -101,9 +107,9 @@ function registerAgendaRoutes(fastify, pool) {
          JOIN profissionais p ON p.id = a.profissional_id
          JOIN servicos s ON s.id = a.servico_id
          WHERE a.tenant_id = $1
-           AND to_char(a.data_hora AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM') = $2
+           AND to_char(a.data_hora AT TIME ZONE 'America/Sao_Paulo', 'YYYY-MM') = $2${filtroProfissional}
          ORDER BY a.data_hora`,
-        [tenantId, mesRef]
+        [tenantId, mesRef, ...paramsProfissional]
       );
       return { view: 'mes', mes: mesRef, agendamentos: rows };
     }

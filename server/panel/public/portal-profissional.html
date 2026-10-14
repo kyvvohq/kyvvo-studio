@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Minha agenda — Kyvvo Studio</title>
+<link rel="icon" type="image/svg+xml" href="/ds/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/ds/tokens.css">
+<link rel="stylesheet" href="/ds/components.css">
+<link rel="stylesheet" href="/style.css">
+<script src="/analytics.js"></script>
+<style>
+  /* Portal próprio e pequeno (não depende do app.js, ~7000 linhas, de
+     propósito — este papel só precisa de 2 telas). Reaproveita só tokens/
+     components do DS, nenhum CSS de layout novo além do essencial abaixo. */
+  .portal-topo { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--ds-borda, #232847); }
+  .portal-abas { display: flex; gap: 8px; padding: 12px 20px 0; }
+  .portal-conteudo { padding: 20px; max-width: 720px; margin: 0 auto; }
+  .portal-nav-data { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .portal-lista-vazia { color: var(--ds-texto-secundario, #a1a5c4); padding: 24px 0; text-align: center; }
+  .portal-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--ds-borda, #232847); }
+  .portal-item-hora { font-weight: 600; min-width: 56px; }
+  .portal-item-info { flex: 1; margin: 0 12px; }
+  .portal-item-cliente { font-weight: 500; }
+  .portal-item-servico { color: var(--ds-texto-secundario, #a1a5c4); font-size: 13px; }
+  .portal-resumo-numeros { display: flex; gap: 24px; margin-bottom: 20px; }
+  .portal-resumo-card { flex: 1; }
+  .portal-resumo-valor { font-size: 28px; font-weight: 700; }
+  .portal-resumo-label { color: var(--ds-texto-secundario, #a1a5c4); font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="guarda-login" hidden><p class="cadastro-sub" style="padding:24px">Redirecionando para o login...</p></div>
+
+<div id="portal" hidden>
+  <div class="portal-topo">
+    <div class="ds-topbar-marca ds-login-marca">
+      <span class="ds-topbar-produto"><span class="ds-topbar-produto-acento">St</span>udio</span>
+      <span class="ds-topbar-kyvvo">kyvvo</span>
+    </div>
+    <button type="button" class="btn-secundario" id="btn-sair">Sair</button>
+  </div>
+
+  <div class="portal-abas" role="tablist">
+    <button type="button" class="ds-btn ds-btn-ghost" id="aba-agenda" role="tab" aria-selected="true">Minha agenda</button>
+    <button type="button" class="ds-btn ds-btn-ghost" id="aba-financeiro" role="tab" aria-selected="false">Meu financeiro</button>
+  </div>
+
+  <div class="portal-conteudo">
+    <section id="tela-agenda">
+      <div class="portal-nav-data">
+        <button type="button" class="btn-secundario" id="btn-dia-anterior">‹</button>
+        <strong id="label-data"></strong>
+        <button type="button" class="btn-secundario" id="btn-dia-seguinte">›</button>
+        <button type="button" class="btn-secundario" id="btn-hoje">Hoje</button>
+      </div>
+      <div id="lista-agendamentos"></div>
+    </section>
+
+    <section id="tela-financeiro" hidden>
+      <div class="portal-nav-data">
+        <button type="button" class="btn-secundario" id="btn-mes-anterior">‹</button>
+        <strong id="label-mes"></strong>
+        <button type="button" class="btn-secundario" id="btn-mes-seguinte">›</button>
+      </div>
+      <div class="portal-resumo-numeros">
+        <div class="portal-resumo-card">
+          <div class="portal-resumo-valor" id="valor-receita">—</div>
+          <div class="portal-resumo-label">Receita do mês (atendimentos concluídos)</div>
+        </div>
+        <div class="portal-resumo-card">
+          <div class="portal-resumo-valor" id="valor-atendimentos">—</div>
+          <div class="portal-resumo-label">Atendimentos concluídos</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<footer data-ds-rodape data-ds-produto="Studio"></footer>
+<script>
+  const token = localStorage.getItem('kyvvo_token');
+  if (!token) {
+    document.getElementById('guarda-login').hidden = false;
+    window.location.href = '/login';
+  } else {
+    document.getElementById('portal').hidden = false;
+  }
+
+  async function api(path) {
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) {
+      localStorage.removeItem('kyvvo_token');
+      window.location.href = '/login';
+      return null;
+    }
+    return res.json();
+  }
+
+  document.getElementById('btn-sair').addEventListener('click', () => {
+    localStorage.removeItem('kyvvo_token');
+    window.location.href = '/login';
+  });
+
+  // Mesmo truque de formatarDataISO do app.js: toISOString() sempre converte
+  // pra UTC e "vira o dia" cedo demais em relação à meia-noite de Brasília —
+  // toLocaleDateString com timeZone explícito evita isso.
+  function dataISO(d) {
+    return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+  }
+  function horaCurta(dataHoraISO) {
+    return new Date(dataHoraISO).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo' });
+  }
+  function formatarMoeda(v) {
+    return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  // --- Abas ---
+  const abas = { agenda: document.getElementById('aba-agenda'), financeiro: document.getElementById('aba-financeiro') };
+  const telas = { agenda: document.getElementById('tela-agenda'), financeiro: document.getElementById('tela-financeiro') };
+  function mostrarAba(nome) {
+    Object.keys(abas).forEach((k) => {
+      abas[k].setAttribute('aria-selected', String(k === nome));
+      telas[k].hidden = k !== nome;
+    });
+  }
+  abas.agenda.addEventListener('click', () => mostrarAba('agenda'));
+  abas.financeiro.addEventListener('click', () => { mostrarAba('financeiro'); carregarFinanceiro(); });
+
+  // --- Agenda ---
+  let dataAtual = new Date();
+  async function carregarAgenda() {
+    const ref = dataISO(dataAtual);
+    document.getElementById('label-data').textContent = dataAtual.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', timeZone: 'America/Sao_Paulo' });
+    const dados = await api(`/api/agendamentos?view=dia&data=${ref}`);
+    if (!dados) return;
+    const lista = document.getElementById('lista-agendamentos');
+    if (!dados.agendamentos.length) {
+      lista.innerHTML = '<p class="portal-lista-vazia">Nenhum atendimento neste dia.</p>';
+      return;
+    }
+    lista.innerHTML = dados.agendamentos.map((a) => `
+      <div class="portal-item">
+        <span class="portal-item-hora">${horaCurta(a.data_hora)}</span>
+        <span class="portal-item-info">
+          <div class="portal-item-cliente">${escapeHtml(a.cliente)}</div>
+          <div class="portal-item-servico">${escapeHtml(a.servico)}</div>
+        </span>
+        <span class="ds-badge">${escapeHtml(a.status)}</span>
+      </div>`).join('');
+  }
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s == null ? '' : String(s);
+    return div.innerHTML;
+  }
+  document.getElementById('btn-dia-anterior').addEventListener('click', () => { dataAtual.setDate(dataAtual.getDate() - 1); carregarAgenda(); });
+  document.getElementById('btn-dia-seguinte').addEventListener('click', () => { dataAtual.setDate(dataAtual.getDate() + 1); carregarAgenda(); });
+  document.getElementById('btn-hoje').addEventListener('click', () => { dataAtual = new Date(); carregarAgenda(); });
+
+  // --- Financeiro ---
+  let mesAtual = new Date();
+  async function carregarFinanceiro() {
+    const mesRef = mesAtual.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+    document.getElementById('label-mes').textContent = mesAtual.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
+    const dados = await api(`/api/portal-profissional/resumo?mes=${mesRef}`);
+    if (!dados) return;
+    document.getElementById('valor-receita').textContent = formatarMoeda(dados.receita);
+    document.getElementById('valor-atendimentos').textContent = dados.atendimentos;
+  }
+  document.getElementById('btn-mes-anterior').addEventListener('click', () => { mesAtual.setMonth(mesAtual.getMonth() - 1); carregarFinanceiro(); });
+  document.getElementById('btn-mes-seguinte').addEventListener('click', () => { mesAtual.setMonth(mesAtual.getMonth() + 1); carregarFinanceiro(); });
+
+  if (token) carregarAgenda();
+</script>
+<script src="/ds/components.js"></script>
+</body>
+</html>

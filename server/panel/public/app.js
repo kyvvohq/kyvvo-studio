@@ -6272,7 +6272,7 @@ async function renderPerfil() {
 }
 
 // ---------- Equipe (US62) ----------
-const EQUIPE_ROLE_LABEL = { administrador: 'Administrador', operador: 'Operador' };
+const EQUIPE_ROLE_LABEL = { administrador: 'Administrador', operador: 'Operador', profissional: 'Profissional' };
 const EQUIPE_CONVITE_STATUS_LABEL = { pendente: 'Pendente', expirado: 'Expirado', aceito: 'Aceito', cancelado: 'Cancelado' };
 const EQUIPE_CONVITE_STATUS_BADGE = { pendente: 'badge-status-nao-ativado', expirado: 'badge-status-suspenso', aceito: 'badge-status-ativo', cancelado: 'badge-status-inativo' };
 
@@ -6374,7 +6374,14 @@ function abrirModalConvidarMembro() {
         <select id="convite-role" data-obrigatorio>
           <option value="operador">Operador — acesso operacional (agenda, clientes, cadastros)</option>
           <option value="administrador">Administrador — acesso completo</option>
+          <option value="profissional">Profissional — só a própria agenda e financeiro, sem senha</option>
         </select>
+        <div id="bloco-convite-profissional" hidden>
+          <label for="convite-profissional-id">Profissional vinculado *</label>
+          <select id="convite-profissional-id" data-obrigatorio>
+            <option value="">Selecione...</option>
+          </select>
+        </div>
         <div class="modal-acoes">
           <button type="button" class="btn-secundario" id="btn-cancelar-convite">Cancelar</button>
           <button type="submit" class="btn-primario" id="btn-enviar-convite">Enviar convite</button>
@@ -6388,6 +6395,27 @@ function abrirModalConvidarMembro() {
   const form = document.getElementById('form-convidar-membro');
   form.querySelectorAll('[data-obrigatorio]').forEach((campo) => {
     campo.addEventListener('input', () => campo.classList.remove('campo-invalido'));
+  });
+
+  // Select de profissional só aparece (e só é obrigatório) pro perfil
+  // 'profissional' — populado sob demanda, na primeira vez que o perfil é
+  // escolhido, pra não disparar a chamada à toa pros outros dois perfis.
+  const blocoProfissional = document.getElementById('bloco-convite-profissional');
+  const selectProfissional = document.getElementById('convite-profissional-id');
+  let profissionaisCarregados = false;
+  document.getElementById('convite-role').addEventListener('change', async (e) => {
+    const ehProfissional = e.target.value === 'profissional';
+    blocoProfissional.hidden = !ehProfissional;
+    selectProfissional.removeAttribute('data-obrigatorio');
+    if (!ehProfissional) return;
+    selectProfissional.setAttribute('data-obrigatorio', '');
+    if (profissionaisCarregados) return;
+    const dados = await api('/api/profissionais');
+    if (dados && dados.profissionais) {
+      selectProfissional.innerHTML = '<option value="">Selecione...</option>'
+        + dados.profissionais.map((p) => `<option value="${p.id}">${escapeHtml(p.nome)}</option>`).join('');
+    }
+    profissionaisCarregados = true;
   });
 
   form.addEventListener('submit', async (e) => {
@@ -6405,11 +6433,13 @@ function abrirModalConvidarMembro() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
 
+    const role = document.getElementById('convite-role').value;
     const resultado = await api('/api/equipe/convites', {
       method: 'POST',
       body: JSON.stringify({
         email: document.getElementById('convite-email').value.trim(),
-        role: document.getElementById('convite-role').value,
+        role,
+        ...(role === 'profissional' ? { profissional_id: selectProfissional.value } : {}),
       }),
     });
 
