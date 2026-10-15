@@ -3413,107 +3413,13 @@ button.loading::after {
   .drawer-painel { max-width: 100%; }
 }
 
-/* Automações — mesmo layout da tela de Automações do kyvvo-people
-   (public/automacoes.html + shell.css), pedido explícito 2026-09-18 (print do
-   Bruno): título grande + descrição, botão primário à direita, card único
-   com o filtro em cima e a tabela embaixo, cabeçalho da tabela em caixa alta
-   com fundo suave, ações como links (Excluir em vermelho), toggle em
-   --accent e pílula "Obrigatória — sempre ativa". Tudo escopado em
-   .automacoes-* pra não mexer nas outras tabelas/toggles do painel. */
-.automacoes-cabecalho {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 24px;
-}
-.automacoes-cabecalho h1 { font-size: 26px; font-weight: 700; margin: 0; color: var(--text); }
-
-.automacoes-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-.automacoes-filtros {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.automacoes-filtros select { width: auto; flex: 0 1 320px; margin: 0; }
-.automacoes-filtros .btn-novo-agendamento { margin: 0; flex-shrink: 0; }
-
-.automacoes-limite-barra { margin-top: 10px; background: var(--border); border-radius: 100px; height: 8px; overflow: hidden; }
-.automacoes-limite-preenchido { height: 100%; border-radius: 100px; transition: width 0.3s ease; }
-.automacoes-limite-verde { background: var(--success); }
-.automacoes-limite-amarela { background: var(--warning); }
-.automacoes-limite-vermelha { background: var(--danger); }
-
-.automacoes-card table { width: 100%; border-collapse: collapse; font-size: 14px; }
-.automacoes-card th {
-  text-align: left;
-  background: var(--surface-muted);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  padding: 14px 18px;
-  white-space: nowrap;
-}
-.automacoes-card td { padding: 14px 18px; border-top: 1px solid var(--border); color: var(--text-secondary); }
-.automacoes-card tbody tr { cursor: default; background: transparent; }
-.automacoes-card tbody tr:hover { background: transparent; }
-.automacoes-card td.col-nome { font-weight: 600; color: var(--text); }
-.automacoes-card td.col-contexto { color: var(--muted-strong); font-size: 13px; }
-
-.automacoes-card .toggle-switch { width: 36px; height: 20px; }
-.automacoes-card .toggle-switch-trilho { background: var(--border-strong); }
-.automacoes-card .toggle-switch-trilho::after { width: 16px; height: 16px; }
-.automacoes-card .toggle-switch input:checked + .toggle-switch-trilho { background: var(--accent); }
-.automacoes-card .toggle-switch input:checked + .toggle-switch-trilho::after { left: 18px; }
-
-.badge-obrigatoria {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: var(--radius-full);
-  background: var(--border);
-  color: var(--muted-strong);
-  white-space: nowrap;
-}
-.badge-sem-modelo {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 7px;
-  margin-left: 6px;
-  border-radius: var(--radius-full);
-  background: var(--warning-bg);
-  color: var(--warning-text);
-}
-
-.automacoes-acoes { display: flex; gap: 12px; justify-content: flex-end; }
-.automacoes-acoes button {
-  background: none;
-  border: none;
-  padding: 0;
-  width: auto;
-  height: auto;
-  margin: 0;
-  color: var(--accent);
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.automacoes-acoes button:hover { text-decoration: underline; }
-.automacoes-acoes button.perigo { color: var(--danger); }
-
-.automacoes-vazio { padding: 40px 20px; text-align: center; color: var(--muted); border-top: 1px solid var(--border); }
+/* Configurações > Automações: a aba Disparos usa os componentes do design
+   system (.ds-tabela, .ds-medidor, .ds-alerta, .ds-detalhe, .ds-mensagem) —
+   as classes .automacoes-cabecalho/-card/-filtros/-acoes/etc. daqui ficaram
+   órfãs depois da tela virar DS (Lista já tinha ido, 2026-10-15; Disparos
+   foi em cima, PR #104/2026-10-05 reaplicado sobre a modularização). Aqui só
+   o espaçamento vertical entre os blocos de cada aba. */
+.automacoes-pilha { display: flex; flex-direction: column; gap: var(--space-4); }
 
 /* WhatsApp > Conversas: filtros + lista + paginação (componentes do design system) */
 .ds-pilha-conversas { display: flex; flex-direction: column; gap: var(--space-3); }
