@@ -523,3 +523,67 @@ export function formatarTelefoneWhatsapp(valor) {
   const bandeira = ddi === '55' ? '🇧🇷 ' : '';
   return `${bandeira}+${ddi} (${ddd}) ${numeroFormatado}`;
 }
+
+// ---------- Datas/horas (fase 3) ----------
+// formatarDataISO: BUG HISTÓRICO (achado testando o "+" da grade de horários
+// em produção) — toISOString() sempre converte pra UTC, então "vira o dia"
+// 3h antes da meia-noite real de Brasília (21h); toLocaleDateString com
+// locale sv-SE (formato ISO 8601 nativo do sueco) e timeZone explícito
+// resolve isso sem depender do fuso do sistema operacional do navegador.
+// Usadas por Relatórios e, no futuro, pela Agenda inteira (Dia/Semana/Mês).
+export function formatarDataISO(d) {
+  return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+}
+
+export function formatarHora(dataHoraISO) {
+  const d = new Date(dataHoraISO);
+  if (configuracao.formato_hora === '12h') {
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Sao_Paulo' });
+  }
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Sao_Paulo' });
+}
+
+export function nomeDiaSemana(d) {
+  return d.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
+}
+
+// Nomes dos dias da semana (toggle de dias de funcionamento em Configuração,
+// cabeçalho da Agenda-Mês).
+export const NOMES_DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+// Marca em vermelho os campos [data-obrigatorio] vazios e devolve o primeiro
+// inválido (ou null se estiver tudo preenchido). Usado por praticamente todo
+// formulário de modal do painel.
+export function validarObrigatorios(form) {
+  let primeiroInvalido = null;
+  form.querySelectorAll('[data-obrigatorio]').forEach((campo) => {
+    const vazio = !campo.value || !campo.value.trim();
+    campo.classList.toggle('campo-invalido', vazio);
+    if (vazio && !primeiroInvalido) primeiroInvalido = campo;
+  });
+  return primeiroInvalido;
+}
+
+// SVG inline pros cartões do Início (os ícones do menu usam svgIcone(), que
+// devolve um elemento — aqui precisamos da string pra montar o template).
+export function iconeSvgHtml(nome) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[nome] || ''}</svg>`;
+}
+
+// Data/hora curta de um disparo de WhatsApp (tabela de Disparos de
+// Automações e, no futuro, WhatsApp/Conversas).
+export function formatarDataHoraDisparo(iso) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// Preferências > Formas de pagamento — mesmas chaves/regra de taxa do
+// backend (lib/financeiro.js FORMAS_PAGAMENTO_CHAVES/SEM_TAXA). Usadas por
+// Configuração e por Financeiro (renderLancamentoItem, pra rotular
+// forma_pagamento — ainda em app.js).
+export const FORMAS_PAGAMENTO_ORDEM = ['credito_avista', 'credito_prazo', 'debito', 'pix', 'dinheiro'];
+export const FORMAS_PAGAMENTO_LABEL = {
+  credito_avista: 'Crédito à vista', credito_prazo: 'Crédito a prazo', debito: 'Débito', pix: 'Pix', dinheiro: 'Dinheiro',
+  cartao: 'Cartão', outro: 'Outro', // legado, ver routes/agenda.js FORMA_PAGAMENTO_VALIDAS
+};
+export const FORMAS_PAGAMENTO_SEM_TAXA = ['dinheiro'];
