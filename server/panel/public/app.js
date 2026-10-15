@@ -1,7 +1,9 @@
-// Fase 1 da modularização (2026-10-15): núcleo de API/token e casca do
-// painel (toasts/modal/ícones/tema/banner/avisos/user-menu) viraram módulos
-// ES próprios. O resto do arquivo ainda é um só — as próximas fases
-// continuam extraindo tela por tela (ver plano salvo na sessão).
+// Fase 1 e 2 da modularização (2026-10-15): núcleo de API/token, casca do
+// painel (toasts/modal/ícones/tema/banner/avisos/user-menu/configuração/
+// balão de notificações) e as telas Perfil/Minha Empresa/Notificações
+// viraram módulos ES próprios. O resto do arquivo ainda é um só — as
+// próximas fases continuam extraindo tela por tela (ver plano salvo na
+// sessão).
 import { token, api } from './app/core/api.js';
 import {
   escapeHtml, mostrarToast, abrirModal, fecharModal, injetarIconesMenu, ICON_PATHS,
@@ -9,7 +11,11 @@ import {
   renderBannerCobranca, dispensarAvisoCobranca, construirAvisos, renderAvisos, dispensarAviso,
   carregarMensagensAdmin, renderOutrosProdutos, userMenuToggle, userMenuDropdown, fecharUserMenu, carregarUserMenu,
   iniciaisNome, preencherUserMenu,
+  carregarConfiguracao, definirConfiguracao, carregarNotificacoes, marcarNotificacaoLida, configuracao,
+  ativarSalvarSoQuandoAlterado, formatarTelefoneWhatsapp, infoSegmento, textoSaudacao,
 } from './app/core/shell.js';
+import { renderPerfil, renderMinhaEmpresa } from './app/modulos/perfil.js';
+import { renderNotificacoes } from './app/modulos/notificacoes.js';
 
 document.getElementById('btn-sair').addEventListener('click', async () => {
   try {
@@ -233,29 +239,6 @@ function registrarEventoAnalytics(tipo) {
 }
 verificarStatusConta();
 
-function saudacaoPorHorario() {
-  const hora = new Date().toLocaleString('pt-BR', { hour: 'numeric', hour12: false, timeZone: 'America/Sao_Paulo' });
-  const h = parseInt(hora, 10);
-  if (h < 12) return 'Bom dia';
-  if (h < 18) return 'Boa tarde';
-  return 'Boa noite';
-}
-
-// US57 — extraído em função pra poder re-renderizar a saudação assim que o
-// nome muda em "Meu Perfil", sem precisar de logout/login pra refletir
-// (antes só `kyvvo_nome` no localStorage era lido, e só uma vez, no load).
-function textoSaudacao() {
-  const nomeUsuario = (localStorage.getItem('kyvvo_nome') || '').split(' ')[0] || '';
-  return `${saudacaoPorHorario()}${nomeUsuario ? ', ' + nomeUsuario : ''}!`;
-}
-// A saudação virou o título da página Início (paridade com o Kyvvo People,
-// que mostra "Olá, {nome}" no topo do conteúdo, não no cabeçalho fixo). O
-// elemento só existe enquanto renderInicio está montado — daí a guarda.
-function atualizarSaudacao() {
-  const el = document.getElementById('inicio-saudacao');
-  if (el) el.textContent = textoSaudacao();
-}
-
 let menuAtual = 'inicio';
 let abaAtual = 'dia';
 // Aba ativa da tela Cadastro (menuAtual === 'cadastro'). Serviços,
@@ -264,17 +247,11 @@ let abaAtual = 'dia';
 // continuam valendo (viram deep link pra aba correspondente).
 let abaCadastro = 'servicos';
 let dataRef = new Date();
-let configuracao = { dias_funcionamento: [1, 2, 3, 4, 5, 6], formato_hora: '24h' };
 
 // Intervalo da linha de "agora" do Quadro — precisa ser limpo toda vez que
 // sai da tela (senão fica um setInterval fantasma rodando pra sempre depois
 // de trocar de menu) e recriado toda vez que entra nela de novo.
 let quadroLinhaAgoraIntervalo = null;
-
-async function carregarConfiguracao() {
-  const dados = await api('/api/configuracao');
-  if (dados) configuracao = dados;
-}
 
 // Serviço de notificações — balão do topo (painel.html, sino ao lado do
 // avatar). Polling simples (setInterval no boot, ver fim do arquivo), mesmo
@@ -305,11 +282,6 @@ function abrirNotificacaoItem(tipo, id, dataHoraISO) {
   }
 }
 
-async function marcarNotificacaoLida(id) {
-  const resultado = await api(`/api/notificacoes/${id}/lida`, { method: 'PATCH' });
-  if (resultado && !resultado.error) carregarNotificacoes();
-}
-
 document.addEventListener('click', (e) => {
   // Botão "marcar como lida" fica DENTRO do <a> do item (pra ficar junto do
   // título/detalhe sem precisar de outra linha) — precisa vir antes do
@@ -325,29 +297,6 @@ document.addEventListener('click', (e) => {
   const item = e.target.closest('.ds-notificacoes-item');
   if (item) { e.preventDefault(); abrirNotificacaoItem(item.dataset.tipo, item.dataset.id, item.dataset.dataHora); }
 });
-
-async function carregarNotificacoes() {
-  const sino = document.getElementById('notificacoes-sino');
-  const lista = document.getElementById('notificacoes-lista');
-  if (!sino || !lista || !window.KyvvoDS) return;
-  const dados = await api('/api/notificacoes');
-  if (!dados) return;
-  const grupos = dados.notificacoes || [];
-  const total = grupos.reduce((soma, g) => soma + g.itens.length, 0);
-  KyvvoDS.notificacoesAtualizar(sino, total);
-  lista.innerHTML = total === 0
-    ? '<div class="ds-notificacoes-vazio">Nenhuma notificação por enquanto.</div>'
-    : grupos.map((g) => `
-        <div class="ds-notificacoes-grupo-titulo">${escapeHtml(g.titulo)}</div>
-        ${g.itens.map((item) => `
-          <a class="ds-notificacoes-item" href="#" data-tipo="${g.tipo}" data-id="${item.id}"${item.dataAgendamento ? ` data-data-hora="${item.dataAgendamento}"` : ''}>
-            <div class="ds-notificacoes-item-titulo">${escapeHtml(item.titulo)}</div>
-            <div class="ds-notificacoes-item-meta">${escapeHtml(item.detalhe)}${item.desde ? ' · desde ' + new Date(item.desde).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</div>
-            ${g.eventoUnico ? `<button type="button" class="ds-notificacoes-item-marcar-lida" data-id="${item.id}" aria-label="Marcar como lida" title="Marcar como lida">✓</button>` : ''}
-          </a>
-        `).join('')}
-      `).join('');
-}
 
 // Cabeçalhos de grupo expansível da sidebar (Agenda, Configurações) —
 // genérico via data-submenu em vez de um par de consts fixo por grupo, pra
@@ -1763,21 +1712,6 @@ document.addEventListener('click', (e) => {
 });
 
 const NOMES_DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-// Segmento de negócio do tenant — só adapta a terminologia do texto de "dias
-// de funcionamento" na Configuração, sem mudar comportamento. Mesma lista
-// fixa validada no backend.
-const SEGMENTOS = {
-  salao_beleza: { dias: 'o salão', nomeCampo: 'Nome do salão' },
-  petshop: { dias: 'o petshop', nomeCampo: 'Nome do petshop' },
-  psicologia: { dias: 'o consultório', nomeCampo: 'Nome do consultório' },
-  fisioterapia: { dias: 'a clínica', nomeCampo: 'Nome da clínica' },
-  pilates: { dias: 'o studio', nomeCampo: 'Nome do studio' },
-  outro: { dias: 'o negócio', nomeCampo: 'Nome do negócio' },
-};
-function infoSegmento(segmento) {
-  return SEGMENTOS[segmento] || SEGMENTOS.outro;
-}
 
 // ---------- Financeiro (US18/US71) ----------
 // Livro-caixa manual simples — primeira funcionalidade real do módulo
@@ -5640,274 +5574,6 @@ function renderMesGrade(ano, mes, primeiroDia, ultimoDia, diasFuncionamentoMes, 
   `;
 }
 
-// ---------- Perfil (US33) ----------
-// UF_OPCOES agora vive em pagamento-form.js (US52).
-
-// Máscara de telefone brasileiro (fixo ou celular) enquanto o usuário digita —
-// mesmo raciocínio de exibição do WhatsApp em cadastro.html, mas aqui aplicado
-// ao vivo no campo em vez de só no placeholder.
-function formatarTelefoneMascara(valor) {
-  const digitos = (valor || '').replace(/\D/g, '').slice(0, 11);
-  if (digitos.length <= 2) return digitos ? `(${digitos}` : '';
-  const ddd = digitos.slice(0, 2);
-  const resto = digitos.slice(2);
-  if (digitos.length <= 10) {
-    return resto.length > 4 ? `(${ddd}) ${resto.slice(0, 4)}-${resto.slice(4)}` : `(${ddd}) ${resto}`;
-  }
-  return `(${ddd}) ${resto.slice(0, 5)}-${resto.slice(5)}`;
-}
-
-// Máscara pra números que já vêm com DDI (todo telefone de origem WhatsApp —
-// status da conexão, tabela de conversas, popup de conversa — diferente de
-// formatarTelefoneMascara acima, que é só o número nacional dos campos de
-// cadastro/perfil). Bandeira + DDI na frente, DDD entre parênteses.
-function formatarTelefoneWhatsapp(valor) {
-  const digitos = (valor || '').replace(/\D/g, '');
-  if (digitos.length !== 12 && digitos.length !== 13) return formatarTelefoneMascara(digitos);
-  const ddi = digitos.slice(0, 2);
-  const ddd = digitos.slice(2, 4);
-  const numero = digitos.slice(4);
-  const numeroFormatado = `${numero.slice(0, -4)}-${numero.slice(-4)}`;
-  const bandeira = ddi === '55' ? '🇧🇷 ' : '';
-  return `${bandeira}+${ddi} (${ddd}) ${numeroFormatado}`;
-}
-
-function formatarCepMascara(valor) {
-  const digitos = (valor || '').replace(/\D/g, '').slice(0, 8);
-  return digitos.length > 5 ? `${digitos.slice(0, 5)}-${digitos.slice(5)}` : digitos;
-}
-
-// Mesma regra validada no backend (index.js SENHA_REGEX) — mantida em
-// sincronia. Reaproveita o checklist visual de requisitos já usado no
-// cadastro (cadastro.html) pra "Alterar senha" em Meu Perfil.
-const SENHA_REGEX = /^(?=.*[A-Z])(?=.*\d).{8,}$/;
-const REQUISITOS_SENHA = {
-  tamanho: (v) => v.length >= 8,
-  maiuscula: (v) => /[A-Z]/.test(v),
-  numero: (v) => /\d/.test(v),
-};
-
-function wireToggleSenha(inputId, botaoId) {
-  const input = document.getElementById(inputId);
-  const botao = document.getElementById(botaoId);
-  botao.addEventListener('click', () => {
-    const oculta = input.type === 'password';
-    input.type = oculta ? 'text' : 'password';
-    botao.textContent = oculta ? '🙈' : '👁';
-    botao.setAttribute('aria-label', oculta ? 'Ocultar senha' : 'Mostrar senha');
-  });
-}
-
-// Meu Perfil (dados pessoais, PR12) — Nome do Responsável, Telefone+WhatsApp,
-// E-mail. Nome do negócio/Endereço saíram pra renderMinhaEmpresa() logo
-// abaixo; as duas telas salvam via PATCH /api/perfil, cada uma enviando só
-// o grupo de campo que lhe cabe (o backend trata cada grupo como opcional).
-// "Alterar senha" é um terceiro formulário independente, próprio botão de
-// salvar, salvando via PATCH /api/perfil/senha (exige senha atual).
-async function renderPerfil() {
-  conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  const perfil = await api('/api/perfil');
-  if (!perfil) return;
-
-  // Telefone/WhatsApp continuam sendo colunas separadas no banco (ver PATCH
-  // /api/perfil) — o checkbox só reflete se elas já batem, pra não obrigar o
-  // dono a digitar o número duas vezes quando são o mesmo.
-  const telefoneEhWhatsapp = !!perfil.whatsapp && perfil.whatsapp === perfil.telefone;
-
-  conteudo.innerHTML = `
-    <form class="perfil-form" id="form-perfil" novalidate>
-      <label for="nome_responsavel">Nome do Responsável <span class="obrigatorio">*</span></label>
-      <input type="text" id="nome_responsavel" value="${perfil.nome_responsavel || ''}">
-      <div class="field-error" id="erro-nome_responsavel"></div>
-
-      <label for="telefone">Telefone <span class="obrigatorio">*</span></label>
-      <div class="campo-com-toggle">
-        <input type="tel" id="telefone" placeholder="(11) 99999-9999" value="${formatarTelefoneMascara(perfil.telefone)}">
-        <label class="toggle-linha">
-          <span class="toggle-switch">
-            <input type="checkbox" id="telefone-e-whatsapp" ${telefoneEhWhatsapp ? 'checked' : ''}>
-            <span class="toggle-switch-trilho"></span>
-          </span>
-          Também é WhatsApp?
-        </label>
-      </div>
-      <div class="field-error" id="erro-telefone"></div>
-
-      <label>E-mail</label>
-      <input type="text" value="${perfil.email || ''}" disabled>
-
-      <button type="submit" id="btn-salvar-perfil">Salvar alterações</button>
-    </form>
-
-    <div class="pagamento-secao-divisor"></div>
-    <h3 class="inicio-secao-titulo">Alterar senha</h3>
-    <form class="perfil-form" id="form-alterar-senha" novalidate>
-      <label for="senha_atual">Senha atual <span class="obrigatorio">*</span></label>
-      <div class="senha-wrapper">
-        <input type="password" id="senha_atual" autocomplete="current-password">
-        <button type="button" id="btn-toggle-senha_atual" class="toggle-senha" aria-label="Mostrar senha" tabindex="-1">👁</button>
-      </div>
-      <div class="field-error" id="erro-senha_atual"></div>
-
-      <label for="senha_nova">Senha nova <span class="obrigatorio">*</span></label>
-      <div class="senha-wrapper">
-        <input type="password" id="senha_nova" autocomplete="new-password">
-        <button type="button" id="btn-toggle-senha_nova" class="toggle-senha" aria-label="Mostrar senha" tabindex="-1">👁</button>
-      </div>
-      <ul class="senha-requisitos" id="senha-requisitos">
-        <li id="req-tamanho" role="checkbox" aria-checked="false">Mínimo de 8 caracteres</li>
-        <li id="req-maiuscula" role="checkbox" aria-checked="false">1 letra maiúscula</li>
-        <li id="req-numero" role="checkbox" aria-checked="false">1 número</li>
-      </ul>
-      <div class="field-error" id="erro-senha_nova"></div>
-
-      <label for="senha_repetir">Repetir senha nova <span class="obrigatorio">*</span></label>
-      <div class="senha-wrapper">
-        <input type="password" id="senha_repetir" autocomplete="new-password">
-        <button type="button" id="btn-toggle-senha_repetir" class="toggle-senha" aria-label="Mostrar senha" tabindex="-1">👁</button>
-      </div>
-      <div class="field-error" id="erro-senha_repetir"></div>
-
-      <button type="submit" id="btn-salvar-senha">Salvar</button>
-    </form>
-  `;
-
-  const telefoneInput = document.getElementById('telefone');
-  telefoneInput.addEventListener('input', () => {
-    telefoneInput.value = formatarTelefoneMascara(telefoneInput.value);
-  });
-
-  document.getElementById('form-perfil').addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const nomeResponsavel = document.getElementById('nome_responsavel').value;
-    const telefone = document.getElementById('telefone').value;
-
-    const erros = {
-      nome_responsavel: nomeResponsavel.trim().length >= 2 ? '' : 'Informe o nome do responsável.',
-      telefone: telefone.replace(/\D/g, '').length >= 10 ? '' : 'Informe um telefone válido com DDD.',
-    };
-
-    let primeiroInvalido = null;
-    ['nome_responsavel', 'telefone'].forEach((campo) => {
-      document.getElementById(campo).classList.toggle('invalid', !!erros[campo]);
-      document.getElementById('erro-' + campo).textContent = erros[campo];
-      if (erros[campo] && !primeiroInvalido) primeiroInvalido = document.getElementById(campo);
-    });
-
-    if (Object.values(erros).some(Boolean)) {
-      if (primeiroInvalido) primeiroInvalido.focus();
-      return;
-    }
-
-    const btn = document.getElementById('btn-salvar-perfil');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>';
-
-    const resultado = await api('/api/perfil', {
-      method: 'PATCH',
-      body: JSON.stringify({
-        nome_responsavel: nomeResponsavel,
-        telefone,
-        telefone_e_whatsapp: document.getElementById('telefone-e-whatsapp').checked,
-      }),
-    });
-
-    if (resultado && !resultado.error) {
-      mostrarToast('Perfil atualizado com sucesso.', 'sucesso');
-      preencherUserMenu(resultado);
-      // US57 — sem isso, a saudação do topo ("Bom dia, {nome antigo}!")
-      // ficava com o nome desatualizado até um novo login, mesmo com o
-      // resto da tela (user menu) já refletindo o nome novo.
-      localStorage.setItem('kyvvo_nome', resultado.nome_responsavel || '');
-      atualizarSaudacao();
-      renderPerfil();
-    } else {
-      mostrarToast((resultado && resultado.error) || 'Erro ao salvar. Tente novamente.', 'erro');
-      btn.disabled = false;
-      btn.textContent = 'Salvar alterações';
-    }
-  });
-
-  // ---------- Alterar senha ----------
-  wireToggleSenha('senha_atual', 'btn-toggle-senha_atual');
-  wireToggleSenha('senha_nova', 'btn-toggle-senha_nova');
-  wireToggleSenha('senha_repetir', 'btn-toggle-senha_repetir');
-
-  const senhaAtualInput = document.getElementById('senha_atual');
-  const senhaNovaInput = document.getElementById('senha_nova');
-  const senhaRepetirInput = document.getElementById('senha_repetir');
-
-  function atualizarChecklistSenha(valor) {
-    Object.keys(REQUISITOS_SENHA).forEach((chave) => {
-      const atendido = REQUISITOS_SENHA[chave](valor);
-      const item = document.getElementById('req-' + chave);
-      item.classList.toggle('atendido', atendido);
-      item.setAttribute('aria-checked', String(atendido));
-    });
-  }
-  senhaNovaInput.addEventListener('input', () => atualizarChecklistSenha(senhaNovaInput.value));
-
-  // As duas senhas são comparadas ao vivo (não só no submit) — mensagem some
-  // assim que voltam a bater, sem esperar perder o foco.
-  function validarRepeticaoSenha() {
-    const erroEl = document.getElementById('erro-senha_repetir');
-    if (!senhaRepetirInput.value) {
-      erroEl.textContent = '';
-      return true;
-    }
-    const bate = senhaRepetirInput.value === senhaNovaInput.value;
-    erroEl.textContent = bate ? '' : 'As duas senhas estão diferentes.';
-    return bate;
-  }
-  senhaRepetirInput.addEventListener('input', validarRepeticaoSenha);
-  senhaNovaInput.addEventListener('input', validarRepeticaoSenha);
-
-  document.getElementById('form-alterar-senha').addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const erros = {
-      senha_atual: senhaAtualInput.value ? '' : 'Informe sua senha atual.',
-      senha_nova: SENHA_REGEX.test(senhaNovaInput.value) ? '' : 'A senha deve ter no mínimo 8 caracteres, 1 número e 1 letra maiúscula.',
-      senha_repetir: senhaRepetirInput.value === senhaNovaInput.value ? '' : 'As duas senhas estão diferentes.',
-    };
-
-    let primeiroInvalido = null;
-    Object.keys(erros).forEach((campo) => {
-      document.getElementById('erro-' + campo).textContent = erros[campo];
-      if (erros[campo] && !primeiroInvalido) primeiroInvalido = document.getElementById(campo);
-    });
-
-    if (Object.values(erros).some(Boolean)) {
-      if (primeiroInvalido) primeiroInvalido.focus();
-      return;
-    }
-
-    const btnSenha = document.getElementById('btn-salvar-senha');
-    btnSenha.disabled = true;
-    btnSenha.innerHTML = '<span class="spinner"></span>';
-
-    const resultadoSenha = await api('/api/perfil/senha', {
-      method: 'PATCH',
-      body: JSON.stringify({
-        senha_atual: senhaAtualInput.value,
-        senha_nova: senhaNovaInput.value,
-      }),
-    });
-
-    if (resultadoSenha && !resultadoSenha.error) {
-      // token_version++ no backend já invalidou a sessão atual — desloga de
-      // verdade em vez de deixar a SPA rodando com um JWT que vai cair em
-      // 401 na próxima chamada qualquer.
-      localStorage.removeItem('kyvvo_token');
-      window.location.href = '/login?senha_redefinida=1';
-    } else {
-      document.getElementById('erro-senha_atual').textContent = (resultadoSenha && resultadoSenha.error) || 'Erro ao salvar. Tente novamente.';
-      btnSenha.disabled = false;
-      btnSenha.textContent = 'Salvar';
-    }
-  });
-}
 
 // ---------- Equipe (US62) ----------
 const EQUIPE_ROLE_LABEL = { administrador: 'Administrador', operador: 'Operador', profissional: 'Profissional' };
@@ -6165,177 +5831,6 @@ function abrirModalRemoverMembro(membro) {
   });
 }
 
-// Minha Empresa (dados do negócio, PR12) — Nome do [segmento] + Endereço
-// completo. Reaproveita a mesma máscara de CEP/autocomplete ViaCEP que
-// antes vivia em renderPerfil.
-// Botão "Salvar" só habilita quando algum campo do form muda de verdade em
-// relação ao estado carregado (pedido explícito pra Meu Negócio/Preferências:
-// botão sempre fixo no topo à direita, desabilitado até haver alteração).
-// Não usa FormData (exigiria `name` em cada campo — este app usa só `id`);
-// em vez disso tira uma "foto" de id+valor de todo input/select/textarea
-// dentro do form e compara a cada input/change.
-function ativarSalvarSoQuandoAlterado(form, btn) {
-  // Comparação posicional (não por id/name) de propósito — alguns campos
-  // aqui são checkboxes sem id próprio (ex.: dias da semana em Preferências),
-  // e a ORDEM deles no DOM não muda entre a "foto" inicial e as seguintes.
-  const campos = () => Array.from(form.querySelectorAll('input, select, textarea'));
-  const snapshot = () => campos()
-    .map((el) => (el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value))
-    .join('|');
-  let valorInicial = snapshot();
-  btn.disabled = true;
-  function verificar() {
-    btn.disabled = snapshot() === valorInicial;
-  }
-  form.addEventListener('input', verificar);
-  form.addEventListener('change', verificar);
-  return { resetar: () => { valorInicial = snapshot(); verificar(); } };
-}
-
-async function renderMinhaEmpresa() {
-  conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  const perfil = await api('/api/perfil');
-  if (!perfil) return;
-
-  const opcoesUF = UF_OPCOES.map((uf) => `<option value="${uf}" ${uf === perfil.endereco_uf ? 'selected' : ''}>${uf}</option>`).join('');
-  const nomeCampoSegmento = infoSegmento(perfil.segmento).nomeCampo;
-
-  conteudo.innerHTML = `
-    <div class="inicio-cabecalho">
-      <h2>Meu negócio</h2>
-      <button type="submit" form="form-empresa" class="btn-novo-agendamento" id="btn-salvar-empresa">Salvar alterações</button>
-    </div>
-    <form class="perfil-form" id="form-empresa" novalidate>
-      <label for="nome_segmento">${nomeCampoSegmento} <span class="obrigatorio">*</span></label>
-      <input type="text" id="nome_segmento" value="${perfil.nome_segmento || ''}">
-      <div class="field-error" id="erro-nome_segmento"></div>
-
-      <label>Endereço</label>
-      <div class="endereco-grid">
-        <div>
-          <label for="endereco-cep" class="endereco-sublabel">CEP <span class="obrigatorio">*</span></label>
-          <input type="text" id="endereco-cep" placeholder="00000-000" value="${formatarCepMascara(perfil.endereco_cep)}">
-        </div>
-        <div>
-          <label for="endereco-numero" class="endereco-sublabel">Número <span class="obrigatorio">*</span></label>
-          <input type="text" id="endereco-numero" value="${perfil.endereco_numero || ''}">
-        </div>
-      </div>
-      <label for="endereco-logradouro" class="endereco-sublabel">Rua / Logradouro <span class="obrigatorio">*</span></label>
-      <input type="text" id="endereco-logradouro" value="${perfil.endereco_logradouro || ''}">
-      <div class="endereco-grid">
-        <div>
-          <label for="endereco-complemento" class="endereco-sublabel">Complemento (opcional)</label>
-          <input type="text" id="endereco-complemento" value="${perfil.endereco_complemento || ''}">
-        </div>
-        <div>
-          <label for="endereco-bairro" class="endereco-sublabel">Bairro <span class="obrigatorio">*</span></label>
-          <input type="text" id="endereco-bairro" value="${perfil.endereco_bairro || ''}">
-        </div>
-      </div>
-      <div class="endereco-grid">
-        <div>
-          <label for="endereco-cidade" class="endereco-sublabel">Cidade <span class="obrigatorio">*</span></label>
-          <input type="text" id="endereco-cidade" value="${perfil.endereco_cidade || ''}">
-        </div>
-        <div>
-          <label for="endereco-uf" class="endereco-sublabel">Estado <span class="obrigatorio">*</span></label>
-          <select id="endereco-uf">${opcoesUF}</select>
-        </div>
-      </div>
-      <div class="field-error" id="erro-endereco"></div>
-    </form>
-  `;
-
-  const formEmpresa = document.getElementById('form-empresa');
-  const btnSalvarEmpresa = document.getElementById('btn-salvar-empresa');
-  const controleSalvarEmpresa = ativarSalvarSoQuandoAlterado(formEmpresa, btnSalvarEmpresa);
-
-  const cepInput = document.getElementById('endereco-cep');
-  cepInput.addEventListener('input', () => {
-    cepInput.value = formatarCepMascara(cepInput.value);
-  });
-
-  // CA04 — ao sair do campo CEP, autopreenche o resto do endereço via ViaCEP.
-  cepInput.addEventListener('blur', async () => {
-    const cep = cepInput.value.replace(/\D/g, '');
-    if (cep.length !== 8) return;
-    try {
-      const res = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-      const dados = await res.json();
-      if (dados.erro) {
-        document.getElementById('erro-endereco').textContent = 'CEP não encontrado. Preencha o endereço manualmente.';
-        return;
-      }
-      document.getElementById('erro-endereco').textContent = '';
-      document.getElementById('endereco-logradouro').value = dados.logradouro || '';
-      document.getElementById('endereco-bairro').value = dados.bairro || '';
-      document.getElementById('endereco-cidade').value = dados.localidade || '';
-      document.getElementById('endereco-uf').value = dados.uf || '';
-      // ViaCEP seta os campos direto (sem disparar 'input'/'change') — força
-      // uma checagem manual do botão Salvar, que só escuta esses eventos.
-      formEmpresa.dispatchEvent(new Event('input'));
-    } catch (erro) {
-      // Falha de rede na consulta ao ViaCEP: deixa o usuário preencher os
-      // subcampos manualmente em vez de bloquear o formulário.
-    }
-  });
-
-  document.getElementById('form-empresa').addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const nomeSegmento = document.getElementById('nome_segmento').value;
-    const cep = document.getElementById('endereco-cep').value;
-    const logradouro = document.getElementById('endereco-logradouro').value;
-    const numero = document.getElementById('endereco-numero').value;
-    const complemento = document.getElementById('endereco-complemento').value;
-    const bairro = document.getElementById('endereco-bairro').value;
-    const cidade = document.getElementById('endereco-cidade').value;
-    const uf = document.getElementById('endereco-uf').value;
-
-    const erros = {
-      nome_segmento: nomeSegmento.trim().length >= 2 ? '' : 'Informe o nome do seu negócio.',
-      endereco:
-        cep.replace(/\D/g, '').length === 8 && logradouro.trim() && numero.trim() && bairro.trim() && cidade.trim() && uf
-          ? ''
-          : 'Preencha todos os campos do endereço.',
-    };
-
-    let primeiroInvalido = null;
-    document.getElementById('nome_segmento').classList.toggle('invalid', !!erros.nome_segmento);
-    document.getElementById('erro-nome_segmento').textContent = erros.nome_segmento;
-    if (erros.nome_segmento) primeiroInvalido = document.getElementById('nome_segmento');
-    document.getElementById('erro-endereco').textContent = erros.endereco;
-    if (erros.endereco && !primeiroInvalido) primeiroInvalido = document.getElementById('endereco-cep');
-
-    if (Object.values(erros).some(Boolean)) {
-      if (primeiroInvalido) primeiroInvalido.focus();
-      return;
-    }
-
-    const btn = document.getElementById('btn-salvar-empresa');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>';
-
-    const resultado = await api('/api/perfil', {
-      method: 'PATCH',
-      body: JSON.stringify({
-        nome_segmento: nomeSegmento,
-        endereco: { cep, logradouro, numero, complemento, bairro, cidade, uf },
-      }),
-    });
-
-    if (resultado && !resultado.error) {
-      mostrarToast('Dados da empresa atualizados com sucesso.', 'sucesso');
-      preencherUserMenu(resultado);
-      renderMinhaEmpresa();
-    } else {
-      mostrarToast((resultado && resultado.error) || 'Erro ao salvar. Tente novamente.', 'erro');
-      btn.disabled = false;
-      btn.textContent = 'Salvar alterações';
-    }
-  });
-}
 
 // Confirmação antes de desabilitar um dia de funcionamento que estava
 // marcado — o próprio PATCH /api/configuracao já move (sem checar colisão,
@@ -7256,7 +6751,7 @@ async function renderConfiguracao() {
     const resultado = await api('/api/configuracao', { method: 'PATCH', body: JSON.stringify(payload) });
 
     if (resultado && !resultado.error) {
-      configuracao = resultado;
+      definirConfiguracao(resultado);
       mostrarToast(
         resultado.agendamentos_movidos > 0
           ? `Salvo com sucesso! ${resultado.agendamentos_movidos} agendamento(s) movido(s) para o próximo dia disponível.`
@@ -7342,205 +6837,6 @@ async function renderConfiguracao() {
   });
 }
 
-// Configurações > Notificações — liga/desliga cada tipo (lib/notificacoes.js
-// no backend, mesma lista replicada aqui só com chave+título pra não
-// precisar de um endpoint próprio só pra listar os tipos existentes).
-// Salva na hora ao trocar o toggle (sem botão "Salvar" — cada linha já é a
-// própria ação), reaproveitando o mesmo PATCH /api/configuracao de
-// Preferências (campo notificacoesAtivas).
-// Mesma lista de lib/notificacoes.js (backend), só com o que o frontend
-// precisa pra desenhar a tela — chave+título pra cada toggle, e
-// `campoNumerico` quando o tipo tem um parâmetro extra editável (ver
-// disparos_acabando). Evita um endpoint só pra listar os tipos existentes.
-// Mesma lista de lib/notificacoes.js (backend) — mantida em espelho aqui
-// (sem endpoint próprio só pra listar tipo) igual sempre foi. Os 3 últimos
-// são "orientados a evento" (disparados uma vez quando o fato acontece —
-// agendamento criado/confirmado/remarcado — não há "estado atual" pra
-// recalcular como nos 2 primeiros); pra esta tela não faz diferença, os 5
-// aparecem como linha igual, só variando os canais que cada um oferece.
-const TIPOS_NOTIFICACAO = [
-  { chave: 'whatsapp_aguardando_humano', titulo: 'Conversas de WhatsApp aguardando atendimento humano' },
-  {
-    chave: 'disparos_acabando',
-    titulo: 'Disparos de WhatsApp acabando',
-    campoNumerico: { chave: 'limiar', label: 'Avisar quando restarem apenas', sufixo: 'disparos WhatsApp', padrao: 10 },
-  },
-  { chave: 'agenda_criada', titulo: 'Novo agendamento criado' },
-  { chave: 'agenda_confirmada', titulo: 'Agendamento confirmado' },
-  { chave: 'agenda_remarcada', titulo: 'Agendamento remarcado' },
-];
-
-function notificacaoConfigAtual(chave) {
-  const cfg = (configuracao.notificacoes_ativas || {})[chave];
-  return cfg && typeof cfg === 'object' ? cfg : {};
-}
-
-// Espelha lib/notificacoes.js#canaisAtivos no backend — formato novo
-// ({canais:{studio,email,whatsapp}}) e formato antigo ({ativo: bool}, de
-// antes desta tela existir, tratado como "só Studio", que é o que sempre foi
-// até aqui) precisam ler igual dos dois lados.
-function canaisAtivosNotificacao(cfg) {
-  if (cfg && cfg.canais && typeof cfg.canais === 'object') {
-    return { studio: cfg.canais.studio !== false, email: !!cfg.canais.email, whatsapp: !!cfg.canais.whatsapp };
-  }
-  return { studio: cfg ? cfg.ativo !== false : true, email: false, whatsapp: false };
-}
-
-function renderNotificacaoLinha(tipo) {
-  const cfg = notificacaoConfigAtual(tipo.chave);
-  const canais = canaisAtivosNotificacao(cfg);
-  const toggleCanal = (canal) => `
-    <span class="toggle-switch">
-      <input type="checkbox" class="notificacao-canal" data-chave="${tipo.chave}" data-canal="${canal}" ${canais[canal] ? 'checked' : ''}>
-      <span class="toggle-switch-trilho"></span>
-    </span>
-  `;
-  return `
-    <tr data-chave="${tipo.chave}">
-      <td>
-        <div>${escapeHtml(tipo.titulo)}</div>
-        ${tipo.campoNumerico ? `
-          <div class="notificacao-campo-numerico" style="margin-top:6px;font-size:13px;color:var(--muted-strong)">
-            ${escapeHtml(tipo.campoNumerico.label)}
-            <input type="number" min="1" step="1" class="notificacao-numerico" data-chave="${tipo.chave}" data-campo="${tipo.campoNumerico.chave}" value="${cfg[tipo.campoNumerico.chave] || tipo.campoNumerico.padrao}" style="width:70px;margin:0 6px">
-            ${escapeHtml(tipo.campoNumerico.sufixo || '')}
-          </div>
-        ` : ''}
-      </td>
-      <td>${toggleCanal('email')}</td>
-      <td>${toggleCanal('whatsapp')}</td>
-      <td>${toggleCanal('studio')}</td>
-    </tr>
-  `;
-}
-
-// "Notificações" em 2 abas (Regras / Histórico), mesmo componente data-ds-abas
-// já usado em Plano e cobrança — Regras é a tabela de canais que já existia
-// (renomeada, comportamento igual); Histórico é novo: log de tudo que já foi
-// disparado (lido ou não), pra auditoria — GET /api/notificacoes/historico.
-let abaNotificacoesAtiva = 'regras';
-
-function renderHistoricoNotificacaoLinha(item) {
-  const dataLabel = new Date(item.criadoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return `
-    <tr>
-      <td>${dataLabel}</td>
-      <td>${escapeHtml(item.tipoTitulo)}</td>
-      <td>
-        <div>${escapeHtml(item.titulo)}</div>
-        ${item.detalhe ? `<div class="notificacao-historico-detalhe">${escapeHtml(item.detalhe)}</div>` : ''}
-      </td>
-      <td>
-        ${item.lida
-          ? '<span class="badge badge-status-inativo">Lida</span>'
-          : `<button type="button" class="btn-secundario btn-pequeno notificacao-historico-marcar-lida" data-id="${item.id}">Marcar como lida</button>`}
-      </td>
-    </tr>
-  `;
-}
-
-async function renderNotificacoes() {
-  conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  const [, historicoResp] = await Promise.all([carregarConfiguracao(), api('/api/notificacoes/historico')]);
-  const historico = (historicoResp && historicoResp.historico) || [];
-
-  const regrasHtml = `
-    <div class="tabela-wrapper">
-      <table class="tabela-tenants tabela-crud-compacta">
-        <thead>
-          <tr>
-            <th>Descrição</th>
-            <th>E-mail</th>
-            <th>WhatsApp</th>
-            <th>Studio</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${TIPOS_NOTIFICACAO.map(renderNotificacaoLinha).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-  const historicoHtml = `
-    <div class="tabela-wrapper">
-      <table class="tabela-tenants tabela-crud-compacta">
-        <thead>
-          <tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Status</th></tr>
-        </thead>
-        <tbody>
-          ${historico.length ? historico.map(renderHistoricoNotificacaoLinha).join('') : '<tr><td colspan="4">Nenhuma notificação registrada ainda.</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  conteudo.innerHTML = `
-    <div class="inicio-cabecalho"><h2>Notificações</h2></div>
-    <div class="ds-abas" data-ds-abas>
-      <div class="ds-abas-lista">
-        <button type="button" class="ds-aba" id="aba-notificacoes-regras" aria-controls="painel-notificacoes-regras" aria-selected="${abaNotificacoesAtiva === 'regras' ? 'true' : 'false'}">Regras</button>
-        <button type="button" class="ds-aba" id="aba-notificacoes-historico" aria-controls="painel-notificacoes-historico" aria-selected="${abaNotificacoesAtiva === 'historico' ? 'true' : 'false'}">Histórico</button>
-      </div>
-      <div class="ds-abas-painel" id="painel-notificacoes-regras" aria-labelledby="aba-notificacoes-regras" ${abaNotificacoesAtiva === 'regras' ? '' : 'hidden'}>${regrasHtml}</div>
-      <div class="ds-abas-painel" id="painel-notificacoes-historico" aria-labelledby="aba-notificacoes-historico" ${abaNotificacoesAtiva === 'historico' ? '' : 'hidden'}>${historicoHtml}</div>
-    </div>
-  `;
-  conteudo.querySelector('.ds-abas').addEventListener('ds-abas-alterar', (e) => {
-    abaNotificacoesAtiva = e.detail.id === 'painel-notificacoes-historico' ? 'historico' : 'regras';
-  });
-
-  // Cada mudança (canal ou número) manda o objeto INTEIRO daquela chave já
-  // mesclado — mesmo padrão de formas_pagamento (PATCH substitui o objeto
-  // completo, não mescla parcial no backend). `canais` sempre vai completo
-  // (os 3 booleanos), nunca só o que mudou — e sem `ativo` sobrando do
-  // formato antigo, migrando pro formato novo na primeira mudança.
-  async function salvar(chave, novoCfgParcial) {
-    const cfgAtual = notificacaoConfigAtual(chave);
-    const { ativo, ...resto } = cfgAtual;
-    const notificacoesAtivas = { ...configuracao.notificacoes_ativas, [chave]: { ...resto, ...novoCfgParcial } };
-    const resultado = await api('/api/configuracao', { method: 'PATCH', body: JSON.stringify({ notificacoesAtivas }) });
-    if (resultado && !resultado.error) {
-      configuracao = resultado;
-      mostrarToast('Salvo com sucesso!', 'sucesso');
-      carregarNotificacoes();
-      return true;
-    }
-    mostrarToast((resultado && resultado.error) || 'Erro ao salvar.', 'erro');
-    return false;
-  }
-
-  conteudo.querySelectorAll('.notificacao-canal').forEach((chk) => {
-    chk.addEventListener('change', async () => {
-      const chave = chk.dataset.chave;
-      const canaisAtuais = canaisAtivosNotificacao(notificacaoConfigAtual(chave));
-      const ok = await salvar(chave, { canais: { ...canaisAtuais, [chk.dataset.canal]: chk.checked } });
-      if (!ok) chk.checked = !chk.checked;
-    });
-  });
-
-  conteudo.querySelectorAll('.notificacao-numerico').forEach((input) => {
-    input.addEventListener('change', async () => {
-      const valor = parseInt(input.value, 10);
-      if (!Number.isInteger(valor) || valor < 1) {
-        mostrarToast('Informe um número inteiro maior que zero.', 'erro');
-        return;
-      }
-      const chave = input.dataset.chave;
-      const canaisAtuais = canaisAtivosNotificacao(notificacaoConfigAtual(chave));
-      await salvar(chave, { canais: canaisAtuais, [input.dataset.campo]: valor });
-    });
-  });
-
-  conteudo.querySelectorAll('.notificacao-historico-marcar-lida').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const resultado = await api(`/api/notificacoes/${btn.dataset.id}/lida`, { method: 'PATCH' });
-      if (resultado && !resultado.error) {
-        renderNotificacoes();
-        carregarNotificacoes();
-      }
-    });
-  });
-}
 
 // Lê a seção a partir da URL de carregamento (ex.: /agenda) em vez de sempre
 // abrir em Início — selecionarMenu (não só render()) porque também precisa

@@ -383,3 +383,143 @@ export async function carregarUserMenu() {
 // Repassa o bloqueio avisado por core/api.js (evento, não import direto —
 // ver comentário em api.js) pro mesmo caminho de sempre.
 document.addEventListener('kyvvo:bloqueio', (e) => renderBannerCobranca(e.detail, true));
+
+// ---------- Saudação (US57) ----------
+// Usada pelo título da página Início e, ao salvar o nome em "Meu Perfil",
+// pra atualizar sem precisar de logout/login.
+function saudacaoPorHorario() {
+  const hora = new Date().toLocaleString('pt-BR', { hour: 'numeric', hour12: false, timeZone: 'America/Sao_Paulo' });
+  const h = parseInt(hora, 10);
+  if (h < 12) return 'Bom dia';
+  if (h < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+export function textoSaudacao() {
+  const nomeUsuario = (localStorage.getItem('kyvvo_nome') || '').split(' ')[0] || '';
+  return `${saudacaoPorHorario()}${nomeUsuario ? ', ' + nomeUsuario : ''}!`;
+}
+// A saudação virou o título da página Início (paridade com o Kyvvo People,
+// que mostra "Olá, {nome}" no topo do conteúdo, não no cabeçalho fixo). O
+// elemento só existe enquanto renderInicio está montado — daí a guarda.
+export function atualizarSaudacao() {
+  const el = document.getElementById('inicio-saudacao');
+  if (el) el.textContent = textoSaudacao();
+}
+
+// ---------- Segmento de negócio ----------
+// Só adapta a terminologia do texto de "dias de funcionamento" na
+// Configuração e o rótulo do campo em Minha Empresa, sem mudar
+// comportamento. Mesma lista fixa validada no backend.
+const SEGMENTOS = {
+  salao_beleza: { dias: 'o salão', nomeCampo: 'Nome do salão' },
+  petshop: { dias: 'o petshop', nomeCampo: 'Nome do petshop' },
+  psicologia: { dias: 'o consultório', nomeCampo: 'Nome do consultório' },
+  fisioterapia: { dias: 'a clínica', nomeCampo: 'Nome da clínica' },
+  pilates: { dias: 'o studio', nomeCampo: 'Nome do studio' },
+  outro: { dias: 'o negócio', nomeCampo: 'Nome do negócio' },
+};
+export function infoSegmento(segmento) {
+  return SEGMENTOS[segmento] || SEGMENTOS.outro;
+}
+
+// ---------- Botão "Salvar" só habilita quando o form muda ----------
+// Reaproveitada por Minha Empresa e Preferências (Configuração). Não usa
+// FormData (exigiria `name` em cada campo — este app usa só `id`); em vez
+// disso tira uma "foto" de id+valor de todo input/select/textarea dentro do
+// form e compara a cada input/change. Comparação posicional (não por id/
+// name) de propósito — alguns campos são checkboxes sem id próprio (dias da
+// semana em Preferências), e a ORDEM deles no DOM não muda.
+export function ativarSalvarSoQuandoAlterado(form, btn) {
+  const campos = () => Array.from(form.querySelectorAll('input, select, textarea'));
+  const snapshot = () => campos()
+    .map((el) => (el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value))
+    .join('|');
+  let valorInicial = snapshot();
+  btn.disabled = true;
+  function verificar() {
+    btn.disabled = snapshot() === valorInicial;
+  }
+  form.addEventListener('input', verificar);
+  form.addEventListener('change', verificar);
+  return { resetar: () => { valorInicial = snapshot(); verificar(); } };
+}
+
+// ---------- Configuração (horário de funcionamento etc.) ----------
+// Estado compartilhado por Agenda, Notificações e a própria tela de
+// Configuração — nenhuma das duas primeiras foi extraída ainda, por isso
+// fica aqui (camada que todo mundo já importa) em vez de dentro de um
+// módulo de tela específico. `configuracao` é um `let` exportado (binding
+// vivo: quem importa sempre vê o valor atual) — mas só este arquivo pode
+// REATRIBUIR o binding, por isso o setter: um módulo importador que precise
+// trocar o objeto inteiro (não só ler uma propriedade) chama
+// `definirConfiguracao`, nunca `configuracao = ...` direto.
+export let configuracao = { dias_funcionamento: [1, 2, 3, 4, 5, 6], formato_hora: '24h' };
+export function definirConfiguracao(nova) {
+  configuracao = nova;
+}
+export async function carregarConfiguracao() {
+  const dados = await api('/api/configuracao');
+  if (dados) configuracao = dados;
+}
+
+// ---------- Balão de notificações (header) ----------
+// Polling simples (setInterval no boot, em app.js), mesmo endpoint alimenta
+// a contagem do balão e a lista do dropdown de uma vez só. O *wiring* de
+// clique nos itens (abre a página certa por tipo) fica em app.js — depende
+// de estado de roteador (abaAtual, automacoesAbaAtiva) que ainda não foi
+// extraído.
+export async function carregarNotificacoes() {
+  const sino = document.getElementById('notificacoes-sino');
+  const lista = document.getElementById('notificacoes-lista');
+  if (!sino || !lista || !window.KyvvoDS) return;
+  const dados = await api('/api/notificacoes');
+  if (!dados) return;
+  const grupos = dados.notificacoes || [];
+  const total = grupos.reduce((soma, g) => soma + g.itens.length, 0);
+  KyvvoDS.notificacoesAtualizar(sino, total);
+  lista.innerHTML = total === 0
+    ? '<div class="ds-notificacoes-vazio">Nenhuma notificação por enquanto.</div>'
+    : grupos.map((g) => `
+        <div class="ds-notificacoes-grupo-titulo">${escapeHtml(g.titulo)}</div>
+        ${g.itens.map((item) => `
+          <a class="ds-notificacoes-item" href="#" data-tipo="${g.tipo}" data-id="${item.id}"${item.dataAgendamento ? ` data-data-hora="${item.dataAgendamento}"` : ''}>
+            <div class="ds-notificacoes-item-titulo">${escapeHtml(item.titulo)}</div>
+            <div class="ds-notificacoes-item-meta">${escapeHtml(item.detalhe)}${item.desde ? ' · desde ' + new Date(item.desde).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}</div>
+            ${g.eventoUnico ? `<button type="button" class="ds-notificacoes-item-marcar-lida" data-id="${item.id}" aria-label="Marcar como lida" title="Marcar como lida">✓</button>` : ''}
+          </a>
+        `).join('')}
+      `).join('');
+}
+
+export async function marcarNotificacaoLida(id) {
+  const resultado = await api(`/api/notificacoes/${id}/lida`, { method: 'PATCH' });
+  if (resultado && !resultado.error) carregarNotificacoes();
+}
+
+// ---------- Máscaras de telefone ----------
+// formatarTelefoneMascara: número nacional dos campos de cadastro/perfil.
+// formatarTelefoneWhatsapp: números de origem WhatsApp (status da conexão,
+// tabela de conversas, popup de conversa) — já vêm com DDI, formato
+// diferente (bandeira + DDI na frente). Cai de volta pra
+// formatarTelefoneMascara quando o valor não bate com o formato esperado.
+export function formatarTelefoneMascara(valor) {
+  const digitos = (valor || '').replace(/\D/g, '').slice(0, 11);
+  if (digitos.length <= 2) return digitos ? `(${digitos}` : '';
+  const ddd = digitos.slice(0, 2);
+  const resto = digitos.slice(2);
+  if (digitos.length <= 10) {
+    return resto.length > 4 ? `(${ddd}) ${resto.slice(0, 4)}-${resto.slice(4)}` : `(${ddd}) ${resto}`;
+  }
+  return `(${ddd}) ${resto.slice(0, 5)}-${resto.slice(5)}`;
+}
+
+export function formatarTelefoneWhatsapp(valor) {
+  const digitos = (valor || '').replace(/\D/g, '');
+  if (digitos.length !== 12 && digitos.length !== 13) return formatarTelefoneMascara(digitos);
+  const ddi = digitos.slice(0, 2);
+  const ddd = digitos.slice(2, 4);
+  const numero = digitos.slice(4);
+  const numeroFormatado = `${numero.slice(0, -4)}-${numero.slice(-4)}`;
+  const bandeira = ddi === '55' ? '🇧🇷 ' : '';
+  return `${bandeira}+${ddi} (${ddd}) ${numeroFormatado}`;
+}
