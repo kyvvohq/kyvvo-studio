@@ -451,7 +451,14 @@ function ativarMenuItem(item) {
   selecionarMenu(item.dataset.menu);
 }
 
-menuEl.querySelectorAll('.ds-menu-link, .ds-menu-sublink').forEach((item) => {
+// :not(.ds-menu-grupo-botao) — bug real (sempre existiu, não é desta fase):
+// o cabeçalho de grupo também carrega a classe .ds-menu-link (pro estilo
+// compartilhado), então o seletor sem essa exclusão também o pegava; clicar
+// nele chamava ativarMenuItem sem data-menu, e caminhoDoMenu(undefined)
+// explodia em menu.startsWith(...). O comentário abaixo já dizia que esse
+// clique "é tratado pelo próprio components.js" — a exclusão só faltava no
+// seletor.
+menuEl.querySelectorAll('.ds-menu-link:not(.ds-menu-grupo-botao), .ds-menu-sublink').forEach((item) => {
   item.addEventListener('click', () => ativarMenuItem(item));
 });
 
