@@ -462,6 +462,18 @@ export async function carregarConfiguracao() {
   if (dados) configuracao = dados;
 }
 
+// ---------- Status da conta (plano, limites de exibição) ----------
+// Preenchido por verificarStatusConta() (ainda em app.js, chamada uma vez
+// no boot) e lido por quase toda tela (Serviços, Profissionais, Clientes
+// agora; Agenda e Início depois) pra decidir se mostra coluna/avatar de
+// profissional (`mostrar_profissional`) e outras flags de plano. Mesmo
+// padrão de `configuracao`: `let` exportado + setter, nunca reatribuído
+// de fora deste arquivo.
+export let contaStatus = null;
+export function definirContaStatus(status) {
+  contaStatus = status;
+}
+
 // ---------- Balão de notificações (header) ----------
 // Polling simples (setInterval no boot, em app.js), mesmo endpoint alimenta
 // a contagem do balão e a lista do dropdown de uma vez só. O *wiring* de
