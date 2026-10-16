@@ -48,7 +48,8 @@ import {
   gerarHorariosGrade, resumoGradeDia, proximoDiaAberto, SLOT_INTERVALO_MINUTOS,
   abrirModalNovoAgendamento, abrirModalConcluir, abrirModalMarcarFalta, abrirModalCancelar,
   abrirModalReagendar, abrirModalEncaixe, renderAgendamentoItem, agendamentosAtuais, definirAgendamentosAtuais,
-  renderInicio, inicioProximosAtuais,
+  renderInicio, inicioProximosAtuais, renderDia, dataRef, definirDataRef,
+  TOM_STATUS_AGENDA, AG_STATUS_SEM_ACOES, ALTURA_LINHA_DIA_PX, minutoAjustadoDia, calcularBlocosDia,
 } from './app/modulos/agenda.js';
 
 document.getElementById('btn-sair').addEventListener('click', async () => {
@@ -239,7 +240,6 @@ let abaAtual = 'dia';
 // abas desta tela; os caminhos /servicos, /profissionais e /bloqueios
 // continuam valendo (viram deep link pra aba correspondente).
 let abaCadastro = 'servicos';
-let dataRef = new Date();
 
 // Intervalo da linha de "agora" do Quadro — precisa ser limpo toda vez que
 // sai da tela (senão fica um setInterval fantasma rodando pra sempre depois
@@ -411,7 +411,7 @@ function selecionarMenu(novoMenu, { atualizarUrl = true, dataAlvo = null } = {})
   // a Agenda no dia de HOJE, nunca no dia do atendimento) — usado só pelo
   // clique em item do balão de notificações (ver abrirNotificacaoItem);
   // qualquer outra navegação continua caindo em "hoje" como sempre foi.
-  dataRef = dataAlvo || new Date();
+  definirDataRef(dataAlvo || new Date());
   if (atualizarUrl) {
     const caminho = caminhoDoMenu(novoMenu);
     if (caminho && window.location.pathname !== caminho) {
@@ -551,7 +551,7 @@ tabs.forEach((tab) => {
     tabs.forEach((t) => t.classList.remove('agenda-visao-ativa'));
     tab.classList.add('agenda-visao-ativa');
     abaAtual = tab.dataset.tab;
-    dataRef = new Date();
+    definirDataRef(new Date());
     render();
   });
 });
@@ -778,7 +778,7 @@ conteudo.addEventListener('click', (e) => {
   const verDiaBtn = e.target.closest('[data-ver-dia]');
   if (verDiaBtn) {
     const [ano, mes, dia] = verDiaBtn.dataset.verDia.split('-').map(Number);
-    dataRef = new Date(ano, mes - 1, dia, 12);
+    definirDataRef(new Date(ano, mes - 1, dia, 12));
     abaAtual = 'dia';
     tabs.forEach((t) => t.classList.toggle('agenda-visao-ativa', t.dataset.tab === 'dia'));
     render();
@@ -1018,40 +1018,6 @@ function renderGradeHorariosDoDia(dataISO, agendamentos) {
   `;
 }
 
-// Filtro de coluna/profissional da view Dia — null = "Todos". Client-side:
-// renderDia já busca o dia inteiro, o chip só filtra o que desenha.
-let filtroProfissionalDia = null;
-
-// Tom de cor por status do agendamento (borda esquerda + fundo sutil +
-// pílula). Enum real: a_confirmar/confirmado/concluido/falta/cancelado/
-// reagendado (migrations 001/042/060/086) — o mock do canvas tinha
-// "aguardando"/"em atendimento" que não existem no nosso modelo.
-// a_confirmar (migration 086) — estágio inicial, amarelo, até o cliente
-// confirmar pelo botão do WhatsApp (ver lib/automacoes.js); ao confirmar
-// vira 'confirmado', verde — pedido explícito (antes 'confirmado' não tinha
-// cor/pílula própria, ficava neutro).
-const TOM_STATUS_AGENDA = {
-  a_confirmar: { classe: 'agenda-tom-warn', pill: 'A confirmar', pillClasse: 'badge-a-confirmar' },
-  confirmado: { classe: 'agenda-tom-ok', pill: 'Confirmado', pillClasse: 'badge-confirmado' },
-  concluido: { classe: 'agenda-tom-ok', pill: 'Concluído', pillClasse: 'badge-concluido' },
-  falta: { classe: 'agenda-tom-warn', pill: 'Falta', pillClasse: 'badge-falta' },
-  cancelado: { classe: 'agenda-tom-bad', pill: 'Cancelado', pillClasse: 'badge-cancelado' },
-  reagendado: { classe: 'agenda-tom-neutro', pill: 'Reagendado', pillClasse: 'badge-status-inativo' },
-};
-const AG_STATUS_SEM_ACOES = ['cancelado', 'concluido', 'falta'];
-
-function menuAcoesAgendamentoHtml(id) {
-  return `
-    <div class="menu-acoes" id="menu-acoes-${id}">
-      <button data-acao="concluir" data-id="${id}">Concluir</button>
-      <button data-acao="reagendar" data-id="${id}">Reagendar</button>
-      <button data-acao="encaixar" data-id="${id}">Encaixar</button>
-      <button data-acao="falta" data-id="${id}">Marcar falta</button>
-      <button data-acao="cancelar" data-id="${id}" class="acao-perigo">Cancelar</button>
-    </div>
-  `;
-}
-
 // Card compacto de agendamento — visões Semana e Mês (componente
 // .agenda-card-s/.agenda-ag do DS, README "Card compacto para semana e
 // mês"). Diferente do card da Dia (menu local .menu-acoes/data-acoes-toggle):
@@ -1089,262 +1055,6 @@ function renderAgendaCardCompacto(ag, opts) {
       </div>
     </div>
   `;
-}
-
-// Horários da grade Dia — pedido explícito: horário de intervalo não aparece
-// em NENHUMA view da agenda (antes essa função mantinha o slot do almoço e a
-// grade desenhava uma linha "Intervalo"; agora só reaproveita
-// gerarHorariosGrade, que já pula o almoço, igual Semana/Mês).
-function gerarHorariosGradeDia() {
-  return gerarHorariosGrade().map((hora) => ({ hora, intervalo: false }));
-}
-function minutosIntervaloAlmoco() {
-  if (!configuracao.horario_almoco_ativo) return 0;
-  return horarioParaMinutosFrontend(configuracao.horario_almoco_fim) - horarioParaMinutosFrontend(configuracao.horario_almoco_inicio);
-}
-
-// Card horizontal da view Dia (1 agendamento no horário) — hora · avatar do
-// profissional · cliente · serviço … meta · pílula de status. Reaproveita
-// data-acoes-toggle / .menu-acoes / data-id do resto da agenda (o handler
-// delegado em #conteudo já cobre).
-function renderDiaCardHorizontal(ag) {
-  const tom = TOM_STATUS_AGENDA[ag.status] || TOM_STATUS_AGENDA.confirmado;
-  const semAcoes = AG_STATUS_SEM_ACOES.includes(ag.status);
-  return `
-    <div class="agenda-card agenda-card-h ${tom.classe}${ag.status === 'cancelado' ? ' agendamento-cancelado' : ''}" data-id="${ag.id}">
-      <div class="agenda-card-h-linha" ${semAcoes ? '' : `data-acoes-toggle="${ag.id}"`}>
-        <span class="agenda-card-hora">${formatarHora(ag.data_hora)}</span>
-        <span class="grade-ag-avatar" aria-hidden="true" style="background:${corProfissional(ag.profissional_id)};color:#fff">${iniciaisNome(ag.profissional || '')}</span>
-        <span class="agenda-card-cliente">${ag.cliente || ag.cliente_telefone}</span>
-        <span class="agenda-card-servico">${ag.servico}</span>
-        <span class="agenda-card-meta">${ag.duracao_minutos}min · ${formatarPreco(ag.preco)} · ${ag.profissional}</span>
-        ${ag.encaixe ? '<span class="badge badge-encaixe">Encaixe</span>' : ''}
-        ${tom.pill ? `<span class="badge ${tom.pillClasse}">${tom.pill}</span>` : ''}
-        ${semAcoes ? '' : '<button class="btn-acoes" aria-label="Ações">⋮</button>'}
-      </div>
-      ${semAcoes ? '' : menuAcoesAgendamentoHtml(ag.id)}
-    </div>
-  `;
-}
-
-// Card compacto lado a lado (2+ no mesmo horário). Sem kebab (não cabe) — o
-// clique abre o mesmo .menu-acoes, posicionado por baixo via CSS.
-function renderDiaCardCompacto(ag) {
-  const tom = TOM_STATUS_AGENDA[ag.status] || TOM_STATUS_AGENDA.confirmado;
-  const semAcoes = AG_STATUS_SEM_ACOES.includes(ag.status);
-  return `
-    <div class="agenda-card agenda-card-c ${tom.classe}${ag.status === 'cancelado' ? ' agendamento-cancelado' : ''}" data-id="${ag.id}">
-      <div class="agenda-card-c-linha" ${semAcoes ? '' : `data-acoes-toggle="${ag.id}"`}>
-        <span class="grade-ag-avatar" aria-hidden="true" style="background:${corProfissional(ag.profissional_id)};color:#fff">${iniciaisNome(ag.profissional || '')}</span>
-        <div class="agenda-card-c-txt">
-          <div class="agenda-card-hora">${formatarHora(ag.data_hora)}</div>
-          <div class="agenda-card-cliente">${ag.cliente || ag.cliente_telefone}</div>
-          <div class="agenda-card-servico">${ag.servico}</div>
-        </div>
-      </div>
-      ${semAcoes ? '' : menuAcoesAgendamentoHtml(ag.id)}
-    </div>
-  `;
-}
-
-// PR (2026-09-27) — blocos espichados na view Dia: altura/posição em px a
-// partir da duração real (`ag.duracao_minutos`), em vez de "o agendamento só
-// ocupa a hora em que começa" (bug real em produção: uma Micro Pigmentação
-// de 240min aparecia como se ocupasse só 1 hora, e as 3 horas seguintes
-// ficavam mostrando "Livre"). ALTURA_LINHA_DIA_PX precisa bater com o CSS
-// (.agenda-grade-blocos .agenda-linha { height: 60px }) — 60px pros 60min de
-// SLOT_INTERVALO_MINUTOS, 1px por minuto, matemática simples de top/height.
-const ALTURA_LINHA_DIA_PX = 60;
-
-// Minutos desde a ABERTURA, já descontando o intervalo de almoço pra quem
-// vem depois dele — o mesmo espaço "comprimido" que gerarHorariosGradeDia já
-// usa pra decidir quais linhas existem (o almoço nunca vira linha, então o
-// overlay de blocos não pode deixar um buraco ali também). Nunca precisa
-// lidar com um bloco atravessando o almoço: dentroDoHorarioFuncionamento (a
-// mesma validação do backend, lib/horario-funcionamento.js) já rejeita
-// qualquer agendamento cujo horário+duração invada o intervalo.
-function minutoAjustadoDia(dataHoraISO) {
-  const minutoBruto = horarioParaMinutosFrontend(horaChave24h(dataHoraISO));
-  const aberturaMin = horarioParaMinutosFrontend(configuracao.horario_abertura || '08:00');
-  const almocoFimMin = configuracao.horario_almoco_ativo ? horarioParaMinutosFrontend(configuracao.horario_almoco_fim) : null;
-  const descontoAlmoco = (almocoFimMin != null && minutoBruto >= almocoFimMin) ? minutosIntervaloAlmoco() : 0;
-  return minutoBruto - aberturaMin - descontoAlmoco;
-}
-
-// Layout de colunas por sobreposição REAL de horário (não mais "mesma hora
-// cheia") — algoritmo clássico de "salas de reunião": ordena por início,
-// agrupa em clusters que se sobrepõem transitivamente entre si, e dentro de
-// cada cluster distribui em colunas (greedy: reaproveita a primeira coluna já
-// livre). totalColunas de cada item é o tamanho do cluster em que ele caiu,
-// não o total do dia inteiro — dois agendamentos que nunca se cruzam no
-// tempo continuam ocupando a largura inteira, cada um na sua vez.
-function calcularBlocosDia(agendamentos) {
-  const itens = agendamentos
-    .map((ag) => {
-      const inicio = horarioParaMinutosFrontend(horaChave24h(ag.data_hora));
-      const fim = inicio + Number(ag.duracao_minutos || 0);
-      return { ag, inicio, fim };
-    })
-    .sort((a, b) => a.inicio - b.inicio);
-
-  const resultado = [];
-  let grupo = [];
-  let fimGrupo = -Infinity;
-  const fecharGrupo = () => {
-    if (!grupo.length) return;
-    const colunas = [];
-    for (const item of grupo) {
-      let coluna = colunas.findIndex((fimColuna) => fimColuna <= item.inicio);
-      if (coluna === -1) coluna = colunas.length;
-      colunas[coluna] = item.fim;
-      resultado.push({ ...item, coluna });
-    }
-    const totalColunas = colunas.length;
-    for (let i = resultado.length - grupo.length; i < resultado.length; i++) resultado[i].totalColunas = totalColunas;
-  };
-  for (const item of itens) {
-    if (grupo.length && item.inicio >= fimGrupo) { fecharGrupo(); grupo = []; fimGrupo = -Infinity; }
-    grupo.push(item);
-    fimGrupo = Math.max(fimGrupo, item.fim);
-  }
-  fecharGrupo();
-  return resultado;
-}
-
-function renderDiaGrade(diaISO, agendamentos) {
-  const linhas = gerarHorariosGradeDia();
-  if (linhas.length === 0) {
-    return '<div class="vazio">Nenhum horário configurado (confira Abertura/Fechamento em Configuração).</div>';
-  }
-
-  // Cancelado continua contando pra ocupação visual do bucket (mesma
-  // paridade de antes — só ganhava o tom "agendamento-cancelado" no card,
-  // nunca sumia da grade).
-  const blocos = calcularBlocosDia(agendamentos);
-
-  const ehHoje = diaISO === formatarDataISO(new Date());
-  const horaAtualBucket = ehHoje ? horaChaveGradeBucket(new Date().toISOString()) : null;
-
-  const corpo = linhas.map(({ hora, intervalo }) => {
-    const horaMin = horarioParaMinutosFrontend(hora);
-    const horaFimMin = horaMin + SLOT_INTERVALO_MINUTOS;
-    // "Ocupada" agora é sobreposição real (início < fim do bucket E início do
-    // bucket < fim do agendamento) — um serviço de 240min começando às 11h
-    // ocupa 11h/12h/13h/14h inteiras, não só a linha das 11h.
-    const ocupada = !intervalo && blocos.some((b) => b.inicio < horaFimMin && horaMin < b.fim);
-    const conteudoLinha = intervalo
-      ? '<span class="agenda-livre agenda-intervalo">Intervalo</span>'
-      : (ocupada ? '' : '<span class="agenda-livre">Livre</span>');
-    return `
-      <div class="agenda-linha${hora === horaAtualBucket ? ' agenda-linha-agora' : ''}${intervalo ? ' agenda-linha-intervalo' : ''}">
-        <div class="agenda-rail">
-          <span class="agenda-rail-hora">${hora}</span>
-        </div>
-        <div class="agenda-conteudo">${conteudoLinha}</div>
-        ${intervalo || ocupada ? '' : `<button class="grade-linha-add" data-add-horario="${hora}" data-data="${diaISO}" aria-label="Novo agendamento às ${hora}">+</button>`}
-      </div>
-    `;
-  }).join('');
-
-  const pxPorMinuto = ALTURA_LINHA_DIA_PX / SLOT_INTERVALO_MINUTOS;
-  const alturaTotal = linhas.length * ALTURA_LINHA_DIA_PX;
-  const camadaBlocos = blocos.map(({ ag, coluna, totalColunas }) => {
-    const top = minutoAjustadoDia(ag.data_hora) * pxPorMinuto;
-    const altura = Math.max(Number(ag.duracao_minutos || 0) * pxPorMinuto - 4, 24);
-    const largura = 100 / totalColunas;
-    const esquerda = largura * coluna;
-    const card = totalColunas > 1 ? renderDiaCardCompacto(ag) : renderDiaCardHorizontal(ag);
-    return `<div class="agenda-bloco" style="top:${top}px;height:${altura}px;left:${esquerda}%;width:calc(${largura}% - 4px)">${card}</div>`;
-  }).join('');
-
-  return `
-    <div class="agenda-grade agenda-grade-blocos" style="height:${alturaTotal}px">
-      ${corpo}
-      <div class="agenda-bloco-camada">${camadaBlocos}</div>
-    </div>
-  `;
-}
-
-async function renderDia() {
-  // Anterior/Próximo (e a primeira carga da aba) nunca param num dia fora
-  // do horário de funcionamento configurado — pula direto pro próximo dia
-  // aberto. Sem direção explícita (primeira carga), pula pra frente.
-  dataRef = proximoDiaAberto(dataRef, 1);
-
-  const iso = formatarDataISO(dataRef);
-  conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
-  const [data, profs] = await Promise.all([
-    api(`/api/agendamentos?view=dia&data=${iso}`),
-    api('/api/profissionais'),
-  ]);
-  if (!data || !profs) return;
-
-  definirAgendamentosAtuais(data.agendamentos);
-
-  // Filtro de profissional é client-side (o dia inteiro já veio) — some se o
-  // profissional filtrado não tem agendamento hoje? não: o chip continua,
-  // mostra a coluna vazia. Só limpa se o profissional sumiu do cadastro.
-  if (filtroProfissionalDia && !profs.profissionais.some((p) => p.id === filtroProfissionalDia)) {
-    filtroProfissionalDia = null;
-  }
-  const agsVisiveis = filtroProfissionalDia
-    ? data.agendamentos.filter((ag) => ag.profissional_id === filtroProfissionalDia)
-    : data.agendamentos;
-
-  const dataLabel = dataRef.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
-  const validos = agsVisiveis.filter((ag) => ag.status !== 'cancelado');
-  const totalDia = validos.reduce((soma, ag) => soma + Number(ag.preco || 0), 0);
-
-  const chipsHtml = profs.profissionais.length > 1
-    ? `
-      <div class="agenda-filtros">
-        ${profs.profissionais.map((p) => `
-          <button class="agenda-chip${filtroProfissionalDia === p.id ? ' agenda-chip-ativo' : ''}" data-filtro-prof="${p.id}">
-            <span class="agenda-chip-avatar" style="background:${corProfissional(p.id)};color:#fff">${iniciaisNome(p.nome)}</span>
-            ${(p.nome || '').split(' ')[0]}
-          </button>
-        `).join('')}
-        <button class="agenda-chip${!filtroProfissionalDia ? ' agenda-chip-ativo' : ''}" data-filtro-prof="">Todos</button>
-      </div>
-    `
-    : '';
-
-  let html = `
-    <div class="agenda-topo">
-      <div class="agenda-topo-nav">
-        <button class="agenda-nav-btn" data-nav="-1" aria-label="Dia anterior">‹</button>
-        <button class="agenda-nav-hoje" data-nav="hoje">Hoje</button>
-        <button class="agenda-nav-btn" data-nav="1" aria-label="Próximo dia">›</button>
-      </div>
-      <div class="agenda-topo-data">
-        <strong>${dataLabel}</strong>
-        <span>${nomeDiaSemana(dataRef)} · ${validos.length} ${validos.length === 1 ? 'atendimento' : 'atendimentos'} · ${formatarPreco(totalDia)}</span>
-      </div>
-    </div>
-    ${chipsHtml}
-  `;
-
-  html += renderDiaGrade(iso, agsVisiveis);
-
-  conteudo.innerHTML = html;
-  conteudo.querySelectorAll('[data-nav]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const nav = btn.dataset.nav;
-      if (nav === 'hoje') {
-        dataRef = new Date();
-      } else {
-        dataRef.setDate(dataRef.getDate() + Number(nav));
-      }
-      dataRef = proximoDiaAberto(dataRef, nav === '-1' ? -1 : 1);
-      renderDia();
-    });
-  });
-  conteudo.querySelectorAll('[data-filtro-prof]').forEach((chip) => {
-    chip.addEventListener('click', () => {
-      filtroProfissionalDia = chip.dataset.filtroProf || null;
-      renderDia();
-    });
-  });
 }
 
 async function renderSemana() {
@@ -1408,7 +1118,7 @@ async function renderSemana() {
   conteudo.querySelectorAll('[data-nav]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const nav = btn.dataset.nav;
-      if (nav === 'hoje') dataRef = new Date();
+      if (nav === 'hoje') definirDataRef(new Date());
       else dataRef.setDate(dataRef.getDate() + Number(nav));
       renderSemana();
     });
@@ -1501,7 +1211,7 @@ function renderSemanaGrade(diasAbertos, porDia) {
 // ←/→ e mesmos horários de Preferências que a view Dia (gerarHorariosGrade
 // já lê configuracao.horario_abertura/fechamento/almoço).
 async function renderQuadro() {
-  dataRef = proximoDiaAberto(dataRef, 1);
+  definirDataRef(proximoDiaAberto(dataRef, 1));
   clearInterval(quadroLinhaAgoraIntervalo);
 
   const iso = formatarDataISO(dataRef);
@@ -1535,12 +1245,12 @@ async function renderQuadro() {
   conteudo.innerHTML = html;
   conteudo.querySelector('[data-nav="-1"]').addEventListener('click', () => {
     dataRef.setDate(dataRef.getDate() - 1);
-    dataRef = proximoDiaAberto(dataRef, -1);
+    definirDataRef(proximoDiaAberto(dataRef, -1));
     renderQuadro();
   });
   conteudo.querySelector('[data-nav="1"]').addEventListener('click', () => {
     dataRef.setDate(dataRef.getDate() + 1);
-    dataRef = proximoDiaAberto(dataRef, 1);
+    definirDataRef(proximoDiaAberto(dataRef, 1));
     renderQuadro();
   });
 
@@ -1708,7 +1418,7 @@ async function renderMes() {
   conteudo.querySelectorAll('[data-nav]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const nav = btn.dataset.nav;
-      if (nav === 'hoje') dataRef = new Date();
+      if (nav === 'hoje') definirDataRef(new Date());
       else dataRef.setMonth(dataRef.getMonth() + Number(nav));
       renderMes();
     });
