@@ -25,8 +25,13 @@ const AUTOMACAO_GATILHO_CURTO = {
 const AUTOMACAO_GATILHOS_ORDEM = Object.keys(AUTOMACAO_GATILHO_CURTO);
 
 let automacoesFiltroGatilho = '';
-let automacoesTemplatesCache = [];
+// Exportados com setter porque o disparo manual de clientes (app/modulos/clientes.js)
+// usa a mesma cache de templates e a mesma aba "disparos" — ver definirAutomacoesTemplatesCache/
+// definirAutomacoesAbaAtiva abaixo (import direto de `let` não pode ser reatribuído de fora).
+export let automacoesTemplatesCache = [];
+export function definirAutomacoesTemplatesCache(lista) { automacoesTemplatesCache = lista; }
 let automacoesAbaAtiva = 'lista';
+export function definirAutomacoesAbaAtiva(aba) { automacoesAbaAtiva = aba; }
 export let automacoesAtuais = [];
 
 // Relatório de disparos do próprio tenant (pedido do Bruno, 2026-09-20) —

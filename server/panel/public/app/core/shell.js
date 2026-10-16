@@ -599,3 +599,18 @@ export const FORMAS_PAGAMENTO_LABEL = {
   cartao: 'Cartão', outro: 'Outro', // legado, ver routes/agenda.js FORMA_PAGAMENTO_VALIDAS
 };
 export const FORMAS_PAGAMENTO_SEM_TAXA = ['dinheiro'];
+
+export function formatarDataCurta(dataHoraISO) {
+  return new Date(dataHoraISO).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Sao_Paulo' });
+}
+
+// Formata timestamp completo (data + hora) em pt-BR curto, ex.: "03/08/2026
+// às 14:30" — usado só no pedido de número novo, distinto de
+// formatarDataCurtaISO (que só recebe "YYYY-MM-DD" sem hora).
+export function formatarDataHoraCurta(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const data = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `${data} às ${hora}`;
+}
