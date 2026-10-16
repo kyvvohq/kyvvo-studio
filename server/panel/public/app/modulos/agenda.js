@@ -20,7 +20,7 @@ import { api } from '../core/api.js';
 import {
   mostrarToast, abrirModal, fecharModal, formatarDataISO, formatarHora,
   validarObrigatorios, contaStatus, formatarDataCurta, configuracao,
-  escapeHtml, conteudo, textoSaudacao, iconeSvgHtml, iniciaisNome, nomeDiaSemana, inicioDaSemana,
+  escapeHtml, conteudo, textoSaudacao, iconeSvgHtml, iniciaisNome, nomeDiaSemana, inicioDaSemana, NOMES_DIAS,
 } from '../core/shell.js';
 
 // Cor por profissional na agenda (avatar/borda de acento) — determinística
@@ -1837,4 +1837,117 @@ function renderQuadroGrade(diaISO, profissionais, agendamentos) {
 
   html += '</div>';
   return html;
+}
+
+// Fase 6f (2026-10-16): acrescenta a visão Mês — última sub-fase da fase 6
+// (Agenda). Depois dela só resta em app.js o núcleo de roteador/boot/wiring.
+export async function renderMes() {
+  const mesISO = formatarDataISO(dataRef).slice(0, 7);
+  conteudo.innerHTML = '<div class="vazio">Carregando...</div>';
+  const data = await api(`/api/agendamentos?view=mes&data=${mesISO}`);
+  if (!data) return;
+
+  definirAgendamentosAtuais(data.agendamentos);
+
+  // Mesmo bug de fuso da Semana (ver comentário lá) — recorte ingênuo da
+  // string UTC em vez de converter pra Brasília.
+  const porDia = {};
+  for (const ag of data.agendamentos) {
+    const diaISO = formatarDataISO(new Date(ag.data_hora));
+    if (!porDia[diaISO]) porDia[diaISO] = [];
+    porDia[diaISO].push(ag);
+  }
+
+  const ano = dataRef.getFullYear();
+  const mes = dataRef.getMonth();
+  const primeiroDia = new Date(ano, mes, 1);
+  const ultimoDia = new Date(ano, mes + 1, 0);
+  const mesLabel = dataRef.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'America/Sao_Paulo' });
+  const validos = data.agendamentos.filter((ag) => ag.status !== 'cancelado');
+
+  let html = `
+    <div class="agenda-topo">
+      <div class="agenda-topo-nav">
+        <button class="agenda-nav-btn" data-nav="-1" aria-label="Mês anterior">‹</button>
+        <button class="agenda-nav-hoje" data-nav="hoje">Hoje</button>
+        <button class="agenda-nav-btn" data-nav="1" aria-label="Próximo mês">›</button>
+      </div>
+      <div class="agenda-topo-data">
+        <strong>${mesLabel}</strong>
+        <span>${validos.length} ${validos.length === 1 ? 'atendimento' : 'atendimentos'} no mês</span>
+      </div>
+    </div>
+  `;
+
+  // Dia da semana sem funcionamento (Configuração > Dias de funcionamento)
+  // nem vira coluna (README do DS: "Mês — também só com dias de trabalho") —
+  // diferente da versão anterior, que mostrava uma coluna estreita e
+  // desabilitada. diaSemana index bate com NOMES_DIAS/getDay() (0 = domingo).
+  const diasFuncionamentoMes = configuracao.dias_funcionamento || [1, 2, 3, 4, 5, 6];
+  html += diasFuncionamentoMes.length === 0
+    ? '<div class="vazio">Nenhum dia de funcionamento configurado (confira Preferências).</div>'
+    : renderMesGrade(ano, mes, primeiroDia, ultimoDia, diasFuncionamentoMes, porDia);
+
+  conteudo.innerHTML = html;
+  conteudo.querySelectorAll('[data-nav]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const nav = btn.dataset.nav;
+      if (nav === 'hoje') definirDataRef(new Date());
+      else dataRef.setMonth(dataRef.getMonth() + Number(nav));
+      renderMes();
+    });
+  });
+}
+
+// Grade do componente `.agenda-mes` do DS — só colunas de dia de semana
+// aberto; `.agenda-mes-fora` completa a 1ª/última linha com dias do mês
+// anterior/seguinte (cosmético, só numeração sequencial). Até 3 cards por
+// célula (`.agenda-mais` pro resto, leva pra visão Dia daquele dia).
+function renderMesGrade(ano, mes, primeiroDia, ultimoDia, diasFuncionamentoMes, porDia) {
+  const colunas = [0, 1, 2, 3, 4, 5, 6].filter((ds) => diasFuncionamentoMes.includes(ds));
+  let offset = 0;
+  for (let ds = 0; ds < primeiroDia.getDay(); ds++) {
+    if (colunas.includes(ds)) offset++;
+  }
+
+  const hojeISO = formatarDataISO(new Date());
+  const MAX_VISIVEIS = 3;
+  const celulasDias = [];
+  for (let dia = 1; dia <= ultimoDia.getDate(); dia++) {
+    const diaSemana = new Date(ano, mes, dia).getDay();
+    if (!diasFuncionamentoMes.includes(diaSemana)) continue;
+    const diaISO = `${ano}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    const agsDoDia = porDia[diaISO] || [];
+    const hoje = diaISO === hojeISO;
+    const visiveis = agsDoDia.slice(0, MAX_VISIVEIS);
+    const extra = agsDoDia.length - visiveis.length;
+    celulasDias.push(`
+      <div class="agenda-mes-celula${hoje ? ' agenda-mes-celula-hoje' : ''}">
+        <span class="agenda-dia-num${hoje ? ' agenda-dia-num-hoje' : ''}">${dia}</span>
+        ${visiveis.map((ag) => renderAgendaCardCompacto(ag, { comHora: true })).join('')}
+        ${extra > 0 ? `<span class="agenda-mais" data-ver-dia="${diaISO}">+${extra} mais</span>` : ''}
+        <button class="agenda-mes-celula-add" data-add-dia="${diaISO}" aria-label="Novo agendamento em ${dia}">+</button>
+      </div>
+    `);
+  }
+
+  const mesAnteriorUltimoDia = new Date(ano, mes, 0).getDate();
+  const celulasAntes = Array.from({ length: offset }, (_, i) =>
+    `<div class="agenda-mes-celula agenda-mes-fora"><span class="agenda-dia-num">${mesAnteriorUltimoDia - offset + 1 + i}</span></div>`
+  );
+
+  const restante = (offset + celulasDias.length) % colunas.length;
+  const totalDepois = restante === 0 ? 0 : colunas.length - restante;
+  const celulasDepois = Array.from({ length: totalDepois }, (_, i) =>
+    `<div class="agenda-mes-celula agenda-mes-fora"><span class="agenda-dia-num">${i + 1}</span></div>`
+  );
+
+  return `
+    <div class="agenda-mes" style="--agenda-dias:${colunas.length}">
+      ${colunas.map((ds) => `<div class="agenda-mes-cab">${NOMES_DIAS[ds].slice(0, 3)}</div>`).join('')}
+      ${celulasAntes.join('')}
+      ${celulasDias.join('')}
+      ${celulasDepois.join('')}
+    </div>
+  `;
 }
