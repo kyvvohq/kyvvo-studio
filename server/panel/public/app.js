@@ -15,7 +15,7 @@ import {
   ativarSalvarSoQuandoAlterado, formatarTelefoneWhatsapp, infoSegmento, textoSaudacao,
   formatarDataISO, formatarHora, nomeDiaSemana, inicioDaSemana, validarObrigatorios, iconeSvgHtml, NOMES_DIAS,
   FORMAS_PAGAMENTO_ORDEM, FORMAS_PAGAMENTO_LABEL, formatarDataHoraDisparo, contaStatus, definirContaStatus,
-  formatarDataCurta, formatarDataHoraCurta,
+  formatarDataCurta, formatarDataHoraCurta, onboardingElegivel, mostrarModalOnboarding,
 } from './app/core/shell.js';
 import { renderPerfil, renderMinhaEmpresa } from './app/modulos/perfil.js';
 import { renderNotificacoes } from './app/modulos/notificacoes.js';
@@ -206,42 +206,6 @@ document.getElementById('cobranca-banner').addEventListener('click', (e) => {
   }
   selecionarMenu('pagamentos');
 });
-
-// US56 — checklist mínimo de onboarding: serviços, horário de funcionamento
-// e WhatsApp, nessa ordem (ordem natural de configuração — não faz sentido
-// revisar horário ou conectar WhatsApp antes de ter serviço nenhum pra
-// oferecer). Mesma fonte de dados que os avisos (US59) e as pendências do
-// Início (US63), só reorganizada em passos sequenciais com "próximo passo
-// recomendado" em vez de uma lista plana.
-function construirPassosOnboarding(status) {
-  const configuracao = (status && status.configuracao) || {};
-  return [
-    {
-      id: 'servicos',
-      titulo: 'Cadastre seus serviços',
-      descricao: 'Defina os serviços que seu negócio oferece, com duração e preço.',
-      feito: !configuracao.sem_servicos,
-      acaoMenu: 'servicos',
-      acaoLabel: 'Cadastrar serviços',
-    },
-    {
-      id: 'horario',
-      titulo: 'Confirme seu horário de funcionamento',
-      descricao: 'Revise os dias e horários em que seu negócio atende (já vem com um padrão sugerido).',
-      feito: !configuracao.horario_nao_confirmado,
-      acaoMenu: 'configuracao',
-      acaoLabel: 'Revisar horário',
-    },
-    {
-      id: 'whatsapp',
-      titulo: 'Conecte seu WhatsApp',
-      descricao: 'Conecte o número do seu negócio para receber agendamentos automaticamente pelo bot.',
-      feito: !configuracao.whatsapp_desconectado,
-      acaoMenu: 'whatsapp',
-      acaoLabel: 'Conectar WhatsApp',
-    },
-  ];
-}
 
 document.getElementById('avisos-painel').addEventListener('click', (e) => {
   const dispensarBtn = e.target.closest('[data-acao-dispensar-aviso]');
@@ -1837,71 +1801,6 @@ function renderGradeHorariosDoDia(dataISO, agendamentos) {
         .join('')}
     </div>
   `;
-}
-
-// ---------- Onboarding (US56/US66) ----------
-// Modal de "primeiros passos", separado do painel de avisos (US59) e das
-// pendências do Início (US63): aqueles são nudges passivos que convivem com
-// o resto do painel, este é um modal com progresso e "próximo passo
-// recomendado" — pensado pra guiar o primeiro acesso sem virar tela nem item
-// fixo de menu (US66 substitui a tela dedicada + item fixo da US56).
-function onboardingElegivel(status) {
-  return construirPassosOnboarding(status).some((p) => !p.feito) && !status.onboarding_dispensado;
-}
-
-function mostrarModalOnboarding(status) {
-  const passos = construirPassosOnboarding(status);
-  const concluidos = passos.filter((p) => p.feito).length;
-  const proximoPasso = passos.find((p) => !p.feito);
-  const percentual = Math.round((concluidos / passos.length) * 100);
-
-  const conteudoHtml = `
-    <div class="onboarding-cabecalho">
-      <h2>Primeiros passos</h2>
-      <p>Complete esses passos para deixar o Kyvvo pronto pra receber agendamentos.</p>
-      <div class="onboarding-progresso">
-        <div class="onboarding-progresso-barra"><div class="onboarding-progresso-preenchido" style="width:${percentual}%"></div></div>
-        <span>${concluidos} de ${passos.length} concluídos</span>
-      </div>
-    </div>
-    <ul class="onboarding-lista">
-      ${passos.map((p) => {
-        const recomendado = !p.feito && proximoPasso && p.id === proximoPasso.id;
-        return `
-        <li class="onboarding-passo ${p.feito ? 'onboarding-passo-feito' : ''} ${recomendado ? 'onboarding-passo-recomendado' : ''}">
-          <div class="onboarding-passo-check" aria-hidden="true">${p.feito ? '✓' : ''}</div>
-          <div class="onboarding-passo-texto">
-            <strong>${p.titulo}</strong>
-            <p>${p.descricao}</p>
-            ${recomendado ? '<span class="onboarding-passo-tag">Próximo passo recomendado</span>' : ''}
-          </div>
-          ${p.feito ? '' : `<button class="btn-secundario" data-acao-onboarding-passo="${p.acaoMenu}">${p.acaoLabel}</button>`}
-        </li>
-      `;
-      }).join('')}
-    </ul>
-    <button class="link-pular-onboarding" id="btn-pular-onboarding">Pular por agora</button>
-  `;
-
-  const overlay = abrirModal('', conteudoHtml, 'modal-card-onboarding');
-  overlay.querySelectorAll('[data-acao-onboarding-passo]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      fecharModal();
-      selecionarMenu(btn.dataset.acaoOnboardingPasso);
-    });
-  });
-  const btnPular = document.getElementById('btn-pular-onboarding');
-  if (btnPular) {
-    btnPular.addEventListener('click', async () => {
-      // Persiste a dispensa pro modal não reaparecer em novos acessos
-      // (US66/Cenário 3) — diferente de fechar pelo X/clique fora/Esc sem
-      // decidir, que não persiste nada e deixa o modal elegível de novo no
-      // próximo carregamento (US66/Cenário 5).
-      await api('/api/onboarding/dispensar', { method: 'POST' });
-      if (contaStatus) contaStatus.onboarding_dispensado = true;
-      fecharModal();
-    });
-  }
 }
 
 // ---------- Início (dashboard, 5 seções) ----------
