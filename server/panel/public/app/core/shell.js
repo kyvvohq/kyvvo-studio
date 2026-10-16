@@ -559,6 +559,19 @@ export function nomeDiaSemana(d) {
   return d.toLocaleDateString('pt-BR', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
 }
 
+// Segunda-feira da semana que contém dataRef, ao meio-dia local (evita
+// virada de dia por fuso). Via formatarDataISO/Brasília, nunca usa a
+// instância real de dataRef direto (mesmo bug do histórico de
+// formatarDataISO). Usada por Financeiro e pela Agenda (Dia/Semana/Mês).
+export function inicioDaSemana(dataRef) {
+  const [ano, mes, dia] = formatarDataISO(dataRef).split('-').map(Number);
+  const d = new Date(ano, mes - 1, dia, 12);
+  const diaSemana = d.getDay();
+  const diff = diaSemana === 0 ? -6 : 1 - diaSemana;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
 // Nomes dos dias da semana (toggle de dias de funcionamento em Configuração,
 // cabeçalho da Agenda-Mês).
 export const NOMES_DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
