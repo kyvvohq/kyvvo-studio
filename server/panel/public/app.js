@@ -673,15 +673,6 @@ function formatarDataSimples(dataISO) {
   return `${dia}/${mes}/${ano}`;
 }
 
-// "DD/MM às HH:mm" — usado onde o ano não agrega (próximo atendimento na
-// tela de Clientes, sempre num horizonte curto o bastante pra não precisar
-// do ano pra desambiguar).
-function formatarDataHoraCurta(dataHoraISO) {
-  const d = new Date(dataHoraISO);
-  const dataStr = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' });
-  return `${dataStr} às ${formatarHora(dataHoraISO)}`;
-}
-
 // ---------- Modal: novo agendamento (ST09.1 a ST09.5) ----------
 // Ponto de entrada do fluxo de cadastro manual (US09). A ST09.1 entregou o
 // botão em destaque na agenda e a abertura do modal; a ST09.2 montou o
