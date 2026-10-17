@@ -2617,6 +2617,15 @@ a.user-menu-item { display: block; text-decoration: none; }
    linha extra só quando difere do valor bruto. */
 .financeiro-item-liquido { font-size: 11px; color: var(--muted-strong); margin-top: 2px; }
 
+/* "Planos disponíveis" (aba Planos) — grade de cards lado a lado, mesmo
+   layout do plano-cobranca.html do People (.planos-preview/.plano-card). */
+.planos-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 16px 0; }
+.plano-card { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; display: flex; flex-direction: column; }
+.plano-card.atual { border-color: var(--accent); background: var(--accent-tint); }
+.plano-card .nome { font-weight: 700; font-size: 13.5px; color: var(--text); margin-bottom: 4px; }
+.plano-card .preco { font-family: var(--font-display); font-size: 20px; color: var(--text); margin-bottom: 6px; }
+.plano-card .detalhe { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
 /* Lista de planos no modal "Trocar de plano" */
 .plano-opcoes {
   display: flex;

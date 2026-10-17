@@ -297,29 +297,27 @@ export async function renderPagamentos() {
   }
 }
 
+// Grade de cards lado a lado (mesmo layout de .planos-preview/.plano-card do
+// plano-cobranca.html do People) — vitrine read-only, trocar de plano
+// continua sendo pelo botão "Alterar plano" (abre abrirModalTrocarPlano,
+// que mantém a lista em linha com rádio, outro contexto/largura).
 function renderListaPlanosDisponiveis(planos, planoSlugAtual) {
   if (!planos || !planos.length) return '';
-  const cards = planos.map((p, i) => {
+  const cards = planos.map((p) => {
     const atual = p.slug === planoSlugAtual;
     return `
-      <div class="plano-opcao${atual ? ' plano-opcao-atual' : ''}">
-        <span class="plano-opcao-icone plano-opcao-icone-${i % PLANO_TROCA_ICONES.length}" aria-hidden="true">${PLANO_TROCA_ICONES[i % PLANO_TROCA_ICONES.length]}</span>
-        <span class="plano-opcao-corpo">
-          <span class="plano-opcao-nome">${p.nome}${atual ? ' <span class="badge badge-status-ativo">Seu plano</span>' : ''}</span>
-          ${p.frase_beneficio ? `<span class="plano-opcao-desc">${p.frase_beneficio}</span>` : ''}
-          <span class="plano-opcao-badges">${badgesLimitesPlano(p.limites)}</span>
-        </span>
-        <span class="plano-opcao-preco">
-          <span class="plano-opcao-preco-valor">${formatarPreco(Number(p.preco_mensal))}<small>/mês</small></span>
-          <span class="plano-opcao-preco-nota">Cobrados mensalmente</span>
-        </span>
+      <div class="plano-card${atual ? ' atual' : ''}">
+        <div class="nome">${p.nome}${atual ? ' <span class="badge badge-status-ativo">Seu plano</span>' : ''}</div>
+        <div class="preco">${formatarPreco(Number(p.preco_mensal))}<span style="font-size:12px;color:var(--muted)">/mês</span></div>
+        ${p.frase_beneficio ? `<div class="detalhe">${p.frase_beneficio}</div>` : ''}
+        ${detalhesLimitesPlano(p.limites)}
       </div>
     `;
   }).join('');
   return `
     <div class="pagamento-secao-divisor"></div>
     <h3 class="inicio-secao-titulo">Planos disponíveis</h3>
-    <div class="plano-opcoes">${cards}</div>
+    <div class="planos-preview">${cards}</div>
   `;
 }
 
@@ -344,6 +342,22 @@ function badgesLimitesPlano(limites) {
         ? rotulo.ilimitado
         : Number(valor) === 1 ? `1 ${rotulo.singular}` : `Até ${valor} ${rotulo.plural}`;
       return `<span class="plano-opcao-badge">${rotulo.icone} ${texto}</span>`;
+    }).join('');
+}
+
+// Mesma fonte de limites de badgesLimitesPlano, mas como linhas de texto
+// simples (.detalhe) — formato usado pelos cards de .plano-card, igual ao
+// plano-cobranca.html do People.
+function detalhesLimitesPlano(limites) {
+  if (!limites) return '';
+  return Object.entries(PLANO_TROCA_LIMITE_ROTULOS)
+    .filter(([chave]) => limites[chave] !== undefined)
+    .map(([chave, rotulo]) => {
+      const valor = limites[chave];
+      const texto = valor == null || valor === -1
+        ? rotulo.ilimitado
+        : Number(valor) === 1 ? `1 ${rotulo.singular}` : `Até ${valor} ${rotulo.plural}`;
+      return `<div class="detalhe">${texto}</div>`;
     }).join('');
 }
 
