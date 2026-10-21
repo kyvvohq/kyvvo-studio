@@ -26,8 +26,14 @@ const IA_HISTORICO_MENSAGENS = 10;
 // também merece ser cumprimentado pelo nome, não só quem nunca falou com o
 // salão (bug real: historico.length sozinho nunca zera pra quem já tem
 // histórico salvo, então a saudação com nome só disparava na primeiríssima
-// mensagem da vida do cliente).
-const IA_GAP_NOVA_CONVERSA_MS = 2 * 60 * 60 * 1000;
+// mensagem da vida do cliente). Configurável por tenant desde 2026-10-21
+// (Configurações > Preferências, "janela de encerramento") — isto é, na
+// prática, o próprio mecanismo de "encerrar o atendimento" do Studio: não
+// existe um estado explícito de sessão aberta/fechada aqui (ao contrário do
+// agente novo do CRM), então "encerrar" É re-cumprimentar do zero na
+// próxima mensagem. Fallback (tenant sem a coluna carregada, ex. query
+// antiga em teste) continua em 2h (120min), o valor fixo de antes.
+const IA_JANELA_ENCERRAMENTO_MINUTOS_PADRAO = 120;
 
 let pool;
 let fastify;
@@ -169,6 +175,12 @@ async function salvarMensagemIA(tenantId, clienteId, role, conteudo, intent = nu
     'INSERT INTO conversas_ia (tenant_id, cliente_id, role, conteudo, intent, tokens_entrada, tokens_saida) VALUES ($1, $2, $3, $4, $5, $6, $7)',
     [tenantId, clienteId, role, conteudo, intent, tokensEntrada, tokensSaida]
   );
+  // Retomada de atendimento (lib/worker-retomada-ia.js): o cliente respondeu
+  // de verdade, então zera o contador de nudges pendentes — mesma ideia do
+  // reset em crm_conversas_whatsapp.salvarConversa() do CRM.
+  if (role === 'user') {
+    await pool.query('UPDATE clientes SET ia_retomada_tentativas = 0, ia_retomada_ultima_em = NULL WHERE id = $1', [clienteId]);
+  }
 }
 
 // US68/CA04 — executor de ação: só roda depois do parser validar o JSON.
@@ -454,7 +466,8 @@ async function processarMensagemIA({ tenant, telefone, mensagem, pushName, envia
   const gapDesdeUltimaMensagemMs = ultimaMensagemRows[0]
     ? Date.now() - new Date(ultimaMensagemRows[0].criado_em).getTime()
     : Infinity;
-  const primeiraMensagem = gapDesdeUltimaMensagemMs > IA_GAP_NOVA_CONVERSA_MS;
+  const janelaEncerramentoMs = (tenant.ia_janela_encerramento_minutos ?? IA_JANELA_ENCERRAMENTO_MINUTOS_PADRAO) * 60 * 1000;
+  const primeiraMensagem = gapDesdeUltimaMensagemMs > janelaEncerramentoMs;
 
   // Sempre salva a mensagem do cliente, mesmo durante atendimento humano —
   // o atendente precisa ver na janela de atendimento ao vivo

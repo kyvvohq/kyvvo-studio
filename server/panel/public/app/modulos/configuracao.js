@@ -70,6 +70,10 @@ export async function renderConfiguracao() {
   const clienteInativoDias = configuracao.cliente_inativo_dias || 30;
   const clienteNovoDias = configuracao.cliente_novo_dias || 30;
   const formasPagamento = configuracao.formas_pagamento || {};
+  const janelaEncerramentoHoras = (configuracao.ia_janela_encerramento_minutos || 120) / 60;
+  const retomadaAtiva = !!configuracao.ia_retomada_ativa;
+  const retomadaTentativas = configuracao.ia_retomada_tentativas || 1;
+  const retomadaIntervaloHoras = configuracao.ia_retomada_intervalo_horas || 1;
 
   const toggleDias = NOMES_DIAS.map((nome, idx) => `
     <label class="dia-toggle-cel">
@@ -132,6 +136,29 @@ export async function renderConfiguracao() {
       <label style="margin-top:16px">Formas de pagamento</label>
       <div class="modal-texto" style="margin-top:0">Habilite as formas aceitas no salão e a taxa (%) que a maquininha/gateway cobra em cada uma — usada pra calcular o valor líquido do atendimento ao confirmar o pagamento. Dinheiro nunca tem taxa.</div>
       <div class="formas-pagamento-config">${formasPagamentoConfigHtml(formasPagamento)}</div>
+
+      <label for="config-janela-encerramento" style="margin-top:16px">Janela de encerramento do atendimento da IA (horas)</label>
+      <input type="number" id="config-janela-encerramento" min="0.25" max="8" step="0.25" value="${janelaEncerramentoHoras}" style="max-width:120px">
+      <div class="modal-texto">Se o cliente não responder a IA nesse tempo, o atendimento se encerra sozinho — a próxima mensagem dele começa uma conversa nova.</div>
+
+      <label class="toggle-linha" style="margin-top:16px">
+        <span class="toggle-switch">
+          <input type="checkbox" id="config-retomada-ativa" ${retomadaAtiva ? 'checked' : ''}>
+          <span class="toggle-switch-trilho"></span>
+        </span>
+        Retomar atendimento (a IA chama o cliente de volta se ele parar de responder)
+      </label>
+      <div class="formato-hora-opcoes" id="config-retomada-campos" style="${retomadaAtiva ? '' : 'display:none'}">
+        <div>
+          <label for="config-retomada-tentativas">Tentativas (1-3)</label>
+          <input type="number" id="config-retomada-tentativas" min="1" max="3" step="1" value="${retomadaTentativas}">
+        </div>
+        <div>
+          <label for="config-retomada-intervalo">Intervalo entre tentativas (1-3h)</label>
+          <input type="number" id="config-retomada-intervalo" min="1" max="3" step="1" value="${retomadaIntervaloHoras}">
+        </div>
+      </div>
+      <div class="modal-texto">Só acontece dentro do horário de funcionamento acima, e nunca depois que a janela de encerramento já teria passado.</div>
     </form>
   `;
 
@@ -148,6 +175,12 @@ export async function renderConfiguracao() {
       const taxaInput = document.querySelector(`.forma-pagamento-taxa[data-chave="${chk.dataset.chave}"]`);
       if (taxaInput) taxaInput.disabled = !chk.checked;
     });
+  });
+
+  const retomadaAtivaInput = document.getElementById('config-retomada-ativa');
+  const retomadaCampos = document.getElementById('config-retomada-campos');
+  retomadaAtivaInput.addEventListener('change', () => {
+    retomadaCampos.style.display = retomadaAtivaInput.checked ? '' : 'none';
   });
 
   // Feedback de salvamento via toast (US...) — mesmo padrão do resto do
@@ -227,11 +260,32 @@ export async function renderConfiguracao() {
       return;
     }
 
+    const janelaEncerramentoHorasValor = parseFloat(document.getElementById('config-janela-encerramento').value);
+    if (Number.isNaN(janelaEncerramentoHorasValor) || janelaEncerramentoHorasValor < 0.25 || janelaEncerramentoHorasValor > 8) {
+      mostrarToast('Informe um tempo entre 0,25 e 8 horas pra janela de encerramento.', 'erro');
+      return;
+    }
+    const iaRetomadaAtiva = retomadaAtivaInput.checked;
+    const iaRetomadaTentativas = parseInt(document.getElementById('config-retomada-tentativas').value, 10);
+    const iaRetomadaIntervaloHoras = parseInt(document.getElementById('config-retomada-intervalo').value, 10);
+    if (iaRetomadaAtiva && (!Number.isInteger(iaRetomadaTentativas) || iaRetomadaTentativas < 1 || iaRetomadaTentativas > 3)) {
+      mostrarToast('Informe um número de tentativas de retomada entre 1 e 3.', 'erro');
+      return;
+    }
+    if (iaRetomadaAtiva && (!Number.isInteger(iaRetomadaIntervaloHoras) || iaRetomadaIntervaloHoras < 1 || iaRetomadaIntervaloHoras > 3)) {
+      mostrarToast('Informe um intervalo de retomada entre 1 e 3 horas.', 'erro');
+      return;
+    }
+
     const payload = {
       diasFuncionamento, horarioAbertura, horarioFechamento,
       formasPagamento: formasPagamentoPayload,
       horarioAlmocoAtivo, horarioAlmocoInicio, horarioAlmocoFim,
       clienteInativoDias, clienteNovoDias,
+      iaJanelaEncerramentoMinutos: Math.round(janelaEncerramentoHorasValor * 60),
+      iaRetomadaAtiva,
+      iaRetomadaTentativas: Number.isInteger(iaRetomadaTentativas) ? iaRetomadaTentativas : 1,
+      iaRetomadaIntervaloHoras: Number.isInteger(iaRetomadaIntervaloHoras) ? iaRetomadaIntervaloHoras : 1,
     };
 
     // Só avisa/confirma quando algum dia que ANTES estava marcado foi
