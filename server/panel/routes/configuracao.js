@@ -70,7 +70,8 @@ function registerConfiguracaoRoutes(fastify, pool) {
     const { rows } = await pool.query(
       `SELECT dias_funcionamento, formato_hora, horario_abertura, horario_fechamento, segmento,
               horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, tecnologia, plano,
-              cliente_inativo_dias, cliente_novo_dias, formas_pagamento, notificacoes_ativas
+              cliente_inativo_dias, cliente_novo_dias, formas_pagamento, notificacoes_ativas,
+              ia_janela_encerramento_minutos, ia_retomada_ativa, ia_retomada_tentativas, ia_retomada_intervalo_horas
        FROM tenants WHERE id = $1`,
       [tenantId]
     );
@@ -92,6 +93,7 @@ function registerConfiguracaoRoutes(fastify, pool) {
       diasFuncionamento, formatoHora, horarioAbertura, horarioFechamento,
       horarioAlmocoAtivo, horarioAlmocoInicio, horarioAlmocoFim,
       clienteInativoDias, clienteNovoDias, formasPagamento, notificacoesAtivas,
+      iaJanelaEncerramentoMinutos, iaRetomadaAtiva, iaRetomadaTentativas, iaRetomadaIntervaloHoras,
     } = request.body || {};
 
     if (formasPagamento !== undefined) {
@@ -118,6 +120,20 @@ function registerConfiguracaoRoutes(fastify, pool) {
     // clienteInativoDias acima (CHECK em 075_tenants_cliente_novo_dias.sql).
     if (clienteNovoDias !== undefined && (!Number.isInteger(clienteNovoDias) || clienteNovoDias < 1 || clienteNovoDias > 365)) {
       return reply.code(400).send({ error: 'clienteNovoDias deve ser um número inteiro entre 1 e 365' });
+    }
+    // Janela de encerramento + retomada de atendimento da IA (Preferências,
+    // pedido do Bruno 2026-10-21) — mesmo padrão de validação acima.
+    if (iaJanelaEncerramentoMinutos !== undefined && (!Number.isInteger(iaJanelaEncerramentoMinutos) || iaJanelaEncerramentoMinutos < 15 || iaJanelaEncerramentoMinutos > 480)) {
+      return reply.code(400).send({ error: 'iaJanelaEncerramentoMinutos deve ser um número inteiro entre 15 e 480 (0,25h a 8h)' });
+    }
+    if (iaRetomadaAtiva !== undefined && typeof iaRetomadaAtiva !== 'boolean') {
+      return reply.code(400).send({ error: 'iaRetomadaAtiva deve ser verdadeiro ou falso' });
+    }
+    if (iaRetomadaAtiva && iaRetomadaTentativas !== undefined && (!Number.isInteger(iaRetomadaTentativas) || iaRetomadaTentativas < 1 || iaRetomadaTentativas > 3)) {
+      return reply.code(400).send({ error: 'iaRetomadaTentativas deve ser um número inteiro entre 1 e 3' });
+    }
+    if (iaRetomadaAtiva && iaRetomadaIntervaloHoras !== undefined && (!Number.isInteger(iaRetomadaIntervaloHoras) || iaRetomadaIntervaloHoras < 1 || iaRetomadaIntervaloHoras > 3)) {
+      return reply.code(400).send({ error: 'iaRetomadaIntervaloHoras deve ser um número inteiro entre 1 e 3' });
     }
     if (diasFuncionamento && (!Array.isArray(diasFuncionamento) || diasFuncionamento.some((d) => d < 0 || d > 6))) {
       return reply.code(400).send({ error: 'diasFuncionamento deve ser uma lista de números de 0 a 6' });
@@ -224,6 +240,10 @@ function registerConfiguracaoRoutes(fastify, pool) {
            cliente_novo_dias = COALESCE($10, cliente_novo_dias),
            formas_pagamento = COALESCE($11, formas_pagamento),
            notificacoes_ativas = COALESCE($12, notificacoes_ativas),
+           ia_janela_encerramento_minutos = COALESCE($13, ia_janela_encerramento_minutos),
+           ia_retomada_ativa = COALESCE($14, ia_retomada_ativa),
+           ia_retomada_tentativas = COALESCE($15, ia_retomada_tentativas),
+           ia_retomada_intervalo_horas = COALESCE($16, ia_retomada_intervalo_horas),
            -- US56 — qualquer salvamento nesta tela conta como "horário
            -- revisado" pro checklist de onboarding, mesmo que o tenant só
            -- confirme os valores padrão sem alterar nada.
@@ -231,12 +251,14 @@ function registerConfiguracaoRoutes(fastify, pool) {
          WHERE id = $1
          RETURNING dias_funcionamento, formato_hora, horario_abertura, horario_fechamento,
                    horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim, cliente_inativo_dias, cliente_novo_dias,
-                   formas_pagamento, notificacoes_ativas`,
+                   formas_pagamento, notificacoes_ativas,
+                   ia_janela_encerramento_minutos, ia_retomada_ativa, ia_retomada_tentativas, ia_retomada_intervalo_horas`,
         [
           tenantId, diasFuncionamento ? JSON.stringify(diasFuncionamento) : null, formatoHora, horarioAbertura, horarioFechamento,
           horarioAlmocoAtivo ?? null, horarioAlmocoInicio, horarioAlmocoFim, clienteInativoDias ?? null, clienteNovoDias ?? null,
           formasPagamento ? JSON.stringify(formasPagamento) : null,
           notificacoesAtivas ? JSON.stringify(notificacoesAtivas) : null,
+          iaJanelaEncerramentoMinutos ?? null, iaRetomadaAtiva ?? null, iaRetomadaTentativas ?? null, iaRetomadaIntervaloHoras ?? null,
         ]
       );
       await client.query('COMMIT');

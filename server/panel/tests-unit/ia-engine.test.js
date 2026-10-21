@@ -24,6 +24,15 @@ function carregarFuncaoPrivada(caminhoRelativo, nomeFuncao) {
 const iaEngineMod = carregarFuncaoPrivada('../lib/ia-engine.js', 'executarAcaoIA');
 const executarAcaoIA = iaEngineMod.exports.executarAcaoIA;
 
+// Segunda função privada testada no mesmo module recompilado (mesma técnica
+// acima) — salvarMensagemIA não está em module.exports de propósito (só
+// processarMensagemIA a chama), mas o reset do contador de retomada
+// (lib/worker-retomada-ia.js) é um efeito colateral autocontido, vale testar
+// isolado sem montar todo o fluxo de processarMensagemIA (anthropicService,
+// parser de intent etc.).
+const iaEngineModSalvar = carregarFuncaoPrivada('../lib/ia-engine.js', 'salvarMensagemIA');
+const salvarMensagemIA = iaEngineModSalvar.exports.salvarMensagemIA;
+
 // Fake pool único, compartilhado entre ia-engine e horario-funcionamento
 // (mesmo padrão `init(pool)` dos dois módulos) — casa cada query pelo texto
 // SQL, devolve [] pra tudo que não precisa de dado real (bloqueios, conflito
@@ -123,5 +132,28 @@ describe('executarAcaoIA — informar_nascimento com agendamento pendente (bug r
     assert.equal(insertsAgendamento.length, 0, 'sem agendamento pendente não deveria inserir nada em agendamentos');
     const updatesNascimento = pool.chamadas.filter((c) => /UPDATE clientes SET data_nascimento/.test(c.sql));
     assert.equal(updatesNascimento.length, 1);
+  });
+});
+
+describe('salvarMensagemIA — reset do contador de retomada (pedido do Bruno 2026-10-21)', () => {
+  test('mensagem do cliente (role=user): zera ia_retomada_tentativas/ia_retomada_ultima_em', async () => {
+    const pool = fakePool();
+    iaEngineModSalvar.exports.init(pool, fastifyFake);
+
+    await salvarMensagemIA('tenant-1', 'cliente-1', 'user', 'oi, ainda quero o horário');
+
+    const updatesRetomada = pool.chamadas.filter((c) => /UPDATE clientes SET ia_retomada_tentativas = 0/.test(c.sql));
+    assert.equal(updatesRetomada.length, 1, 'deveria zerar o contador de retomada ao salvar mensagem do cliente');
+    assert.deepEqual(updatesRetomada[0].params, ['cliente-1']);
+  });
+
+  test('mensagem da IA (role=assistant): NÃO mexe no contador de retomada', async () => {
+    const pool = fakePool();
+    iaEngineModSalvar.exports.init(pool, fastifyFake);
+
+    await salvarMensagemIA('tenant-1', 'cliente-1', 'assistant', JSON.stringify({ intent: 'unknown', params: {}, resposta: 'oi!' }));
+
+    const updatesRetomada = pool.chamadas.filter((c) => /UPDATE clientes SET ia_retomada_tentativas = 0/.test(c.sql));
+    assert.equal(updatesRetomada.length, 0, 'nudge/resposta da IA não deve zerar o próprio contador que acabou de incrementar');
   });
 });

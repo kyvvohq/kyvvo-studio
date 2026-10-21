@@ -111,6 +111,7 @@ const { registerMensagensRoutes } = require('./routes/mensagens');
 const disponibilidadeLib = require('./lib/disponibilidade');
 const iaEngineLib = require('./lib/ia-engine');
 const { iniciarWorkerHandoff } = require('./lib/worker-handoff');
+const { iniciarWorkerRetomadaIA } = require('./lib/worker-retomada-ia');
 const { registerWebhookWhatsappRoutes } = require('./routes/webhook-whatsapp');
 const { openapiConfig, transform: swaggerTransform } = require('./lib/swagger-config');
 const { contarHorariosLivresNoDia, contarHorariosLivresPorProfissionalNoDia } = disponibilidadeLib;
@@ -726,6 +727,9 @@ async function start() {
   // Retorno automático de handoff — devolve ao atendimento por IA as conversas
   // que ficaram em 'aguardando_humano' além do limite sem o salão retomar.
   iniciarWorkerHandoff(pool, configSistema, fastify.log);
+  // Retomada de atendimento da IA (Configurações > Preferências) — ver
+  // lib/worker-retomada-ia.js.
+  iniciarWorkerRetomadaIA(pool, fastify.log);
   iniciarWorkerAutomacoes();
   iniciarRecargaPlanos();
 }

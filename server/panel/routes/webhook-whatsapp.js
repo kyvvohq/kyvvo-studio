@@ -43,7 +43,8 @@ function registerWebhookWhatsappRoutes(fastify, pool) {
   const TENANT_CAMPOS_WEBHOOK = `id, nome, telefone, meta_phone_number_id, tecnologia,
                 dias_funcionamento, horario_abertura, horario_fechamento,
                 horario_almoco_ativo, horario_almoco_inicio, horario_almoco_fim,
-                onboarding_horario_revisado, feriados_bloqueados`;
+                onboarding_horario_revisado, feriados_bloqueados,
+                ia_janela_encerramento_minutos`;
 
   // US68.2 — handshake de verificação do webhook da Meta (App Dashboard →
   // WhatsApp → Configuração → Webhook, chamado uma vez ao salvar a URL e
