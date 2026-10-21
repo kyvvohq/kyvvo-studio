@@ -255,30 +255,78 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 #menu-modulos-anchor { display: none; }
 
 @media (max-width: 860px) {
-  .painel-shell { flex-direction: column; padding: var(--space-3); gap: var(--space-3); }
-  .ds-menu {
+  /* Mobile: o shell vira coluna. `align-items: stretch` é o que impede o
+     .painel-main de encolher pro tamanho do conteúdo (com flex-start ele
+     crescia até a largura da tabela/grade mais larga e a página inteira
+     "zoomava pra fora" no celular); o que for mais largo que a tela rola
+     dentro do próprio wrapper (.tabela-wrapper, .quadro-grade, ...). */
+  .painel-shell { flex-direction: column; align-items: stretch; padding: var(--space-3); gap: var(--space-3); }
+  .painel-main { width: 100%; max-width: 100%; }
+
+  /* Menu vira uma barra de abas rolável no topo. O estado "recolhido" da
+     sidebar (só ícones, salvo em localStorage no desktop) não faz sentido
+     aqui — a barra sempre mostra ícone + rótulo, e o botão de recolher some. */
+  .ds-menu,
+  .ds-menu.ds-menu-recolhido {
     width: 100%;
+    margin: 0;
+    padding: var(--space-1);
     flex-direction: row;
     align-items: center;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding: var(--space-2) var(--space-3);
-    overflow-x: auto;
+    border-right: 1px solid var(--border);
   }
-  .ds-menu-lista { flex-direction: row; gap: 4px; }
-  .ds-menu-grupo { position: relative; }
-  .ds-menu-sub {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    z-index: 5;
-    margin-top: 4px;
+  .ds-menu-toggle { display: none; }
+  .ds-menu-lista {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ds-menu-lista::-webkit-scrollbar { display: none; }
+  .ds-menu-lista > li { flex: none; scroll-snap-align: center; }
+  .ds-menu .ds-menu-link,
+  .ds-menu.ds-menu-recolhido .ds-menu-link { width: auto; height: 44px; padding: 0 var(--space-3); justify-content: flex-start; white-space: nowrap; }
+  .ds-menu.ds-menu-recolhido .ds-menu-rotulo { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+  .ds-menu.ds-menu-recolhido .ds-menu-seta { display: inline-flex; }
+  .ds-menu-grupo { position: static; }
+
+  /* Submenu (Configurações): o menu rola na horizontal, e um filho
+     position:absolute ficaria cortado pelo overflow. Vira uma folha fixa no
+     rodapé da tela, com alvos de toque maiores; o fundo escurecido é um
+     pseudo-elemento do próprio botão do grupo, então tocar fora fecha. */
+  .ds-menu.ds-menu-recolhido .ds-menu-grupo-botao + .ds-menu-sub { display: none; }
+  .ds-menu.ds-menu-recolhido .ds-menu-grupo-botao[aria-expanded="true"] + .ds-menu-sub,
+  .ds-menu-grupo-botao[aria-expanded="true"] + .ds-menu-sub {
+    display: flex;
+    position: fixed;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    top: auto;
+    z-index: 91;
+    margin: 0;
     padding: var(--space-2);
+    max-height: 70vh;
+    overflow-y: auto;
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 -8px 32px rgba(var(--shadow-rgb), 0.18);
   }
+  .ds-menu-grupo-botao[aria-expanded="true"]::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .ds-menu-sub .ds-menu-sublink { padding: 12px var(--space-4); font-size: 15px; }
 }
 
 .subtabs {
@@ -407,6 +455,14 @@ input:disabled, select:disabled { opacity: 0.5; cursor: not-allowed; }
 .inicio-paginacao .btn-secundario { width: auto; margin: 0; }
 .inicio-paginacao .btn-secundario:disabled { opacity: 0.4; cursor: default; }
 .inicio-paginacao select { width: auto; margin: 0; }
+@media (max-width: 640px) {
+  /* Seletor de tamanho numa linha própria; Anterior/contagem/Próximo abaixo,
+     sem estourar a largura (antes o select + 2 botões + "1 de 1" não cabiam). */
+  .inicio-paginacao { flex-wrap: wrap; gap: 10px; }
+  .inicio-paginacao select { flex: 1 1 100%; }
+  .inicio-paginacao .btn-secundario { flex: 1 1 0; white-space: nowrap; }
+  .inicio-paginacao span { white-space: nowrap; }
+}
 
 .inicio-oportunidade-item {
   background: var(--card);
@@ -3465,3 +3521,182 @@ button.loading::after {
 .automacoes-pagina .ds-select select { margin: 0; width: 100%; }
 .automacoes-pagina .ds-aba { width: auto; margin-top: 0; }
 .sr-only-automacoes { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+
+/* Tabelas do painel (.tabela-tenants: Clientes, Serviços, Profissionais,
+   Bloqueios, Equipe, Notificações) no celular: cada linha vira um cartão em
+   vez de uma tabela com scroll lateral que esconde colunas. Os rótulos vêm do
+   <thead> (data-label nos <td>, preenchidos por rotularTabelas() no app.js);
+   a primeira coluna com texto é o título do cartão. */
+@media (max-width: 640px) {
+  .tabela-wrapper { overflow-x: visible; }
+  .tabela-wrapper .tabela-tenants,
+  .tabela-wrapper .tabela-tenants tbody { display: block; width: 100%; white-space: normal; }
+  .tabela-wrapper .tabela-tenants thead { display: none; }
+  .tabela-wrapper .tabela-tenants tr {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 8px 12px;
+    margin-bottom: 10px;
+    padding: 12px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .tabela-wrapper .tabela-tenants td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .tabela-wrapper .tabela-tenants td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-strong);
+  }
+  .tabela-wrapper .tabela-tenants td[data-primario] {
+    grid-column: 1 / -1;
+    padding-right: 84px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .tabela-wrapper .tabela-tenants td[data-primario]::before { display: none; }
+  .tabela-wrapper .tabela-tenants td[data-sem-rotulo] { grid-column: 1 / -1; }
+  /* Seleção e menu ⋯ ficam no canto do cartão. */
+  .tabela-wrapper .tabela-tenants td[data-sem-rotulo]:has(.ds-acoes),
+  .tabela-wrapper .tabela-tenants td[data-sem-rotulo]:has(input[type="checkbox"]) {
+    position: absolute;
+    top: 8px;
+    grid-column: auto;
+  }
+  .tabela-wrapper .tabela-tenants td[data-sem-rotulo]:has(.ds-acoes) { right: 8px; }
+  .tabela-wrapper .tabela-tenants td[data-sem-rotulo]:has(input[type="checkbox"]) { right: 52px; top: 14px; }
+  .tabela-wrapper .tabela-tenants td[data-sem-rotulo]:empty { display: none; }
+  .tabela-wrapper .tabela-tenants td .ds-acoes-btn { min-width: 40px; height: 40px; }
+  .tabela-wrapper .tabela-tenants td[colspan] { grid-column: 1 / -1; }
+  .tabela-wrapper .tabela-tenants td[colspan]::before { display: none; }
+}
+
+/* Celular: espaçamento e abas */
+@media (max-width: 640px) {
+  .conteudo { padding: 16px 4px; }
+  /* Abas (Cadastro, Agenda Dia/Semana/Mês...) numa linha só, com rolagem
+     lateral, em vez de quebrar em duas linhas desalinhadas. */
+  .subtabs { flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 0; scrollbar-width: none; }
+  .subtabs::-webkit-scrollbar { display: none; }
+  .subtabs > * { flex: none; white-space: nowrap; }
+  .tab { padding: 10px 14px; }
+  .inicio-cards + .tabela-wrapper { margin-top: 12px; }
+  .tabela-wrapper .tabela-tenants td .badge { margin-left: 0; }
+}
+
+/* Semana da Agenda no celular: a régua de horas e o canto ficam fixos
+   enquanto os dias rolam na horizontal (o app.js centraliza o dia de hoje). */
+@media (max-width: 860px) {
+  .agenda-semana { position: relative; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+  .agenda-semana .agenda-rail,
+  .agenda-semana .agenda-semana-canto { position: sticky; left: 0; z-index: 5; }
+}
+
+/* Blocos de agendamento da Agenda Dia e do Quadro no celular: o card cheio
+   (avatar, hora, cliente, serviço, "60min · R$ · profissional", pílula de
+   status, ⋮) não cabe num bloco de 60px de altura / meia coluna e vazava pra
+   fora do bloco. Aqui fica o essencial — hora + cliente, serviço embaixo, ⋮ no
+   canto; duração/preço/profissional e a pílula de status saem (o status segue
+   visível pela cor do bloco, e o detalhe completo está no menu ⋮). */
+@media (max-width: 640px) {
+  .agenda-bloco .agenda-card-h-linha,
+  .agenda-bloco .agenda-card-c-linha {
+    position: relative;
+    flex-wrap: wrap;
+    align-content: center;
+    column-gap: 6px;
+    row-gap: 0;
+    padding-right: 30px;
+    overflow: hidden;
+  }
+  .agenda-bloco .agenda-card-h-linha .grade-ag-avatar,
+  .agenda-bloco .agenda-card-h-linha .agenda-card-meta,
+  .agenda-bloco .agenda-card-h-linha .badge { display: none; }
+  .agenda-bloco .agenda-card-h-linha .agenda-card-hora { flex: none; font-size: 12px; }
+  .agenda-bloco .agenda-card-h-linha .agenda-card-cliente {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+  .agenda-bloco .agenda-card-h-linha .agenda-card-servico {
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+  .agenda-bloco .agenda-card-h-linha .btn-acoes {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+  }
+  .agenda-bloco .agenda-card-c-txt { min-width: 0; }
+  .agenda-bloco .agenda-card-c-txt > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+/* Quadro no celular: colunas mais largas (a grade rola na horizontal, com a
+   régua de horas fixa) e navegação do dia compacta. */
+@media (max-width: 860px) {
+  .quadro-grade { grid-template-columns: 52px !important; grid-auto-columns: minmax(210px, 1fr); }
+  .quadro-grade > .semana-grade-canto,
+  .quadro-grade > .semana-grade-hora { position: sticky; left: 0; z-index: 5; }
+}
+@media (max-width: 640px) {
+  .quadro-linha-agora { left: 52px; }
+  .nav-periodo { gap: 8px; }
+  .nav-periodo button { width: auto; margin: 0; padding: 8px 12px; white-space: nowrap; font-size: 13px; }
+  .nav-periodo-data { min-width: 0; }
+}
+
+/* Mesmo enxugamento nos cartões do Quadro (.grade-ag-card) e nos blocos
+   lado a lado da Agenda Dia (.agenda-card-c): sem avatar, uma linha por
+   informação, com reticências, ⋮ no canto. */
+@media (max-width: 640px) {
+  .agenda-bloco .grade-ag-card { overflow: hidden; }
+  .agenda-bloco .grade-ag-linha-principal { position: relative; padding-right: 30px; gap: 0; }
+  .agenda-bloco .grade-ag-linha-principal .grade-ag-avatar,
+  .agenda-bloco .agenda-card-c-linha .grade-ag-avatar,
+  .agenda-bloco .grade-ag-meta .badge { display: none; }
+  .agenda-bloco .grade-ag-textos { min-width: 0; flex: 1 1 auto; }
+  .agenda-bloco .grade-ag-textos > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agenda-bloco .grade-ag-linha-principal .btn-acoes {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+  }
+  .agenda-bloco .agenda-card-c-txt { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; }
+  .agenda-bloco .agenda-card-c-txt .agenda-card-hora { flex: none; font-size: 12px; }
+  .agenda-bloco .agenda-card-c-txt .agenda-card-cliente { flex: 1 1 0; min-width: 0; font-size: 14px; }
+  .agenda-bloco .agenda-card-c-txt .agenda-card-servico { flex: 1 1 100%; font-size: 12px; }
+  .agenda-bloco .agenda-card-c-linha { padding-right: 4px; align-items: center; }
+}

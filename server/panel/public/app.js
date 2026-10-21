@@ -397,8 +397,16 @@ function selecionarMenu(novoMenu, { atualizarUrl = true, dataAlvo = null } = {})
     // Navegação direta por URL (ex.: carregar /bloqueios) pula o clique no
     // cabeçalho do grupo que normalmente abre o submenu — sem isso, o item
     // ficava "active" escondido dentro de um submenu ainda fechado.
-    if (dentroDoGrupo) toggle.setAttribute('aria-expanded', 'true');
+    // No celular o submenu é uma folha por cima da tela: abrir sozinho
+    // cobriria a página que acabou de abrir, então ali ele fica fechado.
+    if (dentroDoGrupo) toggle.setAttribute('aria-expanded', MENU_MOBILE.matches ? 'false' : 'true');
+    else if (MENU_MOBILE.matches) toggle.setAttribute('aria-expanded', 'false');
   });
+  // Barra de menu rolável (celular): mantém o item ativo visível.
+  const ativoNaBarra = menuEl.querySelector('.ds-menu-link-ativo') || menuEl.querySelector('.ds-menu-grupo-botao.tem-filho-ativo');
+  if (MENU_MOBILE.matches && ativoNaBarra && ativoNaBarra.scrollIntoView) {
+    ativoNaBarra.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
   menuAtual = novoMenu;
   subtabsEl.style.display = menuAtual === 'agendamento' ? 'flex' : 'none';
   subtabsCadastroEl.style.display = menuAtual === 'cadastro' ? 'flex' : 'none';
@@ -442,6 +450,42 @@ document.addEventListener('kyvvo:abrir-novo-agendamento', (e) => abrirModalNovoA
 // de confirmar a ação. Em vez disso, o módulo dispara este evento e quem
 // decide o que re-renderizar é o dispatcher genérico, que só existe aqui.
 document.addEventListener('kyvvo:atualizar', () => render());
+
+const MENU_MOBILE = window.matchMedia('(max-width: 860px)');
+
+// Tabelas viram cartões no celular (ver style.css, "Tabelas do painel"): copia
+// o texto do <thead> pra data-label de cada <td>, marca a primeira coluna com
+// texto como título do cartão e as sem cabeçalho (seleção, ⋯) como "sem rótulo".
+function rotularTabelas(raiz) {
+  raiz.querySelectorAll('table.tabela-tenants:not([data-rotulada])').forEach((tabela) => {
+    const cabecalhos = Array.from(tabela.querySelectorAll('thead th')).map((th) => th.textContent.trim());
+    if (!cabecalhos.length) return;
+    const primario = cabecalhos.findIndex((t) => t);
+    tabela.querySelectorAll('tbody tr').forEach((tr) => {
+      Array.from(tr.children).forEach((td, i) => {
+        if (td.hasAttribute('colspan')) return;
+        const rotulo = cabecalhos[i] || '';
+        if (!rotulo) td.setAttribute('data-sem-rotulo', '');
+        else if (i === primario) td.setAttribute('data-primario', '');
+        else td.setAttribute('data-label', rotulo);
+      });
+    });
+    tabela.setAttribute('data-rotulada', '');
+  });
+}
+// Semana da Agenda no celular: leva o dia de hoje pro campo de visão (a grade
+// rola na horizontal e hoje costuma ficar fora da tela).
+function centrarSemanaNoCelular(raiz) {
+  if (!MENU_MOBILE.matches) return;
+  raiz.querySelectorAll('.agenda-semana').forEach((grade) => {
+    const hoje = grade.querySelector('.agenda-semana-cab-hoje');
+    const chave = hoje ? hoje.textContent.replace(/\s+/g, ' ').trim() : '';
+    if (!hoje || grade.dataset.centrada === chave) return;
+    grade.dataset.centrada = chave;
+    grade.scrollLeft = Math.max(0, hoje.offsetLeft - 56 - 8);
+  });
+}
+new MutationObserver(() => { rotularTabelas(conteudo); centrarSemanaNoCelular(conteudo); }).observe(conteudo, { childList: true, subtree: true });
 
 function ativarMenuItem(item) {
   selecionarMenu(item.dataset.menu);
