@@ -21,7 +21,8 @@
     "@sentry/node": "^10.69.0",
     "bcryptjs": "^2.4.3",
     "fastify": "^4.28.1",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1"

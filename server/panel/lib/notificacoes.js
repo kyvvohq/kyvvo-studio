@@ -16,6 +16,7 @@
 //   listado dali pro canal Studio.
 const planosCatalogo = require('./planos');
 const { enviarEmail } = require('./email');
+const { enviarPush } = require('./push');
 
 const LIMIAR_DISPAROS_PADRAO = 10;
 
@@ -74,19 +75,21 @@ const TIPOS_NOTIFICACAO = [
   { chave: 'agenda_remarcada', titulo: 'Agendamento remarcado', eventoUnico: true },
 ];
 
-// Formato novo: {"canais": {"studio","email","whatsapp"}, ...}. Formato
-// antigo (tenants que nunca abriram a tela redesenhada): {"ativo": bool},
-// sem canal explícito — tratado como "só Studio", que é o que sempre existiu
-// até aqui (nunca houve envio real de e-mail/WhatsApp pra estes avisos).
+// Formato novo: {"canais": {"studio","email","whatsapp","push"}, ...}.
+// Formato antigo (tenants que nunca abriram a tela redesenhada): {"ativo":
+// bool}, sem canal explícito — tratado como "só Studio", que é o que sempre
+// existiu até aqui (nunca houve envio real de e-mail/WhatsApp/push pra estes
+// avisos).
 function canaisAtivos(cfg) {
   if (cfg && cfg.canais && typeof cfg.canais === 'object' && !Array.isArray(cfg.canais)) {
     return {
       studio: cfg.canais.studio !== false,
       email: !!cfg.canais.email,
       whatsapp: !!cfg.canais.whatsapp,
+      push: !!cfg.canais.push,
     };
   }
-  return { studio: cfg ? cfg.ativo !== false : true, email: false, whatsapp: false };
+  return { studio: cfg ? cfg.ativo !== false : true, email: false, whatsapp: false, push: false };
 }
 
 // --- Envio real (E-mail/WhatsApp), além do Studio (sino in-app) ----------
@@ -185,6 +188,9 @@ async function dispararNotificacaoEvento(pool, tenantId, chave, { titulo, detalh
     }
     if (canais.whatsapp) {
       enviarWhatsappNotificacao(tenant.whatsapp, detalhe ? `${titulo}\n${detalhe}` : titulo).catch(() => {});
+    }
+    if (canais.push) {
+      enviarPush(pool, tenantId, { titulo, corpo: detalhe || titulo }).catch(() => {});
     }
   } catch (err) {
     console.error(`[notificacoes] Falha ao disparar evento "${chave}" pro tenant ${tenantId}: ${err.message}`);

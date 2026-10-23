@@ -86,6 +86,7 @@ const { registerAutomacoesRoutes } = require('./routes/automacoes');
 const automacoes = require('./lib/automacoes');
 const { registerConfiguracaoRoutes } = require('./routes/configuracao');
 const { registerNotificacoesRoutes } = require('./routes/notificacoes');
+const { registerPushRoutes } = require('./routes/push');
 // Fase 9 da modularização — montarResumoPagamentos não é mais usada direto
 // em index.js (só pelas rotas admin, já extraídas).
 const { registerAdminAuthRoutes } = require('./routes/admin-auth');
@@ -534,6 +535,9 @@ async function start() {
 
   // Serviço de notificações — balão do topo (GET /api/notificacoes).
   registerNotificacoesRoutes(fastify, pool);
+
+  // Push no navegador — canal "Push" de Configurações > Notificações.
+  registerPushRoutes(fastify, pool);
 
 
   // Financeiro — extraído pra routes/financeiro.js (fase 5 da modularização):
