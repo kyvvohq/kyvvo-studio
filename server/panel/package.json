@@ -18,7 +18,7 @@
     "@kyvvohq/disparos": "^1.1.0",
     "@kyvvohq/platform-client": "^1.0.0",
     "@kyvvohq/whatsapp": "^1.1.0",
-    "@sentry/node": "^10.69.0",
+    "@sentry/node": "^10.75.0",
     "bcryptjs": "^2.4.3",
     "fastify": "^4.28.1",
     "pg": "^8.11.3",
