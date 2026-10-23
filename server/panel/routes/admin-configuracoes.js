@@ -125,14 +125,25 @@ function registerAdminConfiguracoesRoutes(fastify, pool) {
         return reply.code(404).send({ error: 'Plano não encontrado' });
       }
 
+      // `badge` e `limite_disparos` aceitam null como valor explícito (US72 —
+      // "remover selo"/"sem limite"), então COALESCE($n, coluna) não serve
+      // pra eles: um PATCH mandando null pra limpar o campo cairia no
+      // COALESCE e manteria o valor antigo, deixando o admin sem conseguir
+      // remover um badge já salvo. Só `undefined` (campo ausente do body)
+      // significa "não alterar" — nesse caso caímos pro valor anterior aqui
+      // em JS, e o resto dos campos (que nunca precisam de null explícito)
+      // continua com COALESCE normalmente.
+      const badgeFinal = badge === undefined ? anterior.badge : badge;
+      const limiteDisparosFinal = limiteDisparos === undefined ? anterior.limite_disparos : limiteDisparos;
+
       const { rows: atualizadoRows } = await client.query(
         `UPDATE planos SET
            nome = COALESCE($2, nome),
            descricao = COALESCE($3, descricao),
            preco_mensal = COALESCE($4, preco_mensal),
-           limite_disparos = COALESCE($5, limite_disparos),
+           limite_disparos = $5,
            destaque = COALESCE($6, destaque),
-           badge = COALESCE($7, badge),
+           badge = $7,
            headline_diferencial = COALESCE($8, headline_diferencial),
            frase_beneficio = COALESCE($9, frase_beneficio),
            ativo = COALESCE($10, ativo),
@@ -141,7 +152,7 @@ function registerAdminConfiguracoesRoutes(fastify, pool) {
          WHERE chave = $1
          RETURNING chave, slug, nome, descricao, tecnologia, tipo_numero, preco_mensal,
                    limite_disparos, destaque, badge, headline_diferencial, frase_beneficio, ativo, atualizado_em`,
-        [chave, nome ? nome.trim() : null, descricao, precoMensal, limiteDisparos, destaque, badge, headlineDiferencial, fraseBeneficio, ativo, request.admin.adminId]
+        [chave, nome ? nome.trim() : null, descricao, precoMensal, limiteDisparosFinal, destaque, badgeFinal, headlineDiferencial, fraseBeneficio, ativo, request.admin.adminId]
       );
       const novo = atualizadoRows[0];
 
