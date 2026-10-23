@@ -33,14 +33,76 @@ function notificacaoConfigAtual(chave) {
 }
 
 // Espelha lib/notificacoes.js#canaisAtivos no backend — formato novo
-// ({canais:{studio,email,whatsapp}}) e formato antigo ({ativo: bool}, de
+// ({canais:{studio,email,whatsapp,push}}) e formato antigo ({ativo: bool}, de
 // antes desta tela existir, tratado como "só Studio", que é o que sempre foi
 // até aqui) precisam ler igual dos dois lados.
 function canaisAtivosNotificacao(cfg) {
   if (cfg && cfg.canais && typeof cfg.canais === 'object') {
-    return { studio: cfg.canais.studio !== false, email: !!cfg.canais.email, whatsapp: !!cfg.canais.whatsapp };
+    return { studio: cfg.canais.studio !== false, email: !!cfg.canais.email, whatsapp: !!cfg.canais.whatsapp, push: !!cfg.canais.push };
   }
-  return { studio: cfg ? cfg.ativo !== false : true, email: false, whatsapp: false };
+  return { studio: cfg ? cfg.ativo !== false : true, email: false, whatsapp: false, push: false };
+}
+
+// --- Canal "Push" (navegador) ---------------------------------------------
+// Diferente dos outros 3 canais, "Push" só funciona depois que o navegador
+// autoriza E manda uma assinatura real pro backend (routes/push.js) — o
+// toggle por tipo de evento (abaixo) só decide o QUE notificar, não o COMO:
+// sem o navegador assinado, dispararPush (lib/notificacoes.js) não acha
+// nenhuma linha em push_subscriptions e não manda nada, silenciosamente.
+function urlBase64ParaUint8Array(base64) {
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const base64Normalizado = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const bruto = window.atob(base64Normalizado);
+  return Uint8Array.from([...bruto].map((c) => c.charCodeAt(0)));
+}
+
+async function assinaturaPushAtual() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const registration = await navigator.serviceWorker.getRegistration('/push-sw.js');
+  if (!registration) return null;
+  return registration.pushManager.getSubscription();
+}
+
+async function ativarPushNavegador() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    mostrarToast('Este navegador não suporta notificações push.', 'erro');
+    return false;
+  }
+  const permissao = await Notification.requestPermission();
+  if (permissao !== 'granted') {
+    mostrarToast('Permissão de notificação negada no navegador.', 'erro');
+    return false;
+  }
+  try {
+    const { publicKey } = await api('/api/push/vapid-public-key');
+    if (!publicKey) {
+      mostrarToast('Push ainda não configurado no servidor.', 'erro');
+      return false;
+    }
+    const registration = await navigator.serviceWorker.register('/push-sw.js');
+    await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ParaUint8Array(publicKey),
+    });
+    const resultado = await api('/api/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({
+        endpoint: subscription.endpoint,
+        keys: { p256dh: subscription.toJSON().keys.p256dh, auth: subscription.toJSON().keys.auth },
+      }),
+    });
+    if (!resultado || resultado.error) {
+      mostrarToast((resultado && resultado.error) || 'Erro ao ativar push.', 'erro');
+      return false;
+    }
+    mostrarToast('Notificações push ativadas neste navegador.', 'sucesso');
+    return true;
+  } catch (err) {
+    mostrarToast('Erro ao ativar push neste navegador.', 'erro');
+    console.error('[push] falha ao assinar:', err);
+    return false;
+  }
 }
 
 function renderNotificacaoLinha(tipo) {
@@ -67,6 +129,7 @@ function renderNotificacaoLinha(tipo) {
       <td>${toggleCanal('email')}</td>
       <td>${toggleCanal('whatsapp')}</td>
       <td>${toggleCanal('studio')}</td>
+      <td>${toggleCanal('push')}</td>
     </tr>
   `;
 }
@@ -102,6 +165,10 @@ export async function renderNotificacoes() {
   const historico = (historicoResp && historicoResp.historico) || [];
 
   const regrasHtml = `
+    <div class="notificacao-push-banner" id="notificacao-push-banner" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button type="button" class="btn-secundario btn-pequeno" id="btn-ativar-push">Ativar notificações push neste navegador</button>
+      <span id="notificacao-push-status" style="font-size:13px;color:var(--muted-strong)"></span>
+    </div>
     <div class="tabela-wrapper">
       <table class="tabela-tenants tabela-crud-compacta">
         <thead>
@@ -110,6 +177,7 @@ export async function renderNotificacoes() {
             <th>E-mail</th>
             <th>WhatsApp</th>
             <th>Studio</th>
+            <th>Push</th>
           </tr>
         </thead>
         <tbody>
@@ -149,7 +217,7 @@ export async function renderNotificacoes() {
   // Cada mudança (canal ou número) manda o objeto INTEIRO daquela chave já
   // mesclado — mesmo padrão de formas_pagamento (PATCH substitui o objeto
   // completo, não mescla parcial no backend). `canais` sempre vai completo
-  // (os 3 booleanos), nunca só o que mudou — e sem `ativo` sobrando do
+  // (os 4 booleanos), nunca só o que mudou — e sem `ativo` sobrando do
   // formato antigo, migrando pro formato novo na primeira mudança.
   async function salvar(chave, novoCfgParcial) {
     const cfgAtual = notificacaoConfigAtual(chave);
@@ -165,6 +233,24 @@ export async function renderNotificacoes() {
     mostrarToast((resultado && resultado.error) || 'Erro ao salvar.', 'erro');
     return false;
   }
+
+  const statusPushEl = document.getElementById('notificacao-push-status');
+  const btnAtivarPush = document.getElementById('btn-ativar-push');
+  assinaturaPushAtual().then((assinatura) => {
+    if (assinatura) {
+      statusPushEl.textContent = 'Push já ativado neste navegador.';
+      btnAtivarPush.textContent = 'Reativar notificações push';
+    }
+  });
+  btnAtivarPush.addEventListener('click', async () => {
+    btnAtivarPush.disabled = true;
+    const ok = await ativarPushNavegador();
+    btnAtivarPush.disabled = false;
+    if (ok) {
+      statusPushEl.textContent = 'Push já ativado neste navegador.';
+      btnAtivarPush.textContent = 'Reativar notificações push';
+    }
+  });
 
   conteudo.querySelectorAll('.notificacao-canal').forEach((chk) => {
     chk.addEventListener('change', async () => {

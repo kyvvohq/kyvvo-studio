@@ -142,15 +142,18 @@ describe('listarNotificacoesPendentes — disparos_acabando', () => {
 
 describe('canaisAtivos', () => {
   test('formato novo ({canais}) respeita cada canal individualmente', () => {
-    assert.deepEqual(canaisAtivos({ canais: { studio: true, email: true, whatsapp: false } }), { studio: true, email: true, whatsapp: false });
+    assert.deepEqual(
+      canaisAtivos({ canais: { studio: true, email: true, whatsapp: false, push: true } }),
+      { studio: true, email: true, whatsapp: false, push: true }
+    );
   });
-  test('formato antigo ({ativo}) vira só Studio (nunca e-mail/WhatsApp)', () => {
-    assert.deepEqual(canaisAtivos({ ativo: true }), { studio: true, email: false, whatsapp: false });
-    assert.deepEqual(canaisAtivos({ ativo: false }), { studio: false, email: false, whatsapp: false });
+  test('formato antigo ({ativo}) vira só Studio (nunca e-mail/WhatsApp/push)', () => {
+    assert.deepEqual(canaisAtivos({ ativo: true }), { studio: true, email: false, whatsapp: false, push: false });
+    assert.deepEqual(canaisAtivos({ ativo: false }), { studio: false, email: false, whatsapp: false, push: false });
   });
   test('config ausente/vazia conta como Studio ativo por padrão', () => {
-    assert.deepEqual(canaisAtivos(undefined), { studio: true, email: false, whatsapp: false });
-    assert.deepEqual(canaisAtivos({}), { studio: true, email: false, whatsapp: false });
+    assert.deepEqual(canaisAtivos(undefined), { studio: true, email: false, whatsapp: false, push: false });
+    assert.deepEqual(canaisAtivos({}), { studio: true, email: false, whatsapp: false, push: false });
   });
 });
 
@@ -310,6 +313,20 @@ describe('dispararNotificacaoEvento', () => {
     const pool = fakePoolTenant({ notificacoesAtivas: {} });
     await dispararNotificacaoEvento(pool, 't1', 'agenda_criada', { titulo: 'Novo agendamento' });
     assert.ok(pool.chamadas.some((c) => /INSERT INTO notificacoes_eventos/.test(c.sql)));
+  });
+
+  test('canal Push ativo (sem Studio) não grava evento e não lança, mesmo sem VAPID configurado (modo dev)', async () => {
+    const pool = fakePoolTenant({ notificacoesAtivas: { agenda_criada: { canais: { studio: false, push: true } } } });
+    await assert.doesNotReject(
+      dispararNotificacaoEvento(pool, 't1', 'agenda_criada', { titulo: 'Novo agendamento' })
+    );
+    assert.ok(!pool.chamadas.some((c) => /INSERT INTO notificacoes_eventos/.test(c.sql)));
+  });
+
+  test('canal Push desligado não consulta push_subscriptions', async () => {
+    const pool = fakePoolTenant({ notificacoesAtivas: { agenda_criada: { canais: { studio: true, push: false } } } });
+    await dispararNotificacaoEvento(pool, 't1', 'agenda_criada', { titulo: 'Novo agendamento' });
+    assert.ok(!pool.chamadas.some((c) => /FROM push_subscriptions/.test(c.sql)));
   });
 
   test('referenciaDataHora vai pro INSERT; ausente vira null (não undefined)', async () => {

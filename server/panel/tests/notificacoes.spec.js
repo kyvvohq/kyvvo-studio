@@ -1,10 +1,10 @@
 const { test, expect } = require('@playwright/test');
 
 // Cobre o redesenho de Configurações > Notificações: matriz de canais
-// (Descrição/E-mail/WhatsApp/Studio), incluindo os 3 tipos novos orientados
-// a evento (agenda criada/confirmada/remarcada) e o campo numérico de
-// disparos_acabando. As chamadas de API são mockadas via page.route — sem
-// dependência de Postgres real.
+// (Descrição/E-mail/WhatsApp/Studio/Push), incluindo os 3 tipos novos
+// orientados a evento (agenda criada/confirmada/remarcada) e o campo
+// numérico de disparos_acabando. As chamadas de API são mockadas via
+// page.route — sem dependência de Postgres real.
 
 async function entrarNaTelaNotificacoes(page, notificacoesAtivas = {}, historico = []) {
   await page.route('**/api/configuracao', (route) => {
@@ -27,9 +27,9 @@ async function entrarNaTelaNotificacoes(page, notificacoesAtivas = {}, historico
 }
 
 test.describe('Configurações > Notificações — matriz de canais', () => {
-  test('lista os 5 tipos com as colunas Descrição/E-mail/WhatsApp/Studio', async ({ page }) => {
+  test('lista os 5 tipos com as colunas Descrição/E-mail/WhatsApp/Studio/Push', async ({ page }) => {
     await entrarNaTelaNotificacoes(page);
-    await expect(page.locator('#painel-notificacoes-regras th')).toHaveText(['Descrição', 'E-mail', 'WhatsApp', 'Studio']);
+    await expect(page.locator('#painel-notificacoes-regras th')).toHaveText(['Descrição', 'E-mail', 'WhatsApp', 'Studio', 'Push']);
     const linhas = page.locator('tbody tr');
     await expect(linhas).toHaveCount(5);
     await expect(page.locator('tr[data-chave="whatsapp_aguardando_humano"]')).toBeVisible();
@@ -66,7 +66,7 @@ test.describe('Configurações > Notificações — matriz de canais', () => {
     await page.locator('tr[data-chave="agenda_criada"] [data-canal="email"]').check();
 
     await expect(page.locator('.toast-sucesso')).toHaveText('Salvo com sucesso!');
-    expect(corpoEnviado.notificacoesAtivas.agenda_criada.canais).toEqual({ studio: true, email: true, whatsapp: false });
+    expect(corpoEnviado.notificacoesAtivas.agenda_criada.canais).toEqual({ studio: true, email: true, whatsapp: false, push: false });
   });
 
   test('desligar o canal Studio (única ativação antiga) some com o "ativo" do formato velho', async ({ page }) => {
@@ -81,7 +81,7 @@ test.describe('Configurações > Notificações — matriz de canais', () => {
     await page.locator('tr[data-chave="disparos_acabando"] [data-canal="studio"]').uncheck();
 
     const cfgEnviado = corpoEnviado.notificacoesAtivas.disparos_acabando;
-    expect(cfgEnviado.canais).toEqual({ studio: false, email: false, whatsapp: false });
+    expect(cfgEnviado.canais).toEqual({ studio: false, email: false, whatsapp: false, push: false });
     expect(cfgEnviado).not.toHaveProperty('ativo');
     expect(cfgEnviado.limiar).toBe(10); // outros parâmetros (limiar) são preservados
   });
