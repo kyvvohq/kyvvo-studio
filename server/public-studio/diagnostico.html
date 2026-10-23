@@ -6,7 +6,7 @@
 <title>Diagnóstico do seu negócio — Kyvvo</title>
 <meta name="description" content="Descubra em poucos minutos como a Kyvvo pode organizar a agenda, os clientes e o financeiro do seu negócio de serviços.">
 <meta name="robots" content="index, follow">
-<link rel="canonical" href="https://kyvvo.com.br/diagnostico.html">
+<link rel="canonical" href="https://studio.kyvvo.com.br/diagnostico.html">
 <link rel="icon" type="image/svg+xml" href="/ds/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -147,7 +147,7 @@ html,body{height:100%;overflow-x:hidden}
 <script src="/ds/components.js"></script>
 <script src="/shared.js"></script>
 <script>
-const WHATSAPP_NUMERO = '553484285182';
+const WHATSAPP_NUMERO = '5534936181451';
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -420,10 +420,10 @@ function renderResult() {
   // número pronto da Kyvvo.
   const investimento = parseInt(answers['investimento']) || 1;
   let plano = 'Essencial (R$ 79,90/mês)';
-  let planoDesc = 'Bot de agendamento via WhatsApp com seu próprio número — a cliente escolhe o serviço e o horário por listas e botões.';
+  let planoDesc = 'Atendente no WhatsApp com seu próprio número — a cliente escolhe o serviço e o horário por listas e botões.';
   if (investimento === 2) {
     plano = 'Smart (R$ 149,90/mês)';
-    planoDesc = 'IA conversacional no WhatsApp com seu próprio número — a cliente escreve como fala e o bot resolve.';
+    planoDesc = 'Atendente com IA conversacional no WhatsApp com seu próprio número — a cliente escreve como fala e o atendente resolve.';
   } else if (investimento >= 3) {
     plano = 'Smart Plus (R$ 179,90/mês)';
     planoDesc = 'IA conversacional + número já pronto na API oficial da Meta, sem configuração nenhuma.';
