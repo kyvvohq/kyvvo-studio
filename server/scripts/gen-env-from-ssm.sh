@@ -44,7 +44,12 @@ if bad:
     sys.exit(1)
 with open(dst, "w", encoding="utf-8") as f:
     for p in sorted(params, key=lambda p: p["Name"]):
-        f.write(f'{p["Name"].split("/")[-1]}={p["Value"]}\n')
+        # Docker Compose interpola $VAR/${VAR} dentro de env_file - um valor
+        # com $ literal (ex.: chave Asaas no formato $aact_...) vira string
+        # vazia silenciosamente (achado 2026-10-26, ASAAS_API_KEY_PRODUCTION).
+        # $$ e o jeito do Compose escapar um $ literal.
+        valor = p["Value"].replace("$", "$$")
+        f.write(f'{p["Name"].split("/")[-1]}={valor}\n')
 print(len(params))
 PY
   then
